@@ -23,7 +23,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | Phase | Status | Completion |
 |-------|--------|------------|
 | 1. NEAR Indexer | **COMPLETE** | 100% |
-| 2. Multi-Chain + Exchanges | Not Started | 0% |
+| 2. Multi-Chain + Exchanges | **COMPLETE** | 100% |
 | 3. Transaction Classification | Not Started | 0% |
 | 4. Cost Basis Engine | Not Started | 0% |
 | 5. Verification | Not Started | 0% |
