@@ -100,18 +100,24 @@
   ],
   
   "exchanges": [
-    {"name": "Uphold", "type": "custodial", "needs": "CSV export or API"},
-    {"name": "Bitbuy", "type": "custodial", "needs": "CSV export"},
-    {"name": "Coinbase", "type": "custodial", "needs": "CSV export or API"},
-    {"name": "Argent", "type": "smart_wallet", "chain": "ethereum"},
     {"name": "Crypto.com", "type": "custodial", "needs": "CSV export"},
+    {"name": "Crypto.com App", "type": "custodial", "needs": "CSV export"},
+    {"name": "Wealthsimple Crypto", "type": "custodial", "needs": "CSV export"},
+    {"name": "Uphold", "type": "custodial", "needs": "CSV export"},
     {"name": "Coinsquare", "type": "custodial", "needs": "CSV export"},
-    {"name": "Wealthsimple Crypto", "type": "custodial", "needs": "CSV export"}
+    {"name": "Coinbase", "type": "custodial", "needs": "CSV export"}
   ],
   
+  "fiscal_year": {
+    "start": "01-01",
+    "end": "12-31",
+    "note": "Default Jan-Dec calendar year"
+  },
+  
   "notes": {
-    "lockup": "db59d3239f2939bb7d8a4a578aceaa8c85ee8e3f.lockup.near - NEAR lockup contract, important for vesting",
+    "lockup": "db59d3239f2939bb7d8a4a578aceaa8c85ee8e3f.lockup.near - NEAR Foundation grant lockup. VESTING COMPLETE ~2021 (paid out ~1 year after opening)",
     "validator": "vitalpoint.pool.near - staking rewards need NEAR Lake indexing",
-    "same_evm_address": "0x55b8e2c4AE5951D1A8e77d0E513a6E598Ee0bE86 used on ETH/Polygon/Optimism"
+    "same_evm_address": "0x55b8e2c4AE5951D1A8e77d0E513a6E598Ee0bE86 used on ETH/Polygon/Optimism",
+    "otc": "No OTC trades at the moment"
   }
 }

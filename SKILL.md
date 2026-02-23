@@ -15,6 +15,18 @@ Crypto tax preparation tool for Canadian corporate taxes.
 4. **Expense Categorization** - Bank/credit card CSV processing
 5. **Tax Reports** - Canadian T1135, Schedule 3, T5008 ready output
 
+## Configuration
+
+### Fiscal Year
+- User-configurable fiscal year (stored in account settings)
+- **Default:** January 1 - December 31 (calendar year)
+- Canadian corps can have non-calendar fiscal years
+
+### Output Formats
+1. **Koinly-compatible CSV** - Same format Koinly exports (for re-import/verification)
+2. **Universal CSV** - Standard format for other tax software import
+3. **No OTC support currently** - Standard exchange/on-chain only
+
 ## Quick Reference
 
 ### Wallets File
