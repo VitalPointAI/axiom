@@ -1,0 +1,388 @@
+{
+  "scan_date": "2026-02-23T22:39:39.678430",
+  "total_liquid": 304.53172096327444,
+  "total_staked": 19771.820112760608,
+  "total": 20076.351833723882,
+  "accounts": [
+    {
+      "account": "vitalpointai.near",
+      "liquid": 47.205242769090184,
+      "staked": 19716.72897687042,
+      "total": 19763.934219639512
+    },
+    {
+      "account": "vpointai.cdao.near",
+      "liquid": 63.00334106419603,
+      "staked": 0.0,
+      "total": 63.00334106419603
+    },
+    {
+      "account": "vpacademy.cdao.near",
+      "liquid": 40.78656338446334,
+      "staked": 0.0,
+      "total": 40.78656338446334
+    },
+    {
+      "account": "aaron.near",
+      "liquid": 2.7065821704030792,
+      "staked": 28.288853557508798,
+      "total": 30.995435727911875
+    },
+    {
+      "account": "aaronluhning.near",
+      "liquid": 2.620816441638044,
+      "staked": 26.802282332678583,
+      "total": 29.423098774316628
+    },
+    {
+      "account": "key-recovery.credz.near",
+      "liquid": 23.261294162998045,
+      "staked": 0.0,
+      "total": 23.261294162998045
+    },
+    {
+      "account": "did.near",
+      "liquid": 10.833192308540776,
+      "staked": 0.0,
+      "total": 10.833192308540776
+    },
+    {
+      "account": "theliquidator.near",
+      "liquid": 9.73821692181907,
+      "staked": 0.0,
+      "total": 9.73821692181907
+    },
+    {
+      "account": "challenge-coin-nft.credz.near",
+      "liquid": 9.547590062022413,
+      "staked": 0.0,
+      "total": 9.547590062022413
+    },
+    {
+      "account": "codequity.near",
+      "liquid": 8.572553348846968,
+      "staked": 0.0,
+      "total": 8.572553348846968
+    },
+    {
+      "account": "proof.vitalpointai.near",
+      "liquid": 6.965545421354576,
+      "staked": 0.0,
+      "total": 6.965545421354576
+    },
+    {
+      "account": "vitalpoint-donations.near",
+      "liquid": 5.100975972887724,
+      "staked": 0.0,
+      "total": 5.100975972887724
+    },
+    {
+      "account": "isft.near",
+      "liquid": 5.099357610168483,
+      "staked": 0.0,
+      "total": 5.099357610168483
+    },
+    {
+      "account": "funding.vitalpointai.near",
+      "liquid": 4.999779314833997,
+      "staked": 0.0,
+      "total": 4.999779314833997
+    },
+    {
+      "account": "vitalpointai.sputnikdao.near",
+      "liquid": 4.552219543323027,
+      "staked": 0.0,
+      "total": 4.552219543323027
+    },
+    {
+      "account": "main.isnft.near",
+      "liquid": 4.056861512456553,
+      "staked": 0.0,
+      "total": 4.056861512456553
+    },
+    {
+      "account": "series.isnft.near",
+      "liquid": 3.9973628883357235,
+      "staked": 0.0,
+      "total": 3.9973628883357235
+    },
+    {
+      "account": "para.cdao.near",
+      "liquid": 3.0016420988772112,
+      "staked": 0.0,
+      "total": 3.0016420988772112
+    },
+    {
+      "account": "user-profiles.credz.near",
+      "liquid": 3.000134582634009,
+      "staked": 0.0,
+      "total": 3.000134582634009
+    },
+    {
+      "account": "funding-registry.credz.near",
+      "liquid": 2.9990831202036685,
+      "staked": 0.0,
+      "total": 2.9990831202036685
+    },
+    {
+      "account": "challenge-coin-awards.credz.near",
+      "liquid": 2.998373398306141,
+      "staked": 0.0,
+      "total": 2.998373398306141
+    },
+    {
+      "account": "design-registry.credz.near",
+      "liquid": 2.9970753722476142,
+      "staked": 0.0,
+      "total": 2.9970753722476142
+    },
+    {
+      "account": "challenge-coin-game.credz.near",
+      "liquid": 2.9890153354986175,
+      "staked": 0.0,
+      "total": 2.9890153354986175
+    },
+    {
+      "account": "credz.near",
+      "liquid": 2.5197804063723552,
+      "staked": 0.0,
+      "total": 2.5197804063723552
+    },
+    {
+      "account": "vitalpointa1.cdao.near",
+      "liquid": 2.105795103453484,
+      "staked": 0.0,
+      "total": 2.105795103453484
+    },
+    {
+      "account": "isnft.near",
+      "liquid": 2.095525056168267,
+      "staked": 0.0,
+      "total": 2.095525056168267
+    },
+    {
+      "account": "codequity-components.near",
+      "liquid": 2.0586657325760314,
+      "staked": 0.0,
+      "total": 2.0586657325760314
+    },
+    {
+      "account": "ai-aaron.near",
+      "liquid": 1.9460412517099148,
+      "staked": 0.0,
+      "total": 1.9460412517099148
+    },
+    {
+      "account": "vpacademy.near",
+      "liquid": 1.915918651549744,
+      "staked": 0.0,
+      "total": 1.915918651549744
+    },
+    {
+      "account": "relayer.vitalpointai.near",
+      "liquid": 1.845932788098648,
+      "staked": 0.0,
+      "total": 1.845932788098648
+    },
+    {
+      "account": "cdao.near",
+      "liquid": 1.8390676834875,
+      "staked": 0.0,
+      "total": 1.8390676834875
+    },
+    {
+      "account": "encblobs.vitalpointai.near",
+      "liquid": 1.4956374796010654,
+      "staked": 0.0,
+      "total": 1.4956374796010654
+    },
+    {
+      "account": "vitalpai.cdao.near",
+      "liquid": 1.2534340939649762,
+      "staked": 0.0,
+      "total": 1.2534340939649762
+    },
+    {
+      "account": "vpai1.cdao.near",
+      "liquid": 1.200880316414332,
+      "staked": 0.0,
+      "total": 1.200880316414332
+    },
+    {
+      "account": "vitalpointai.cdao.near",
+      "liquid": 1.135293170568733,
+      "staked": 0.0,
+      "total": 1.135293170568733
+    },
+    {
+      "account": "log.cdao.near",
+      "liquid": 1.1294382753540133,
+      "staked": 0.0,
+      "total": 1.1294382753540133
+    },
+    {
+      "account": "vitalpoint.cdao.near",
+      "liquid": 1.085754124923056,
+      "staked": 0.0,
+      "total": 1.085754124923056
+    },
+    {
+      "account": "para1.cdao.near",
+      "liquid": 1.0704031573506743,
+      "staked": 0.0,
+      "total": 1.0704031573506743
+    },
+    {
+      "account": "vpai.cdao.near",
+      "liquid": 1.0657772148982454,
+      "staked": 0.0,
+      "total": 1.0657772148982454
+    },
+    {
+      "account": "reality.near",
+      "liquid": 1.0558528809647096,
+      "staked": 0.0,
+      "total": 1.0558528809647096
+    },
+    {
+      "account": "vitalpointacademy.cdao.near",
+      "liquid": 1.0528335074410937,
+      "staked": 0.0,
+      "total": 1.0528335074410937
+    },
+    {
+      "account": "vitalpointaiv1.cdao.near",
+      "liquid": 1.051627505771218,
+      "staked": 0.0,
+      "total": 1.051627505771218
+    },
+    {
+      "account": "ac-sandbox.credz.near",
+      "liquid": 0.9999412065149824,
+      "staked": 0.0,
+      "total": 0.9999412065149824
+    },
+    {
+      "account": "claim-coined.credz.near",
+      "liquid": 0.9968601352290222,
+      "staked": 0.0,
+      "total": 0.9968601352290222
+    },
+    {
+      "account": "credz-operations.near",
+      "liquid": 0.9773582035768589,
+      "staked": 0.0,
+      "total": 0.9773582035768589
+    },
+    {
+      "account": "dnd.near",
+      "liquid": 0.3167347336650734,
+      "staked": 0.0,
+      "total": 0.3167347336650734
+    },
+    {
+      "account": "credz-awards.near",
+      "liquid": 0.2025953634875,
+      "staked": 0.0,
+      "total": 0.2025953634875
+    },
+    {
+      "account": "commandoboxing.near",
+      "liquid": 0.099958035075,
+      "staked": 0.0,
+      "total": 0.099958035075
+    },
+    {
+      "account": "bravo-zulu.near",
+      "liquid": 0.099958035075,
+      "staked": 0.0,
+      "total": 0.099958035075
+    },
+    {
+      "account": "registr.near",
+      "liquid": 0.099958035075,
+      "staked": 0.0,
+      "total": 0.099958035075
+    },
+    {
+      "account": "theaaron.near",
+      "liquid": 0.09993904575,
+      "staked": 0.0,
+      "total": 0.09993904575
+    },
+    {
+      "account": "poweredby.near",
+      "liquid": 0.09993904575,
+      "staked": 0.0,
+      "total": 0.09993904575
+    },
+    {
+      "account": "buildon.near",
+      "liquid": 0.09993904575,
+      "staked": 0.0,
+      "total": 0.09993904575
+    },
+    {
+      "account": "aaronl.near",
+      "liquid": 0.09993904575,
+      "staked": 0.0,
+      "total": 0.09993904575
+    },
+    {
+      "account": "coachaaron.near",
+      "liquid": 0.0998550254,
+      "staked": 0.0,
+      "total": 0.0998550254
+    },
+    {
+      "account": "isguild.near",
+      "liquid": 0.0968012961529994,
+      "staked": 0.0,
+      "total": 0.0968012961529994
+    },
+    {
+      "account": "7cf216b858ef85153030501e970cbbc1dbbde7ffcb5f83150b843c5b0f6e7f4a",
+      "liquid": 0.0854164834875,
+      "staked": 0.0,
+      "total": 0.0854164834875
+    },
+    {
+      "account": "vitalpointaivalidator.near",
+      "liquid": 0.0581349515721157,
+      "staked": 0.0,
+      "total": 0.0581349515721157
+    },
+    {
+      "account": "cdnarmy.near",
+      "liquid": 0.019958035075,
+      "staked": 0.0,
+      "total": 0.019958035075
+    },
+    {
+      "account": "catalystdao.near",
+      "liquid": 0.019958035075,
+      "staked": 0.0,
+      "total": 0.019958035075
+    },
+    {
+      "account": "vitalpointai1.near",
+      "liquid": 0.002,
+      "staked": 0.0,
+      "total": 0.002
+    }
+  ],
+  "errors": [
+    {
+      "account": "db59d3239f2939bb7d8a4a578aceaa8c85ee8e3f.lockup.near",
+      "error": "Account does not exist"
+    },
+    {
+      "account": "core.isnft.near",
+      "error": "Account does not exist"
+    },
+    {
+      "account": "v1.cdao.near",
+      "error": "Account does not exist"
+    }
+  ]
+}

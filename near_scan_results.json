@@ -1,0 +1,12 @@
+{
+  "scan_date": "2026-02-23T22:38:29.676702",
+  "accounts_scanned": 1,
+  "total_near_balance": 0.0,
+  "validator_pool": "vitalpoint.pool.near",
+  "accounts": [
+    {
+      "account": "vitalpointai.near",
+      "error": "'NoneType' object has no attribute 'get'"
+    }
+  ]
+}

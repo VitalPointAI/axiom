@@ -1,0 +1,117 @@
+{
+  "validator": "vitalpoint.pool.near",
+  "tax_year": "2025",
+  "entity": "VitalPoint AI",
+  
+  "near": [
+    "ac-sandbox.credz.near",
+    "vitalpointai1.near",
+    "vitalpoint-donations.near",
+    "relayer.vitalpointai.near",
+    "key-recovery.credz.near",
+    "encblobs.vitalpointai.near",
+    "design-registry.credz.near",
+    "credz-awards.near",
+    "claim-coined.credz.near",
+    "challenge-coin-game.credz.near",
+    "challenge-coin-awards.credz.near",
+    "funding-registry.credz.near",
+    "user-profiles.credz.near",
+    "challenge-coin-nft.credz.near",
+    "credz.near",
+    "credz-operations.near",
+    "coachaaron.near",
+    "cdnarmy.near",
+    "theaaron.near",
+    "poweredby.near",
+    "buildon.near",
+    "aaronl.near",
+    "isguild.near",
+    "ai-aaron.near",
+    "commandoboxing.near",
+    "bravo-zulu.near",
+    "registr.near",
+    "dnd.near",
+    "reality.near",
+    "para.cdao.near",
+    "proof.vitalpointai.near",
+    "aaronluhning.near",
+    "aaron.near",
+    "db59d3239f2939bb7d8a4a578aceaa8c85ee8e3f.lockup.near",
+    "core.isnft.near",
+    "v1.cdao.near",
+    "vpacademy.near",
+    "vitalpai.cdao.near",
+    "vitalpointacademy.cdao.near",
+    "vitalpoint.cdao.near",
+    "vpai.cdao.near",
+    "vitalpointai.cdao.near",
+    "vitalpointaiv1.cdao.near",
+    "vpai1.cdao.near",
+    "vitalpointa1.cdao.near",
+    "vpointai.cdao.near",
+    "para1.cdao.near",
+    "log.cdao.near",
+    "vitalpointai.sputnikdao.near",
+    "vpacademy.cdao.near",
+    "funding.vitalpointai.near",
+    "isft.near",
+    "vitalpointaivalidator.near",
+    "main.isnft.near",
+    "series.isnft.near",
+    "catalystdao.near",
+    "codequity-components.near",
+    "isnft.near",
+    "did.near",
+    "cdao.near",
+    "7cf216b858ef85153030501e970cbbc1dbbde7ffcb5f83150b843c5b0f6e7f4a",
+    "vitalpointai.near",
+    "theliquidator.near",
+    "codequity.near"
+  ],
+  
+  "ethereum": [
+    "0x9d0CbF9350B9aE05cf84e91f0f17643cD3C63E75",
+    "0x55b8e2c4AE5951D1A8e77d0E513a6E598Ee0bE86"
+  ],
+  
+  "polygon": [
+    "0x55b8e2c4AE5951D1A8e77d0E513a6E598Ee0bE86"
+  ],
+  
+  "optimism": [
+    "0x55b8e2c4AE5951D1A8e77d0E513a6E598Ee0bE86"
+  ],
+  
+  "cronos": [
+    "cro1v5yar3cu7aegnk8jg0elln7yxw46e2g4r0lemc"
+  ],
+  
+  "akash": [
+    "akash1gn65xmrl3yqrc0eh3pz34h8pznwn4l6sqnm905"
+  ],
+  
+  "xrpl": [
+    "rQLLgHE65ghxvDmy4m5GvhrtuAfpVdzsEt"
+  ],
+  
+  "sweat": [
+    "3833096e609382915d67a740603186f23d2dbf8c9d3d3c875fe7ef34b096b141"
+  ],
+  
+  "exchanges": [
+    {"name": "Uphold", "type": "custodial", "needs": "CSV export or API"},
+    {"name": "Bitbuy", "type": "custodial", "needs": "CSV export"},
+    {"name": "Coinbase", "type": "custodial", "needs": "CSV export or API"},
+    {"name": "Argent", "type": "smart_wallet", "chain": "ethereum"},
+    {"name": "Crypto.com", "type": "custodial", "needs": "CSV export"},
+    {"name": "Coinsquare", "type": "custodial", "needs": "CSV export"},
+    {"name": "Wealthsimple Crypto", "type": "custodial", "needs": "CSV export"}
+  ],
+  
+  "notes": {
+    "lockup": "db59d3239f2939bb7d8a4a578aceaa8c85ee8e3f.lockup.near - NEAR lockup contract, important for vesting",
+    "validator": "vitalpoint.pool.near - staking rewards need NEAR Lake indexing",
+    "same_evm_address": "0x55b8e2c4AE5951D1A8e77d0E513a6E598Ee0bE86 used on ETH/Polygon/Optimism"
+  }
+}
