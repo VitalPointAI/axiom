@@ -19,6 +19,13 @@
 
 **Goal:** Pull complete transaction history for all 64 NEAR accounts including staking rewards and lockup vesting.
 
+**Plans:** 3 plans in 2 waves
+
+Plans:
+- [ ] 01-01-PLAN.md — Database schema + NearBlocks API client (Wave 1)
+- [ ] 01-02-PLAN.md — Transaction indexer + balance reconciliation (Wave 2)
+- [ ] 01-03-PLAN.md — Staking rewards + lockup parser (Wave 2)
+
 **Requirements:**
 - DATA-01: Pull complete transaction history for any NEAR account
 - DATA-02: Pull staking rewards history from validator pool

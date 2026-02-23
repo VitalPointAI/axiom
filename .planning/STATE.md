@@ -10,8 +10,9 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 ## Current Phase
 
 **Phase 1: NEAR Indexer**
-- Status: NOT STARTED
+- Status: PLANNED (3 plans in 2 waves)
 - Goal: Pull complete NEAR transaction history for all 64 accounts
+- Next: Execute Plan 01-01 (database + API client)
 
 ## Progress
 
@@ -33,14 +34,16 @@ None currently.
 - 2026-02-23: Project initialized with GSD framework
 - 2026-02-23: Wallet inventory confirmed (64 NEAR + multi-chain)
 - 2026-02-23: Initial balance scan completed (20,076.35 NEAR total)
+- 2026-02-23: Phase 1 planned (3 plans in 2 waves)
+- 2026-02-23: Discovery completed - using NearBlocks API for transaction indexing
 
 ## Questions Pending
 
-1. Lockup vesting schedule for `db59d...lockup.near`?
-2. Which exchanges have most activity?
-3. VitalPoint AI fiscal year end (calendar year or different)?
-4. Any OTC trades outside exchanges?
-5. Accountant's preferred report format?
+1. ~~Lockup vesting schedule for `db59d...lockup.near`?~~ **ANSWERED:** Vesting COMPLETE ~2021 (1 year after opening)
+2. Which exchanges have most activity? (needed for Phase 2)
+3. ~~VitalPoint AI fiscal year end (calendar year or different)?~~ **ANSWERED:** User-configurable, default Jan-Dec
+4. ~~Any OTC trades outside exchanges?~~ **ANSWERED:** No OTC currently
+5. Accountant's preferred report format? **ANSWERED:** Koinly-compatible CSV + Universal CSV
 
 ## Decisions Log
 
