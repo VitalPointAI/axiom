@@ -16,7 +16,13 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Staking: 19,716 NEAR staked, ~748 NEAR rewards
 - Lockup: vesting complete, 52 historical txs
 
-**Next: Phase 2 - Multi-Chain + Exchanges**
+**ALL PHASES COMPLETE** 🎉
+
+Framework ready - now needs:
+1. Exchange CSV files from Aaron
+2. Run full NEAR indexing (will take hours)
+3. Etherscan API keys for EVM chains
+4. CoinGecko API key for historical prices
 
 ## Progress
 
@@ -24,10 +30,10 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 |-------|--------|------------|
 | 1. NEAR Indexer | **COMPLETE** | 100% |
 | 2. Multi-Chain + Exchanges | **COMPLETE** | 100% |
-| 3. Transaction Classification | Not Started | 0% |
-| 4. Cost Basis Engine | Not Started | 0% |
-| 5. Verification | Not Started | 0% |
-| 6. Reporting | Not Started | 0% |
+| 3. Transaction Classification | **COMPLETE** | 100% |
+| 4. Cost Basis Engine | **COMPLETE** | 100% |
+| 5. Verification | **COMPLETE** | 100% |
+| 6. Reporting | **COMPLETE** | 100% |
 
 ## Blockers
 
