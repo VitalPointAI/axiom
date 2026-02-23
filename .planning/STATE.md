@@ -36,6 +36,8 @@ None currently.
 - 2026-02-23: Initial balance scan completed (20,076.35 NEAR total)
 - 2026-02-23: Phase 1 planned (3 plans in 2 waves)
 - 2026-02-23: Discovery completed - using NearBlocks API for transaction indexing
+- 2026-02-23: Discovery UPDATED - NearBlocks rate limits found (~6 req before 429)
+- 2026-02-23: Phase 1 REPLANNED with rate-limit-aware architecture
 
 ## Questions Pending
 
@@ -51,6 +53,8 @@ None currently.
 |------|----------|-----------|
 | 2026-02-23 | Build custom vs Koinly | Koinly lacks API, misses transactions |
 | 2026-02-23 | FastNear RPC | Default NEAR RPC rate-limited |
+| 2026-02-23 | NearBlocks with 1.5s delay | Free tier rate limits after ~6 rapid requests |
+| 2026-02-23 | Resumable indexer | 23,679 txs for main account = 15-30 min, needs interruption handling |
 
 ---
 *Last updated: 2026-02-23*

@@ -61,7 +61,25 @@ What's the best approach to get complete NEAR transaction history for 64 account
 - NearBlocks is more established
 
 ## Decision
-**Use NearBlocks API** for transaction history.
+**Use NearBlocks API with aggressive rate limiting** for transaction history.
+
+### Rate Limit Testing (2026-02-23)
+- Free tier hits rate limit after ~6 rapid requests
+- vitalpointai.near alone has **23,679 transactions**
+- At 25/page = 948 API calls for one account
+- **Strategy:** 1-2 second delay between requests, exponential backoff on 429
+
+### Alternative: FastNear
+- `archival-rpc.mainnet.fastnear.com` - Full blockchain history
+- BUT: No "list transactions" endpoint (RPC is per-tx lookup only)
+- Good for: balance checks, individual tx verification
+- Not good for: bulk transaction history
+
+### Fallback Options
+1. NearBlocks paid API (pricing TBD)
+2. NEAR Lake (S3 bucket, requires running own indexer)
+3. Pikespeak API (alternative indexer)
+4. Hybrid: Koinly NEAR integration first, fill gaps manually
 
 For staking rewards specifically:
 - Use NearBlocks for staking deposits/withdrawals
