@@ -9,16 +9,20 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 ## Current Phase
 
-**Phase 1: NEAR Indexer**
-- Status: PLANNED (3 plans in 2 waves)
-- Goal: Pull complete NEAR transaction history for all 64 accounts
-- Next: Execute Plan 01-01 (database + API client)
+**Phase 1: NEAR Indexer** ✅ COMPLETE
+- All 3 plans executed successfully
+- Database + rate-limited API client working
+- Resumable indexer tested (aaron.near: 225/5145)
+- Staking: 19,716 NEAR staked, ~748 NEAR rewards
+- Lockup: vesting complete, 52 historical txs
+
+**Next: Phase 2 - Multi-Chain + Exchanges**
 
 ## Progress
 
 | Phase | Status | Completion |
 |-------|--------|------------|
-| 1. NEAR Indexer | Not Started | 0% |
+| 1. NEAR Indexer | **COMPLETE** | 100% |
 | 2. Multi-Chain + Exchanges | Not Started | 0% |
 | 3. Transaction Classification | Not Started | 0% |
 | 4. Cost Basis Engine | Not Started | 0% |
