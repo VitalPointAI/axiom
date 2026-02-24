@@ -87,16 +87,20 @@ export async function GET() {
       rewards: number;
     }>;
 
-    // Mock prices for now (would fetch from CoinGecko in production)
-    const prices: Record<string, number> = {
-      'NEAR': 4.50,
-      'ETH': 2800,
-      'Polygon': 0.85,
-      'MATIC': 0.85,
-      'Optimism': 2800,
-      'USDC': 1.0,
-      'USDT': 1.0,
-    };
+    // Fetch real prices from CoinGecko
+    const { getCurrentPrices, FALLBACK_PRICES } = await import('@/lib/prices');
+    const assetsToPrice = [...new Set([
+      ...Object.keys(holdings),
+      ...wallets.map(w => w.chain),
+      'NEAR' // Always include NEAR for staking
+    ])];
+    
+    let prices = await getCurrentPrices(assetsToPrice);
+    
+    // Use fallbacks if API failed
+    if (Object.keys(prices).length === 0) {
+      prices = FALLBACK_PRICES;
+    }
 
     // Calculate total value
     let totalValue = 0;
