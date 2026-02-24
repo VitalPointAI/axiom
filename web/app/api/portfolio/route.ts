@@ -24,12 +24,12 @@ export async function GET() {
 
     // Get wallets for this user
     const wallets = db.prepare(`
-      SELECT id, address, chain, label, last_synced_at
+      SELECT id, account_id, chain, label, last_synced_at
       FROM wallets 
       WHERE user_id = ?
     `).all(user.id) as Array<{
       id: number;
-      address: string;
+      account_id: string;
       chain: string;
       label: string;
       last_synced_at: string;
@@ -39,72 +39,97 @@ export async function GET() {
     const holdings: Record<string, { amount: number; chain: string }> = {};
     
     for (const wallet of wallets) {
-      const txns = db.prepare(`
-        SELECT asset, 
-               SUM(CASE WHEN to_address = ? THEN amount ELSE 0 END) as received,
-               SUM(CASE WHEN from_address = ? THEN amount ELSE 0 END) as sent
+      // Sum up transactions for this wallet
+      // Amount is stored as yoctoNEAR string, need to convert
+      const txSummary = db.prepare(`
+        SELECT 
+          direction,
+          SUM(CAST(amount AS REAL) / 1e24) as total_near
         FROM transactions
-        WHERE wallet_id = ?
-        GROUP BY asset
-      `).all(wallet.address, wallet.address, wallet.id) as Array<{
-        asset: string;
-        received: number;
-        sent: number;
+        WHERE wallet_id = ? AND success = 1
+        GROUP BY direction
+      `).all(wallet.id) as Array<{
+        direction: string;
+        total_near: number;
       }>;
 
-      for (const tx of txns) {
-        const asset = tx.asset || wallet.chain;
-        if (!holdings[asset]) {
-          holdings[asset] = { amount: 0, chain: wallet.chain };
+      let balance = 0;
+      for (const row of txSummary) {
+        if (row.direction === 'in') {
+          balance += row.total_near || 0;
+        } else if (row.direction === 'out') {
+          balance -= row.total_near || 0;
         }
-        holdings[asset].amount += (tx.received || 0) - (tx.sent || 0);
       }
+
+      const asset = wallet.chain === 'NEAR' ? 'NEAR' : wallet.chain;
+      if (!holdings[asset]) {
+        holdings[asset] = { amount: 0, chain: wallet.chain };
+      }
+      holdings[asset].amount += balance;
     }
 
-    // Get staking positions
+    // Get staking positions from staking_events
     const stakingPositions = db.prepare(`
       SELECT 
-        validator_id,
-        SUM(staked_amount) as total_staked,
-        SUM(reward_amount) as total_rewards
-      FROM staking_rewards
-      WHERE wallet_id IN (SELECT id FROM wallets WHERE user_id = ?)
-      GROUP BY validator_id
+        se.validator_id,
+        SUM(CASE WHEN se.event_type = 'deposit' THEN CAST(se.amount AS REAL) / 1e24 ELSE 0 END) as deposits,
+        SUM(CASE WHEN se.event_type = 'withdraw' THEN CAST(se.amount AS REAL) / 1e24 ELSE 0 END) as withdrawals,
+        SUM(CASE WHEN se.event_type = 'reward' THEN CAST(se.amount AS REAL) / 1e24 ELSE 0 END) as rewards
+      FROM staking_events se
+      JOIN wallets w ON se.wallet_id = w.id
+      WHERE w.user_id = ?
+      GROUP BY se.validator_id
     `).all(user.id) as Array<{
       validator_id: string;
-      total_staked: number;
-      total_rewards: number;
+      deposits: number;
+      withdrawals: number;
+      rewards: number;
     }>;
 
     // Mock prices for now (would fetch from CoinGecko in production)
     const prices: Record<string, number> = {
       'NEAR': 4.50,
       'ETH': 2800,
+      'Polygon': 0.85,
       'MATIC': 0.85,
+      'Optimism': 2800,
       'USDC': 1.0,
       'USDT': 1.0,
     };
 
     // Calculate total value
     let totalValue = 0;
-    const holdingsWithValue = Object.entries(holdings).map(([asset, data]) => {
-      const price = prices[asset] || 0;
-      const value = data.amount * price;
-      totalValue += value;
-      return {
-        asset,
-        amount: data.amount,
-        chain: data.chain,
-        price,
-        value,
-      };
-    });
+    const holdingsWithValue = Object.entries(holdings)
+      .filter(([_, data]) => data.amount > 0.001) // Filter dust
+      .map(([asset, data]) => {
+        const price = prices[asset] || prices[data.chain] || 0;
+        const value = data.amount * price;
+        totalValue += value;
+        return {
+          asset,
+          amount: data.amount,
+          chain: data.chain,
+          price,
+          value,
+        };
+      });
 
-    // Add staking to total
-    for (const pos of stakingPositions) {
-      const stakingValue = (pos.total_staked + pos.total_rewards) * (prices['NEAR'] || 0);
-      totalValue += stakingValue;
-    }
+    // Calculate staking value
+    const stakingWithValue = stakingPositions.map(pos => {
+      const staked = pos.deposits - pos.withdrawals;
+      const rewards = pos.rewards;
+      const nearPrice = prices['NEAR'] || 0;
+      const value = (staked + rewards) * nearPrice;
+      totalValue += value;
+      
+      return {
+        validator: pos.validator_id,
+        staked: staked,
+        rewards: rewards,
+        value: value,
+      };
+    }).filter(pos => pos.staked > 0.001); // Filter dust
 
     return NextResponse.json({
       totalValue,
@@ -112,12 +137,7 @@ export async function GET() {
       walletCount: wallets.length,
       assetCount: Object.keys(holdings).length,
       holdings: holdingsWithValue.sort((a, b) => b.value - a.value),
-      staking: stakingPositions.map(pos => ({
-        validator: pos.validator_id,
-        staked: pos.total_staked,
-        rewards: pos.total_rewards,
-        value: (pos.total_staked + pos.total_rewards) * (prices['NEAR'] || 0),
-      })),
+      staking: stakingWithValue,
     });
   } catch (error) {
     console.error('Portfolio fetch error:', error);

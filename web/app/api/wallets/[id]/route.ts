@@ -44,7 +44,8 @@ export async function DELETE(
 
     // Delete associated data first (foreign key constraints)
     db.prepare(`DELETE FROM transactions WHERE wallet_id = ?`).run(walletId);
-    db.prepare(`DELETE FROM staking_rewards WHERE wallet_id = ?`).run(walletId);
+    db.prepare(`DELETE FROM staking_events WHERE wallet_id = ?`).run(walletId);
+    db.prepare(`DELETE FROM indexing_progress WHERE wallet_id = ?`).run(walletId);
     db.prepare(`DELETE FROM wallets WHERE id = ?`).run(walletId);
 
     return NextResponse.json({ success: true });

@@ -34,30 +34,29 @@ export async function GET(request: NextRequest) {
     const asset = searchParams.get('asset');
     const search = searchParams.get('q');
 
-    // Build query
+    // Build query - transactions linked to user's wallets
     let whereClause = 'WHERE w.user_id = ?';
     const params: (string | number)[] = [user.id];
 
     if (fromDate) {
-      whereClause += ' AND t.timestamp >= ?';
-      params.push(fromDate);
+      // Convert date to timestamp (seconds since epoch)
+      const fromTs = new Date(fromDate).getTime() / 1000 * 1e9; // nanoseconds
+      whereClause += ' AND t.block_timestamp >= ?';
+      params.push(fromTs);
     }
     if (toDate) {
-      whereClause += ' AND t.timestamp <= ?';
-      params.push(toDate);
+      const toTs = new Date(toDate).getTime() / 1000 * 1e9;
+      whereClause += ' AND t.block_timestamp <= ?';
+      params.push(toTs);
     }
     if (txType) {
-      whereClause += ' AND t.tx_type = ?';
+      whereClause += ' AND t.action_type = ?';
       params.push(txType);
     }
-    if (asset) {
-      whereClause += ' AND t.asset = ?';
-      params.push(asset);
-    }
     if (search) {
-      whereClause += ' AND (t.tx_hash LIKE ? OR t.from_address LIKE ? OR t.to_address LIKE ? OR t.notes LIKE ?)';
+      whereClause += ' AND (t.tx_hash LIKE ? OR t.counterparty LIKE ? OR t.method_name LIKE ?)';
       const searchTerm = `%${search}%`;
-      params.push(searchTerm, searchTerm, searchTerm, searchTerm);
+      params.push(searchTerm, searchTerm, searchTerm);
     }
 
     // Get total count
@@ -68,36 +67,71 @@ export async function GET(request: NextRequest) {
       ${whereClause}
     `).get(...params) as { count: number };
 
-    // Get transactions
+    // Get transactions with proper formatting
     const transactions = db.prepare(`
       SELECT 
-        t.*,
+        t.id,
+        t.tx_hash,
+        t.wallet_id,
+        t.direction,
+        t.counterparty,
+        t.action_type as tx_type,
+        t.method_name,
+        CAST(t.amount AS REAL) / 1e24 as amount,
+        CAST(t.fee AS REAL) / 1e24 as fee,
+        t.block_timestamp,
+        t.success,
         w.chain,
-        w.label as wallet_label
+        w.label as wallet_label,
+        w.account_id as wallet_address
       FROM transactions t
       JOIN wallets w ON t.wallet_id = w.id
       ${whereClause}
-      ORDER BY t.timestamp DESC
+      ORDER BY t.block_timestamp DESC
       LIMIT ? OFFSET ?
-    `).all(...params, limit, offset);
+    `).all(...params, limit, offset) as Array<{
+      id: number;
+      tx_hash: string;
+      wallet_id: number;
+      direction: string;
+      counterparty: string;
+      tx_type: string;
+      method_name: string;
+      amount: number;
+      fee: number;
+      block_timestamp: number;
+      success: boolean;
+      chain: string;
+      wallet_label: string;
+      wallet_address: string;
+    }>;
 
-    // Get distinct types and assets for filters
+    // Format transactions for frontend
+    const formattedTx = transactions.map(tx => ({
+      id: tx.id,
+      tx_hash: tx.tx_hash,
+      timestamp: new Date(tx.block_timestamp / 1e6).toISOString(), // nanoseconds to ms
+      tx_type: tx.tx_type || tx.method_name || 'transfer',
+      from_address: tx.direction === 'out' ? tx.wallet_address : tx.counterparty,
+      to_address: tx.direction === 'in' ? tx.wallet_address : tx.counterparty,
+      asset: 'NEAR',
+      amount: tx.amount,
+      fee: tx.fee,
+      chain: tx.chain,
+      wallet_label: tx.wallet_label,
+      success: tx.success,
+    }));
+
+    // Get distinct types for filters
     const types = db.prepare(`
-      SELECT DISTINCT tx_type 
+      SELECT DISTINCT COALESCE(action_type, method_name, 'transfer') as tx_type
       FROM transactions t 
       JOIN wallets w ON t.wallet_id = w.id 
-      WHERE w.user_id = ? AND t.tx_type IS NOT NULL
+      WHERE w.user_id = ?
     `).all(user.id) as { tx_type: string }[];
 
-    const assets = db.prepare(`
-      SELECT DISTINCT asset 
-      FROM transactions t 
-      JOIN wallets w ON t.wallet_id = w.id 
-      WHERE w.user_id = ? AND t.asset IS NOT NULL
-    `).all(user.id) as { asset: string }[];
-
     return NextResponse.json({
-      transactions,
+      transactions: formattedTx,
       pagination: {
         page,
         limit,
@@ -105,8 +139,8 @@ export async function GET(request: NextRequest) {
         totalPages: Math.ceil(countResult.count / limit),
       },
       filters: {
-        types: types.map(t => t.tx_type),
-        assets: assets.map(a => a.asset),
+        types: types.map(t => t.tx_type).filter(Boolean),
+        assets: ['NEAR'], // For now, just NEAR
       },
     });
   } catch (error) {

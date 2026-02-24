@@ -23,19 +23,21 @@ export async function GET() {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Get wallets
+    // Get wallets with indexing status
     const wallets = db.prepare(`
       SELECT 
-        id,
-        address,
-        chain,
-        label,
-        sync_status,
-        last_synced_at,
-        created_at
-      FROM wallets 
-      WHERE user_id = ?
-      ORDER BY created_at DESC
+        w.id,
+        w.account_id as address,
+        w.chain,
+        w.label,
+        COALESCE(w.sync_status, p.status, 'pending') as sync_status,
+        w.last_synced_at,
+        w.created_at,
+        p.total_fetched as tx_count
+      FROM wallets w
+      LEFT JOIN indexing_progress p ON w.id = p.wallet_id
+      WHERE w.user_id = ?
+      ORDER BY w.created_at DESC
     `).all(user.id);
 
     return NextResponse.json({ wallets });
@@ -98,24 +100,35 @@ export async function POST(request: NextRequest) {
 
     // Check for duplicate
     const existing = db.prepare(`
-      SELECT id FROM wallets WHERE user_id = ? AND address = ? AND chain = ?
-    `).get(user.id, address, chain);
+      SELECT id FROM wallets WHERE account_id = ?
+    `).get(address);
 
     if (existing) {
+      // If wallet exists but not assigned to this user, assign it
+      const wallet = existing as { id: number };
+      db.prepare(`UPDATE wallets SET user_id = ? WHERE id = ? AND user_id IS NULL`).run(user.id, wallet.id);
+      
+      // Check if now assigned to user
+      const updated = db.prepare(`SELECT * FROM wallets WHERE id = ? AND user_id = ?`).get(wallet.id, user.id);
+      if (updated) {
+        return NextResponse.json({ wallet: updated }, { status: 200 });
+      }
+      
       return NextResponse.json(
-        { error: 'Wallet already exists' },
+        { error: 'Wallet already exists for another user' },
         { status: 409 }
       );
     }
 
     // Insert wallet
     const result = db.prepare(`
-      INSERT INTO wallets (user_id, address, chain, label, sync_status)
+      INSERT INTO wallets (account_id, chain, label, user_id, sync_status)
       VALUES (?, ?, ?, ?, 'pending')
-    `).run(user.id, address.toLowerCase(), chain, label || address.slice(0, 12) + '...');
+    `).run(address, chain, label || address.slice(0, 16) + '...', user.id);
 
     const wallet = db.prepare(`
-      SELECT * FROM wallets WHERE id = ?
+      SELECT id, account_id as address, chain, label, sync_status, last_synced_at, created_at
+      FROM wallets WHERE id = ?
     `).get(result.lastInsertRowid);
 
     return NextResponse.json({ wallet }, { status: 201 });
