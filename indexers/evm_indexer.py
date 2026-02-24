@@ -1,128 +1,178 @@
 #!/usr/bin/env python3
 """
-EVM chain indexer using Etherscan/Polygonscan APIs.
-
-NOTE: Free tier without API keys has severe limitations.
-For production use, get free API keys from:
-- Etherscan: https://etherscan.io/apis
-- Polygonscan: https://polygonscan.com/apis
-- Optimism: https://optimistic.etherscan.io/apis
-
-Set in config.py or environment:
-ETHERSCAN_API_KEY, POLYGONSCAN_API_KEY, OPTIMISM_API_KEY
+EVM Chain Transaction Indexer
+Supports Ethereum, Polygon, Optimism via Etherscan-family APIs.
 """
 
 import time
 import requests
 from pathlib import Path
+from typing import Optional, Dict, List, Any
+from decimal import Decimal
 import sys
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from db.init import get_connection
+from config import RATE_LIMIT_DELAY, MAX_RETRIES
 
-# API endpoints - V2 format requires different approach
-# Free tier without API key is very limited, so we use alternative endpoints
-CHAIN_APIS = {
-    "ethereum": "https://api.etherscan.io/v2/api",
-    "polygon": "https://api.polygonscan.com/api",
-    "optimism": "https://api-optimistic.etherscan.io/api"
+# Etherscan-family API endpoints (free tier: 5 calls/sec)
+CHAIN_CONFIG = {
+    'ETH': {
+        'name': 'Ethereum',
+        'api_url': 'https://api.etherscan.io/api',
+        'api_key_env': 'ETHERSCAN_API_KEY',
+        'decimals': 18,
+        'symbol': 'ETH',
+    },
+    'Polygon': {
+        'name': 'Polygon',
+        'api_url': 'https://api.polygonscan.com/api',
+        'api_key_env': 'POLYGONSCAN_API_KEY',
+        'decimals': 18,
+        'symbol': 'MATIC',
+    },
+    'Optimism': {
+        'name': 'Optimism',
+        'api_url': 'https://api-optimistic.etherscan.io/api',
+        'api_key_env': 'OPTIMISM_API_KEY',
+        'decimals': 18,
+        'symbol': 'ETH',
+    },
 }
 
-# For free tier, we can also try Blockscout (more permissive)
-BLOCKSCOUT_APIS = {
-    "ethereum": None,  # No free blockscout for mainnet
-    "polygon": "https://polygon.blockscout.com/api",
-    "optimism": "https://optimism.blockscout.com/api"
-}
-
-# Rate limit: 5 calls/second for free tier
-RATE_LIMIT_DELAY = 0.25
+# Rate limiting for Etherscan free tier (5/sec, but be conservative)
+EVM_RATE_LIMIT_DELAY = 0.25  # 4 requests per second max
 
 
 class EVMIndexer:
-    """Index EVM transactions from block explorers."""
+    """
+    Indexes EVM chain transactions using Etherscan-family APIs.
+    """
     
-    def __init__(self, chain="ethereum", api_key=None):
+    def __init__(self, chain: str, api_key: Optional[str] = None):
+        if chain not in CHAIN_CONFIG:
+            raise ValueError(f"Unsupported chain: {chain}. Supported: {list(CHAIN_CONFIG.keys())}")
+        
         self.chain = chain
-        self.base_url = CHAIN_APIS.get(chain)
-        self.api_key = api_key or ""  # Free tier works without key
-        self.last_request = 0
+        self.config = CHAIN_CONFIG[chain]
+        self.api_key = api_key or self._get_api_key()
+        self.last_request_time = 0
+        self.request_count = 0
     
-    def _wait_rate_limit(self):
-        elapsed = time.time() - self.last_request
-        if elapsed < RATE_LIMIT_DELAY:
-            time.sleep(RATE_LIMIT_DELAY - elapsed)
-        self.last_request = time.time()
+    def _get_api_key(self) -> Optional[str]:
+        """Get API key from environment."""
+        import os
+        return os.environ.get(self.config['api_key_env'])
     
-    def _request(self, params):
-        self._wait_rate_limit()
+    def _wait_for_rate_limit(self):
+        """Ensure minimum delay between requests."""
+        elapsed = time.time() - self.last_request_time
+        if elapsed < EVM_RATE_LIMIT_DELAY:
+            time.sleep(EVM_RATE_LIMIT_DELAY - elapsed)
+        self.last_request_time = time.time()
+    
+    def _request(self, params: Dict[str, str], retries: int = 0) -> Dict:
+        """Make API request with rate limiting."""
+        self._wait_for_rate_limit()
+        self.request_count += 1
+        
         if self.api_key:
-            params["apikey"] = self.api_key
+            params['apikey'] = self.api_key
         
-        response = requests.get(self.base_url, params=params, timeout=30)
-        data = response.json()
+        try:
+            response = requests.get(self.config['api_url'], params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            
+            # Check for rate limit error
+            if data.get('status') == '0' and 'rate limit' in data.get('message', '').lower():
+                if retries < MAX_RETRIES:
+                    wait_time = RATE_LIMIT_DELAY * (2 ** retries)
+                    print(f"  Rate limited, waiting {wait_time:.1f}s (retry {retries+1}/{MAX_RETRIES})")
+                    time.sleep(wait_time)
+                    return self._request(params, retries + 1)
+                raise Exception("Rate limit exceeded")
+            
+            return data
+        except requests.exceptions.RequestException as e:
+            if retries < MAX_RETRIES:
+                time.sleep(RATE_LIMIT_DELAY)
+                return self._request(params, retries + 1)
+            raise
+    
+    def get_normal_transactions(self, address: str, start_block: int = 0) -> List[Dict]:
+        """Get normal (ETH/native) transactions."""
+        params = {
+            'module': 'account',
+            'action': 'txlist',
+            'address': address,
+            'startblock': str(start_block),
+            'endblock': '99999999',
+            'sort': 'asc',
+        }
+        data = self._request(params)
         
-        if data.get("status") == "0" and "No transactions found" not in data.get("message", ""):
-            print(f"  API Error: {data.get('message', 'Unknown error')}")
+        if data.get('status') == '1':
+            return data.get('result', [])
+        return []
+    
+    def get_internal_transactions(self, address: str, start_block: int = 0) -> List[Dict]:
+        """Get internal transactions (contract calls with value)."""
+        params = {
+            'module': 'account',
+            'action': 'txlistinternal',
+            'address': address,
+            'startblock': str(start_block),
+            'endblock': '99999999',
+            'sort': 'asc',
+        }
+        data = self._request(params)
         
-        return data.get("result", [])
+        if data.get('status') == '1':
+            return data.get('result', [])
+        return []
     
-    def get_normal_transactions(self, address, start_block=0):
-        """Get normal (external) transactions."""
-        return self._request({
-            "module": "account",
-            "action": "txlist",
-            "address": address,
-            "startblock": start_block,
-            "endblock": 99999999,
-            "sort": "asc"
-        })
-    
-    def get_internal_transactions(self, address, start_block=0):
-        """Get internal transactions."""
-        return self._request({
-            "module": "account",
-            "action": "txlistinternal",
-            "address": address,
-            "startblock": start_block,
-            "endblock": 99999999,
-            "sort": "asc"
-        })
-    
-    def get_erc20_transfers(self, address, start_block=0):
+    def get_erc20_transfers(self, address: str, start_block: int = 0) -> List[Dict]:
         """Get ERC20 token transfers."""
-        return self._request({
-            "module": "account",
-            "action": "tokentx",
-            "address": address,
-            "startblock": start_block,
-            "endblock": 99999999,
-            "sort": "asc"
-        })
+        params = {
+            'module': 'account',
+            'action': 'tokentx',
+            'address': address,
+            'startblock': str(start_block),
+            'endblock': '99999999',
+            'sort': 'asc',
+        }
+        data = self._request(params)
+        
+        if data.get('status') == '1':
+            return data.get('result', [])
+        return []
     
-    def get_balance(self, address):
-        """Get current ETH balance."""
-        result = self._request({
-            "module": "account",
-            "action": "balance",
-            "address": address,
-            "tag": "latest"
-        })
-        if result and result != "0":
-            return int(result) / 1e18
-        return 0
+    def get_erc721_transfers(self, address: str, start_block: int = 0) -> List[Dict]:
+        """Get ERC721 (NFT) transfers."""
+        params = {
+            'module': 'account',
+            'action': 'tokennfttx',
+            'address': address,
+            'startblock': str(start_block),
+            'endblock': '99999999',
+            'sort': 'asc',
+        }
+        data = self._request(params)
+        
+        if data.get('status') == '1':
+            return data.get('result', [])
+        return []
 
 
-def get_or_create_evm_wallet(address, chain):
-    """Get or create EVM wallet record."""
+def get_wallet_id(address: str, chain: str) -> int:
+    """Get or create wallet record."""
     conn = get_connection()
-    address = address.lower()
-    
     row = conn.execute(
-        "SELECT id FROM evm_wallets WHERE address = ? AND chain = ?",
-        (address, chain)
+        "SELECT id FROM wallets WHERE account_id = ? AND chain = ?", 
+        (address.lower(), chain)
     ).fetchone()
     
     if row:
@@ -130,124 +180,205 @@ def get_or_create_evm_wallet(address, chain):
         return row[0]
     
     conn.execute(
-        "INSERT INTO evm_wallets (address, chain) VALUES (?, ?)",
-        (address, chain)
+        "INSERT INTO wallets (account_id, chain, sync_status) VALUES (?, ?, 'pending')", 
+        (address.lower(), chain)
     )
     conn.commit()
     wallet_id = conn.execute(
-        "SELECT id FROM evm_wallets WHERE address = ? AND chain = ?",
-        (address, chain)
+        "SELECT id FROM wallets WHERE account_id = ? AND chain = ?", 
+        (address.lower(), chain)
     ).fetchone()[0]
     conn.close()
     return wallet_id
 
 
-def index_evm_address(address, chain="ethereum"):
-    """Index all transactions for an EVM address."""
-    print(f"\nIndexing {chain}: {address}")
-    
-    indexer = EVMIndexer(chain)
-    wallet_id = get_or_create_evm_wallet(address, chain)
+def get_last_block(wallet_id: int) -> int:
+    """Get the last indexed block for incremental sync."""
     conn = get_connection()
+    row = conn.execute(
+        "SELECT MAX(block_height) FROM transactions WHERE wallet_id = ?",
+        (wallet_id,)
+    ).fetchone()
+    conn.close()
+    return row[0] if row[0] else 0
+
+
+def index_evm_account(address: str, chain: str, api_key: Optional[str] = None, force: bool = False) -> int:
+    """
+    Index all transactions for an EVM account.
     
-    total = 0
+    Returns: total transactions indexed
+    """
+    indexer = EVMIndexer(chain, api_key)
+    wallet_id = get_wallet_id(address, chain)
+    config = CHAIN_CONFIG[chain]
     
-    # Normal transactions
-    print(f"  Fetching normal transactions...")
-    txs = indexer.get_normal_transactions(address)
-    if isinstance(txs, list):
-        for tx in txs:
-            try:
-                conn.execute("""
-                    INSERT OR IGNORE INTO evm_transactions
-                    (tx_hash, wallet_id, chain, block_number, block_timestamp,
-                     from_address, to_address, value, gas_used, gas_price,
-                     tx_type, success)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    tx.get("hash"),
-                    wallet_id,
-                    chain,
-                    int(tx.get("blockNumber", 0)),
-                    int(tx.get("timeStamp", 0)),
-                    tx.get("from", "").lower(),
-                    tx.get("to", "").lower(),
-                    tx.get("value", "0"),
-                    tx.get("gasUsed", "0"),
-                    tx.get("gasPrice", "0"),
-                    "normal",
-                    tx.get("isError", "0") == "0"
-                ))
-            except Exception as e:
-                print(f"    Error: {e}")
-        total += len(txs)
-        print(f"    Found {len(txs)} normal transactions")
+    # Get starting block for incremental sync
+    start_block = 0 if force else get_last_block(wallet_id) + 1
     
-    conn.commit()
+    print(f"{address} ({chain}): Starting from block {start_block}")
     
-    # ERC20 transfers
-    print(f"  Fetching ERC20 transfers...")
-    txs = indexer.get_erc20_transfers(address)
-    if isinstance(txs, list):
-        for tx in txs:
-            try:
-                conn.execute("""
-                    INSERT OR IGNORE INTO evm_transactions
-                    (tx_hash, wallet_id, chain, block_number, block_timestamp,
-                     from_address, to_address, value, tx_type,
-                     token_symbol, token_decimal, token_value)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    tx.get("hash"),
-                    wallet_id,
-                    chain,
-                    int(tx.get("blockNumber", 0)),
-                    int(tx.get("timeStamp", 0)),
-                    tx.get("from", "").lower(),
-                    tx.get("to", "").lower(),
-                    tx.get("value", "0"),
-                    "erc20",
-                    tx.get("tokenSymbol", ""),
-                    int(tx.get("tokenDecimal", 18)),
-                    tx.get("value", "0")
-                ))
-            except Exception as e:
-                pass  # Duplicates expected
-        total += len(txs)
-        print(f"    Found {len(txs)} ERC20 transfers")
-    
+    # Update status
+    conn = get_connection()
+    conn.execute("UPDATE wallets SET sync_status = 'in_progress' WHERE id = ?", (wallet_id,))
     conn.commit()
     conn.close()
     
-    # Get balance
-    balance = indexer.get_balance(address)
-    print(f"  Current balance: {balance:.6f} {chain.upper()[:3]}")
+    total_indexed = 0
     
-    return total
-
-
-def index_all_evm():
-    """Index all configured EVM addresses."""
-    # From wallets.json
-    addresses = [
-        ("0x9d0CbF9350B9aE05cf84e91f0f17643cD3C63E75", ["ethereum"]),
-        ("0x55b8e2c4AE5951D1A8e77d0E513a6E598Ee0bE86", ["ethereum", "polygon", "optimism"])
-    ]
-    
-    total = 0
-    for address, chains in addresses:
-        for chain in chains:
+    try:
+        # 1. Normal transactions
+        print(f"  Fetching normal transactions...")
+        normal_txs = indexer.get_normal_transactions(address, start_block)
+        print(f"  Found {len(normal_txs)} normal transactions")
+        
+        conn = get_connection()
+        for tx in normal_txs:
+            direction = 'out' if tx['from'].lower() == address.lower() else 'in'
+            counterparty = tx['to'] if direction == 'out' else tx['from']
+            
+            # Convert wei to native token
+            amount = str(Decimal(tx.get('value', '0')) / Decimal(10 ** config['decimals']))
+            fee = str(Decimal(tx.get('gasUsed', '0')) * Decimal(tx.get('gasPrice', '0')) / Decimal(10 ** 18))
+            
             try:
-                count = index_evm_address(address, chain)
-                total += count
+                conn.execute("""
+                    INSERT OR IGNORE INTO transactions 
+                    (tx_hash, wallet_id, direction, counterparty, action_type, method_name,
+                     amount, fee, block_height, block_timestamp, success, raw_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    tx['hash'],
+                    wallet_id,
+                    direction,
+                    counterparty,
+                    'transfer',
+                    tx.get('functionName', '').split('(')[0] or None,
+                    amount,
+                    fee,
+                    int(tx['blockNumber']),
+                    tx['timeStamp'],
+                    tx.get('isError', '0') == '0',
+                    str(tx)[:10000]
+                ))
+                total_indexed += 1
             except Exception as e:
-                print(f"  Error indexing {chain}/{address}: {e}")
-    
-    print(f"\nTotal EVM transactions indexed: {total}")
-    return total
+                print(f"    Warning: Error inserting tx {tx['hash'][:16]}...: {e}")
+        
+        conn.commit()
+        
+        # 2. ERC20 token transfers
+        print(f"  Fetching ERC20 transfers...")
+        erc20_txs = indexer.get_erc20_transfers(address, start_block)
+        print(f"  Found {len(erc20_txs)} ERC20 transfers")
+        
+        for tx in erc20_txs:
+            direction = 'out' if tx['from'].lower() == address.lower() else 'in'
+            counterparty = tx['to'] if direction == 'out' else tx['from']
+            
+            # Token amount with proper decimals
+            decimals = int(tx.get('tokenDecimal', 18))
+            amount = str(Decimal(tx.get('value', '0')) / Decimal(10 ** decimals))
+            
+            try:
+                conn.execute("""
+                    INSERT OR IGNORE INTO transactions 
+                    (tx_hash, wallet_id, direction, counterparty, action_type, method_name,
+                     amount, fee, block_height, block_timestamp, success, raw_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    f"{tx['hash']}-{tx.get('tokenSymbol', 'ERC20')}-{tx.get('logIndex', 0)}",
+                    wallet_id,
+                    direction,
+                    counterparty,
+                    'erc20_transfer',
+                    tx.get('tokenSymbol', 'UNKNOWN'),
+                    amount,
+                    '0',  # Fee already counted in normal tx
+                    int(tx['blockNumber']),
+                    tx['timeStamp'],
+                    True,
+                    str(tx)[:10000]
+                ))
+                total_indexed += 1
+            except Exception as e:
+                print(f"    Warning: Error inserting ERC20 tx: {e}")
+        
+        conn.commit()
+        
+        # 3. NFT transfers (ERC721)
+        print(f"  Fetching NFT transfers...")
+        nft_txs = indexer.get_erc721_transfers(address, start_block)
+        print(f"  Found {len(nft_txs)} NFT transfers")
+        
+        for tx in nft_txs:
+            direction = 'out' if tx['from'].lower() == address.lower() else 'in'
+            counterparty = tx['to'] if direction == 'out' else tx['from']
+            
+            try:
+                conn.execute("""
+                    INSERT OR IGNORE INTO transactions 
+                    (tx_hash, wallet_id, direction, counterparty, action_type, method_name,
+                     amount, fee, block_height, block_timestamp, success, raw_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    f"{tx['hash']}-NFT-{tx.get('tokenID', 0)}",
+                    wallet_id,
+                    direction,
+                    counterparty,
+                    'nft_transfer',
+                    tx.get('tokenName', 'NFT'),
+                    tx.get('tokenID', '0'),  # Store token ID as amount
+                    '0',
+                    int(tx['blockNumber']),
+                    tx['timeStamp'],
+                    True,
+                    str(tx)[:10000]
+                ))
+                total_indexed += 1
+            except Exception as e:
+                print(f"    Warning: Error inserting NFT tx: {e}")
+        
+        conn.commit()
+        conn.close()
+        
+        # Update wallet status
+        conn = get_connection()
+        conn.execute("""
+            UPDATE wallets 
+            SET sync_status = 'complete', last_synced_at = datetime('now')
+            WHERE id = ?
+        """, (wallet_id,))
+        conn.commit()
+        conn.close()
+        
+        print(f"{address} ({chain}): Complete! {total_indexed} transactions indexed")
+        return total_indexed
+        
+    except Exception as e:
+        conn = get_connection()
+        conn.execute("UPDATE wallets SET sync_status = 'error' WHERE id = ?", (wallet_id,))
+        conn.commit()
+        conn.close()
+        print(f"{address} ({chain}): Error - {e}")
+        raise
 
 
 if __name__ == "__main__":
-    from db.init import init_db
-    init_db()
-    index_all_evm()
+    import sys
+    
+    if len(sys.argv) < 3:
+        print("Usage: python evm_indexer.py <address> <chain> [--force]")
+        print("Chains: ETH, Polygon, Optimism")
+        sys.exit(1)
+    
+    address = sys.argv[1]
+    chain = sys.argv[2]
+    force = '--force' in sys.argv
+    
+    try:
+        count = index_evm_account(address, chain, force=force)
+        print(f"\nIndexed {count} transactions")
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)

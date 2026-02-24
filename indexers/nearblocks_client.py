@@ -13,8 +13,12 @@ from config import (
     NEARBLOCKS_BASE_URL,
     RATE_LIMIT_DELAY,
     MAX_RETRIES,
-    BACKOFF_MULTIPLIER
+    BACKOFF_MULTIPLIER,
+    INTER_WALLET_DELAY
 )
+
+# Initial backoff after hitting rate limit (before multiplier kicks in)
+INITIAL_RATE_LIMIT_WAIT = 30  # seconds
 
 
 class NearBlocksClient:
@@ -53,7 +57,11 @@ class NearBlocksClient:
             
             if response.status_code == 429:
                 if retries < MAX_RETRIES:
-                    wait_time = self.delay * (BACKOFF_MULTIPLIER ** retries)
+                    # Start with a longer initial wait, then exponential backoff
+                    if retries == 0:
+                        wait_time = INITIAL_RATE_LIMIT_WAIT
+                    else:
+                        wait_time = INITIAL_RATE_LIMIT_WAIT + (self.delay * (BACKOFF_MULTIPLIER ** retries))
                     print(f"  Rate limited, waiting {wait_time:.1f}s (retry {retries+1}/{MAX_RETRIES})")
                     time.sleep(wait_time)
                     return self._request(endpoint, retries + 1)

@@ -53,28 +53,27 @@ export async function POST(
       UPDATE wallets SET sync_status = 'in_progress' WHERE id = ?
     `).run(walletId);
 
-    // For NEAR wallets, call the Python indexer
-    if (wallet.chain === 'NEAR') {
-      try {
+    // Call appropriate indexer based on chain
+    try {
+      if (wallet.chain === 'NEAR') {
         await syncNearWallet(wallet.id, wallet.account_id);
-        
-        // Update status to complete
-        db.prepare(`
-          UPDATE wallets SET sync_status = 'complete', last_synced_at = datetime('now') WHERE id = ?
-        `).run(walletId);
-      } catch (syncError) {
-        console.error('Sync error:', syncError);
-        db.prepare(`
-          UPDATE wallets SET sync_status = 'error' WHERE id = ?
-        `).run(walletId);
-        throw syncError;
+      } else if (['ETH', 'Polygon', 'Optimism'].includes(wallet.chain)) {
+        await syncEvmWallet(wallet.account_id, wallet.chain);
+      } else {
+        // Unknown chain - just mark complete
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
-    } else {
-      // For other chains, just mark as complete for now
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Update status to complete
       db.prepare(`
         UPDATE wallets SET sync_status = 'complete', last_synced_at = datetime('now') WHERE id = ?
       `).run(walletId);
+    } catch (syncError) {
+      console.error('Sync error:', syncError);
+      db.prepare(`
+        UPDATE wallets SET sync_status = 'error' WHERE id = ?
+      `).run(walletId);
+      throw syncError;
     }
 
     const updatedWallet = db.prepare(`
@@ -94,7 +93,63 @@ export async function POST(
   }
 }
 
-// Call Python indexer
+// Call Python indexer for EVM chains
+async function syncEvmWallet(address: string, chain: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const projectRoot = path.join(process.cwd(), '..');
+    
+    const pythonProcess = spawn('python3', [
+      '-c',
+      `
+import sys
+sys.path.insert(0, '${projectRoot}')
+from indexers.evm_indexer import index_evm_account
+try:
+    result = index_evm_account('${address}', '${chain}')
+    print(f'Indexed {result} transactions')
+except Exception as e:
+    print(f'Error: {e}', file=sys.stderr)
+    sys.exit(1)
+`
+    ], {
+      cwd: projectRoot,
+      env: { ...process.env, PYTHONUNBUFFERED: '1' }
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    pythonProcess.stdout.on('data', (data) => {
+      stdout += data.toString();
+      console.log('[EVM Indexer]', data.toString().trim());
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+      stderr += data.toString();
+      console.error('[EVM Indexer Error]', data.toString().trim());
+    });
+
+    pythonProcess.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`EVM indexer failed with code ${code}: ${stderr}`));
+      }
+    });
+
+    pythonProcess.on('error', (err) => {
+      reject(err);
+    });
+
+    // Timeout after 10 minutes
+    setTimeout(() => {
+      pythonProcess.kill();
+      reject(new Error('EVM indexer timeout'));
+    }, 10 * 60 * 1000);
+  });
+}
+
+// Call Python indexer for NEAR
 async function syncNearWallet(walletId: number, accountId: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const projectRoot = path.join(process.cwd(), '..');

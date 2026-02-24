@@ -78,11 +78,12 @@ def update_progress(wallet_id, cursor, fetched, status, expected=None, error=Non
     conn.close()
 
 
-def index_account(account_id, force=False):
+def index_account(account_id, force=False, incremental=True):
     """
     Index all transactions for an account.
     
     Resumable - saves cursor after each page.
+    If incremental=True and already complete, still checks for new transactions.
     Returns: total transactions indexed
     """
     client = NearBlocksClient()
@@ -90,9 +91,25 @@ def index_account(account_id, force=False):
     
     # Check current status
     status = get_indexing_status(wallet_id)
+    
     if status["status"] == "complete" and not force:
-        print(f"{account_id}: Already complete ({status['fetched']} txs)")
-        return status["fetched"]
+        if incremental:
+            # Check if there are new transactions since last sync
+            try:
+                current_count = client.get_transaction_count(account_id)
+                if current_count <= status["fetched"]:
+                    print(f"{account_id}: Already complete, no new txs ({status['fetched']} txs)")
+                    return status["fetched"]
+                print(f"{account_id}: Found {current_count - status['fetched']} new txs since last sync")
+                # Reset to re-fetch (INSERT OR IGNORE handles duplicates)
+                status["cursor"] = None
+                status["fetched"] = 0
+            except Exception as e:
+                print(f"{account_id}: Error checking for new txs - {e}")
+                return status["fetched"]
+        else:
+            print(f"{account_id}: Already complete ({status['fetched']} txs)")
+            return status["fetched"]
     
     # Get total for progress display
     try:

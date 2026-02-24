@@ -81,8 +81,10 @@ export default function WalletsPage() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'complete':
+      case 'synced':
         return <CheckCircle className="w-4 h-4 text-green-500" />;
       case 'syncing':
+      case 'in_progress':
         return <RefreshCw className="w-4 h-4 text-blue-500 animate-spin" />;
       case 'error':
         return <AlertCircle className="w-4 h-4 text-red-500" />;

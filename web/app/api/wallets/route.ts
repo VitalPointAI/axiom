@@ -1,6 +1,8 @@
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { spawn } from 'child_process';
+import path from 'path';
 
 // GET /api/wallets - List user's wallets
 export async function GET() {
@@ -129,7 +131,26 @@ export async function POST(request: NextRequest) {
     const wallet = db.prepare(`
       SELECT id, account_id as address, chain, label, sync_status, last_synced_at, created_at
       FROM wallets WHERE id = ?
-    `).get(result.lastInsertRowid);
+    `).get(result.lastInsertRowid) as any;
+
+    // Auto-trigger backfill for NEAR wallets
+    if (chain === 'NEAR' && wallet) {
+      try {
+        const indexerPath = path.join(process.cwd(), '..', 'indexers', 'hybrid_indexer.py');
+        const child = spawn('python3', [indexerPath, '--backfill', address], {
+          detached: true,
+          stdio: 'ignore',
+          cwd: path.join(process.cwd(), '..'),
+        });
+        child.unref();
+        
+        // Update status to syncing
+        db.prepare('UPDATE wallets SET sync_status = ? WHERE id = ?').run('syncing', wallet.id);
+        wallet.sync_status = 'syncing';
+      } catch (err) {
+        console.error('Failed to start auto-backfill:', err);
+      }
+    }
 
     return NextResponse.json({ wallet }, { status: 201 });
   } catch (error) {
