@@ -1,0 +1,48 @@
+# Database files
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.egg
+*.egg-info/
+dist/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (web app)
+web/node_modules/
+web/.next/
+web/out/
+
+# Logs
+*.log
+logs/
+
+# Credentials (should be in ~/.openclaw/credentials/)
+*.key
+*.pem
+secrets.json
+
+# Test output
+output/
+reports/
