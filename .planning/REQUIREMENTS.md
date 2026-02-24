@@ -43,12 +43,22 @@
 - [ ] **RPT-05**: System exports accountant-ready CSV package
 - [ ] **RPT-06**: System generates PDF summary report
 
+### User Interface
+
+- [ ] **UI-01**: Web UI with user authentication via near-phantom-auth (NEAR wallet login)
+- [ ] **UI-02**: Dashboard showing portfolio summary (total holdings, value by asset, staking positions)
+- [ ] **UI-03**: Wallet management view (add/edit/remove wallets, view balances, sync status)
+- [ ] **UI-04**: Transaction ledger with filtering, search, and pagination
+- [ ] **UI-05**: Transaction detail view with classification editing and notes
+- [ ] **UI-06**: Report generation UI (select tax year, generate/download reports)
+- [ ] **UI-07**: Verification dashboard showing reconciliation status and flagged issues
+- [ ] **UI-08**: Multi-user support with isolated data per NEAR account
+
 ## v2 Requirements (Deferred)
 
 - [ ] Plaid integration for automated bank data
 - [ ] Real-time portfolio value tracking
 - [ ] Multi-entity support (multiple corporations)
-- [ ] Web UI for transaction review/editing
 - [ ] Automatic exchange API sync (vs CSV import)
 
 ## Out of Scope
@@ -89,6 +99,14 @@
 | RPT-04 | Phase 6 | Not Started |
 | RPT-05 | Phase 6 | Not Started |
 | RPT-06 | Phase 6 | Not Started |
+| UI-01 | Phase 7 | Not Started |
+| UI-02 | Phase 7 | Not Started |
+| UI-03 | Phase 7 | Not Started |
+| UI-04 | Phase 7 | Not Started |
+| UI-05 | Phase 7 | Not Started |
+| UI-06 | Phase 7 | Not Started |
+| UI-07 | Phase 7 | Not Started |
+| UI-08 | Phase 7 | Not Started |
 
 ---
-*Last updated: 2026-02-23 after initialization*
+*Last updated: 2026-02-24 after adding UI phase*

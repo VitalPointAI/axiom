@@ -9,6 +9,12 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 ## Current Phase
 
+**Phase 2: Multi-Chain + Exchanges** 🔨 IN PROGRESS
+- EVM schema created (`db/schema_evm.sql`)
+- Exchange parser framework built (`indexers/exchange_parsers/`)
+- Coinbase parser COMPLETE ✅
+- Remaining parsers: Crypto.com, Wealthsimple, Uphold, Coinsquare
+
 **Phase 1: NEAR Indexer** ✅ COMPLETE
 - All 3 plans executed successfully
 - Database + rate-limited API client working
@@ -16,24 +22,27 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Staking: 19,716 NEAR staked, ~748 NEAR rewards
 - Lockup: vesting complete, 52 historical txs
 
-**ALL PHASES COMPLETE** 🎉
+**Phase 7: Web UI** 📋 PLANNED
+- Requirements added (UI-01 through UI-08)
+- Will use near-phantom-auth for NEAR wallet login
+- Next.js + Tailwind + shadcn/ui stack
 
-Framework ready - now needs:
-1. Exchange CSV files from Aaron
-2. Run full NEAR indexing (will take hours)
-3. Etherscan API keys for EVM chains
-4. CoinGecko API key for historical prices
+**Needs from Aaron:**
+1. Exchange CSV files (Crypto.com, Wealthsimple, Uphold, Coinsquare, Coinbase)
+2. Etherscan API key for EVM chains
+3. CoinGecko API key for historical prices
 
 ## Progress
 
 | Phase | Status | Completion |
 |-------|--------|------------|
 | 1. NEAR Indexer | **COMPLETE** | 100% |
-| 2. Multi-Chain + Exchanges | **COMPLETE** | 100% |
-| 3. Transaction Classification | **COMPLETE** | 100% |
-| 4. Cost Basis Engine | **COMPLETE** | 100% |
-| 5. Verification | **COMPLETE** | 100% |
-| 6. Reporting | **COMPLETE** | 100% |
+| 2. Multi-Chain + Exchanges | In Progress | 40% |
+| 3. Transaction Classification | Not Started | 0% |
+| 4. Cost Basis Engine | Not Started | 0% |
+| 5. Verification | Not Started | 0% |
+| 6. Reporting | Not Started | 0% |
+| 7. Web UI | **PLANNED** | 0% |
 
 ## Blockers
 
@@ -41,13 +50,14 @@ None currently.
 
 ## Recent Activity
 
+- 2026-02-24: **Phase 7 (Web UI) added** - NEAR wallet auth + portfolio UI
+- 2026-02-23: Phase 2 started - EVM schema + exchange parser framework
+- 2026-02-23: Coinbase parser complete
+- 2026-02-23: Phase 1 COMPLETE - NEAR indexer working
 - 2026-02-23: Project initialized with GSD framework
 - 2026-02-23: Wallet inventory confirmed (64 NEAR + multi-chain)
 - 2026-02-23: Initial balance scan completed (20,076.35 NEAR total)
-- 2026-02-23: Phase 1 planned (3 plans in 2 waves)
-- 2026-02-23: Discovery completed - using NearBlocks API for transaction indexing
 - 2026-02-23: Discovery UPDATED - NearBlocks rate limits found (~6 req before 429)
-- 2026-02-23: Phase 1 REPLANNED with rate-limit-aware architecture
 
 ## Questions Pending
 
@@ -67,4 +77,4 @@ None currently.
 | 2026-02-23 | Resumable indexer | 23,679 txs for main account = 15-30 min, needs interruption handling |
 
 ---
-*Last updated: 2026-02-23*
+*Last updated: 2026-02-24*
