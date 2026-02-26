@@ -174,10 +174,28 @@ aaron.near calls leave on vitalpointai.cdao.near
 
 **Pattern**: `DELETE_ACCOUNT` action with beneficiary
 
-**Rule**:
-- Remaining account balance transfers to `beneficiary_id`
-- Create synthetic `DELETE_ACCOUNT_TRANSFER` record
-- Category: `transfer-internal` if beneficiary is owned
+**How NEAR handles this**:
+1. Source account executes `DELETE_ACCOUNT` action (deposit: 0)
+2. Beneficiary receives `TRANSFER` from `system` (not the deleted account!)
+3. Both receipts share the same `transaction_hash`
+
+**Example** (`APynxgFzGoH1V2ToWRdVrE8H259YCFYGf58v2gtLfTU2`):
+```
+Source: challenge-coin-game.credz.near
+  → DELETE_ACCOUNT action, deposit: 0
+
+Beneficiary: credz.near  
+  → TRANSFER from "system", deposit: 2.999 NEAR
+```
+
+**Indexer behavior**:
+- Source account: Records DELETE_ACCOUNT (out, 0 NEAR)
+- Beneficiary: Records TRANSFER from `system` (in, actual balance)
+- The counterparty shows as `system`, not the deleted account name
+
+**Tax Category**: 
+- Source: Account closure (non-taxable, just moving funds)
+- Beneficiary: `transfer-internal` if same owner, otherwise `income` or `gift-received`
 
 **Note**: Failed DELETE_ACCOUNT transactions are skipped (no funds transferred)
 
