@@ -8,7 +8,9 @@ import {
   ArrowLeftRight, 
   FileText,
   LogOut,
-  User
+  User,
+  Coins,
+  AlertTriangle
 } from 'lucide-react';
 import { useAuth } from './auth-provider';
 
@@ -22,6 +24,8 @@ const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/dashboard/wallets', label: 'Wallets', icon: Wallet },
   { href: '/dashboard/transactions', label: 'Transactions', icon: ArrowLeftRight },
+  { href: '/dashboard/defi', label: 'DeFi Activity', icon: Coins },
+  { href: '/dashboard/prices', label: 'Price Warnings', icon: AlertTriangle },
   { href: '/dashboard/reports', label: 'Reports', icon: FileText },
 ];
 

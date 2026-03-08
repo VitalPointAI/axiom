@@ -2,6 +2,51 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 
+// NearBlocks API for real balances
+const NEARBLOCKS_API = 'https://api.nearblocks.io/v1';
+const API_KEY = process.env.NEARBLOCKS_API_KEY || '0F1F69733B684BD48753570B3B9C4B27';
+
+interface AccountBalance {
+  account: string;
+  liquid: number;
+  staked: number;
+}
+
+async function getAccountBalance(account: string): Promise<AccountBalance | null> {
+  try {
+    const resp = await fetch(`${NEARBLOCKS_API}/account/${account}`, {
+      headers: { Authorization: `Bearer ${API_KEY}` },
+      next: { revalidate: 60 } // Cache for 1 minute
+    });
+    
+    if (!resp.ok) return null;
+    
+    const data = await resp.json();
+    const acct = data.account?.[0] || {};
+    
+    return {
+      account,
+      liquid: parseFloat(acct.amount || '0') / 1e24,
+      staked: parseFloat(acct.staked || '0') / 1e24
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function getNearPrice(): Promise<number> {
+  try {
+    const resp = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=near&vs_currencies=usd',
+      { next: { revalidate: 300 } }
+    );
+    const data = await resp.json();
+    return data.near?.usd || 5.0;
+  } catch {
+    return 5.0;
+  }
+}
+
 export async function GET() {
   try {
     const cookieStore = await cookies();
@@ -24,124 +69,126 @@ export async function GET() {
 
     // Get wallets for this user
     const wallets = db.prepare(`
-      SELECT id, account_id, chain, label, last_synced_at
+      SELECT id, account_id, chain, label
       FROM wallets 
       WHERE user_id = ?
     `).all(user.id) as Array<{
       id: number;
       account_id: string;
       chain: string;
-      label: string;
-      last_synced_at: string;
+      label: string | null;
     }>;
 
-    // Calculate holdings from transactions
-    const holdings: Record<string, { amount: number; chain: string }> = {};
+    // Fetch LIVE balances from NearBlocks
+    const nearWallets = wallets.filter(w => w.chain === 'NEAR');
+    const balances: AccountBalance[] = [];
     
-    for (const wallet of wallets) {
-      // Sum up transactions for this wallet
-      // Amount is stored as yoctoNEAR string, need to convert
-      const txSummary = db.prepare(`
-        SELECT 
-          direction,
-          SUM(CAST(amount AS REAL) / 1e24) as total_near
-        FROM transactions
-        WHERE wallet_id = ? AND success = 1
-        GROUP BY direction
-      `).all(wallet.id) as Array<{
-        direction: string;
-        total_near: number;
-      }>;
-
-      let balance = 0;
-      for (const row of txSummary) {
-        if (row.direction === 'in') {
-          balance += row.total_near || 0;
-        } else if (row.direction === 'out') {
-          balance -= row.total_near || 0;
+    // Process in batches of 5 to avoid rate limits
+    for (let i = 0; i < nearWallets.length; i += 5) {
+      const batch = nearWallets.slice(i, i + 5);
+      const results = await Promise.all(
+        batch.map(w => getAccountBalance(w.account_id))
+      );
+      
+      for (const result of results) {
+        if (result) {
+          balances.push(result);
         }
       }
-
-      const asset = wallet.chain === 'NEAR' ? 'NEAR' : wallet.chain;
-      if (!holdings[asset]) {
-        holdings[asset] = { amount: 0, chain: wallet.chain };
-      }
-      holdings[asset].amount += balance;
-    }
-
-    // Get staking positions from staking_events
-    const stakingPositions = db.prepare(`
-      SELECT 
-        se.validator_id,
-        SUM(CASE WHEN se.event_type = 'deposit' THEN CAST(se.amount AS REAL) / 1e24 ELSE 0 END) as deposits,
-        SUM(CASE WHEN se.event_type = 'withdraw' THEN CAST(se.amount AS REAL) / 1e24 ELSE 0 END) as withdrawals,
-        SUM(CASE WHEN se.event_type = 'reward' THEN CAST(se.amount AS REAL) / 1e24 ELSE 0 END) as rewards
-      FROM staking_events se
-      JOIN wallets w ON se.wallet_id = w.id
-      WHERE w.user_id = ?
-      GROUP BY se.validator_id
-    `).all(user.id) as Array<{
-      validator_id: string;
-      deposits: number;
-      withdrawals: number;
-      rewards: number;
-    }>;
-
-    // Fetch real prices from CoinGecko
-    const { getCurrentPrices, FALLBACK_PRICES } = await import('@/lib/prices');
-    const assetsToPrice = [...new Set([
-      ...Object.keys(holdings),
-      ...wallets.map(w => w.chain),
-      'NEAR' // Always include NEAR for staking
-    ])];
-    
-    let prices = await getCurrentPrices(assetsToPrice);
-    
-    // Use fallbacks if API failed
-    if (Object.keys(prices).length === 0) {
-      prices = FALLBACK_PRICES;
-    }
-
-    // Calculate total value
-    let totalValue = 0;
-    const holdingsWithValue = Object.entries(holdings)
-      .filter(([_, data]) => data.amount > 0.001) // Filter dust
-      .map(([asset, data]) => {
-        const price = prices[asset] || prices[data.chain] || 0;
-        const value = data.amount * price;
-        totalValue += value;
-        return {
-          asset,
-          amount: data.amount,
-          chain: data.chain,
-          price,
-          value,
-        };
-      });
-
-    // Calculate staking value
-    const stakingWithValue = stakingPositions.map(pos => {
-      const staked = pos.deposits - pos.withdrawals;
-      const rewards = pos.rewards;
-      const nearPrice = prices['NEAR'] || 0;
-      const value = (staked + rewards) * nearPrice;
-      totalValue += value;
       
-      return {
-        validator: pos.validator_id,
-        staked: staked,
-        rewards: rewards,
-        value: value,
-      };
-    }).filter(pos => pos.staked > 0.001); // Filter dust
+      // Small delay between batches
+      if (i + 5 < nearWallets.length) {
+        await new Promise(r => setTimeout(r, 100));
+      }
+    }
 
+    // Sum up totals
+    let totalLiquid = 0;
+    let totalStaked = 0;
+    
+    for (const bal of balances) {
+      totalLiquid += bal.liquid;
+      totalStaked += bal.staked;
+    }
+    
+    const totalNear = totalLiquid + totalStaked;
+    
+    // Get NEAR price
+    const nearPrice = await getNearPrice();
+    const totalValue = totalNear * nearPrice;
+
+    // Build holdings array
+    const holdings = [
+      {
+        asset: 'NEAR',
+        amount: totalLiquid,
+        chain: 'NEAR',
+        price: nearPrice,
+        value: totalLiquid * nearPrice
+      }
+    ];
+
+    // Build staking array from live data
+    const staking = totalStaked > 0.01 ? [{
+      validator: 'Various validators',
+      staked: totalStaked,
+      rewards: 0,
+      value: totalStaked * nearPrice
+    }] : [];
+
+    // Get detailed staking from DB if available
+    const stakingEvents = db.prepare(`
+      SELECT 
+        validator,
+        SUM(CASE WHEN event_type = 'deposit_and_stake' THEN CAST(amount AS REAL) / 1e24 ELSE 0 END) as staked,
+        SUM(CASE WHEN event_type IN ('unstake', 'unstake_all') THEN CAST(amount AS REAL) / 1e24 ELSE 0 END) as unstaked
+      FROM staking_events
+      WHERE wallet_id IN (SELECT id FROM wallets WHERE user_id = ?)
+      GROUP BY validator
+      HAVING (staked - unstaked) > 0.01
+    `).all(user.id) as Array<{ validator: string; staked: number; unstaked: number }>;
+
+    const detailedStaking = stakingEvents.map(s => ({
+      validator: s.validator,
+      staked: s.staked - s.unstaked,
+      rewards: 0,
+      value: (s.staked - s.unstaked) * nearPrice
+    }));
+
+    // Calculate CAD values
+    const cadRate = 1.38;
+    const liquidValue = totalLiquid * nearPrice;
+    const stakedValue = totalStaked * nearPrice;
+    
     return NextResponse.json({
+      // Summary
       totalValue,
-      change24h: 0, // Would calculate from historical data
+      totalValueCad: totalValue * cadRate,
+      totalNear,
+      nearPrice,
+      cadRate,
+      
+      // Breakdown
+      liquid: {
+        near: totalLiquid,
+        usd: liquidValue,
+        cad: liquidValue * cadRate
+      },
+      staked: {
+        near: totalStaked,
+        usd: stakedValue,
+        cad: stakedValue * cadRate
+      },
+      
+      // Metadata
+      change24h: 0,
       walletCount: wallets.length,
-      assetCount: Object.keys(holdings).length,
-      holdings: holdingsWithValue.sort((a, b) => b.value - a.value),
-      staking: stakingWithValue,
+      assetCount: 1,
+      
+      // Details
+      holdings,
+      staking: detailedStaking.length > 0 ? detailedStaking : staking,
+      walletBalances: balances.filter(b => b.liquid > 0.1 || b.staked > 0.1).slice(0, 15)
     });
   } catch (error) {
     console.error('Portfolio fetch error:', error);

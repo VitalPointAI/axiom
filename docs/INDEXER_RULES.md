@@ -1,7 +1,7 @@
 # NearTax Indexer Rules & Tax Treatment Guide
 
-> **Version**: 1.1.0  
-> **Last Updated**: 2026-02-26  
+> **Version**: 1.2.3  
+> **Last Updated**: 2026-02-27  
 > **Status**: Draft - Pending Accountant Review
 
 This document defines how the NearTax indexer categorizes NEAR blockchain transactions and their recommended tax treatment. All rules should be verified with a qualified tax professional before use.
@@ -338,6 +338,55 @@ Beneficiary: credz.near
 - If DELETE_ACCOUNT tx_hash exists in owned wallets → `internal`
 - Otherwise → `delete_account_received` (potential income)
 
+**Verification Accounting**:
+When verifying wallet balances, DELETE_ACCOUNT transfers must be tracked as **outflows** from the deleted account:
+
+```sql
+-- Find DELETE_ACCOUNT outflows for a wallet
+-- Joins DELETE_ACCOUNT action to the beneficiary's inbound system transfer
+SELECT COALESCE(SUM(CAST(t2.amount AS REAL)/1e24), 0) as total
+FROM transactions t1
+JOIN transactions t2 ON t1.tx_hash = t2.tx_hash
+WHERE t1.wallet_id = :wallet_id           -- The deleted wallet
+  AND t1.action_type = 'DELETE_ACCOUNT'   -- Find DELETE_ACCOUNT actions
+  AND t2.direction = 'in'                 -- Beneficiary received funds
+  AND t2.counterparty = 'system'          -- From "system" (not the deleted account directly)
+  AND t2.wallet_id != t1.wallet_id        -- Beneficiary is a different tracked wallet
+```
+
+**Note**: This only works if the beneficiary is also a tracked wallet. If not, the outflow can't be verified from DB alone.
+
+The remaining balance of a deleted account flows to the beneficiary. This is the inverse of CREATE_ACCOUNT funding - the NEAR doesn't disappear, it transfers.
+
+**Storage Cost Clarification**:
+Storage costs (locked NEAR for on-chain state) are **NOT outflows**. Storage is locked NEAR that remains in the account balance. Formula: `storage_usage_bytes * 1e-5 NEAR` (1 NEAR per 100KB).
+
+**Verification Formula**:
+```
+computed_balance = (regular_IN + DELETE_ACCOUNT_IN) - OUT - fees - DELETE_ACCOUNT_outflows
+```
+
+Where:
+- **regular_IN**: All inbound transfers EXCEPT system gas refunds
+- **DELETE_ACCOUNT_IN**: System transfers linked to DELETE_ACCOUNT (beneficiary receives)
+- **OUT**: All outbound transfers (excluding self-transfers)
+- **fees**: Only for OUT direction (you don't pay gas for incoming transactions)
+- **DELETE_ACCOUNT_outflows**: Balance sent to beneficiary when your account was deleted
+
+**System Gas Refunds**:
+System transfers from `counterparty = 'system'` are usually gas refunds (unused gas returned). These should be **excluded from IN** because:
+- They're returns of your own prepaid gas, not income
+- Including them would double-count (gas attached, then refunded)
+- Exception: System transfers linked to DELETE_ACCOUNT ARE income (beneficiary transfer)
+
+**Fee Calculation**:
+Only subtract fees for `direction = 'out'` transactions:
+- When YOU initiate a transaction, YOU pay gas
+- When someone ELSE sends to you, THEY pay gas
+- Contracts receiving FUNCTION_CALL don't pay the gas - the caller does
+
+Storage should NOT be subtracted - it's already reflected in the RPC balance.
+
 ### 2. Account Creation (`init` method)
 
 **Pattern**: `FUNCTION_CALL` with `method_name = "init"` and attached deposit
@@ -372,6 +421,48 @@ Beneficiary: credz.near
 - If same tx_hash as DELETE_ACCOUNT → `delete_account_received`
 - Otherwise → `fee_refund` (gas refunds)
 
+### 6. Contract Receipt-Level Transfers
+
+**Problem**: When a contract executes code that sends NEAR (e.g., `Promise::new(user).transfer(amount)`), this creates a receipt-level transfer, NOT a top-level transaction.
+
+**Example**: NFT contract refunds unused mint fee
+```rust
+// Contract code
+Promise::new(buyer).transfer(refund_amount);
+```
+
+This generates a receipt where:
+- `predecessor_id` = contract account (initiator)
+- `receiver_id` = buyer account (recipient)
+- `action` = TRANSFER with deposit
+
+**Standard `/txns` endpoint misses these** because it returns transactions where the account is signer or receiver, but not receipts generated during contract execution.
+
+**Solution**: Use NearBlocks `/account/{id}/receipts` endpoint to capture these:
+```python
+# Fetch receipts where contract initiated transfers
+result = client.fetch_receipts(contract_account, cursor=cursor, per_page=100)
+for receipt in result['txns']:
+    if receipt['predecessor_account_id'] == contract_account:
+        for action in receipt['actions']:
+            if action['action'] == 'TRANSFER' and action['deposit'] > 0:
+                # This is an outbound transfer from the contract
+                record_transaction(direction='out', ...)
+```
+
+**Affected wallet types**:
+- NFT contracts (mint refunds, royalty payouts)
+- Game contracts (prize payouts, refunds)
+- DAO contracts (proposal payouts)
+- Any smart contract that sends NEAR programmatically
+
+**Indexer Implementation**:
+- `indexers/nearblocks_client.py`: `fetch_receipts()` method
+- `indexers/backfill_receipts.py`: One-time backfill for existing contracts
+- Regular indexing should also process receipts for contract wallets
+
+**Verification Impact**: Contract wallets may show balance discrepancies until receipt backfill completes. The discrepancy = NEAR sent via contract execution that wasn't captured.
+
 ---
 
 ## Monitoring & Alerts
@@ -398,6 +489,30 @@ Run `scripts/detect_uncategorized.py` after each categorization to find new patt
 ---
 
 ## Changelog
+
+### v1.2.3 (2026-02-27)
+- **Major verification fix**: Exclude system gas refunds from IN (they're returns, not income)
+- **Major verification fix**: Only count fees for OUT direction (you don't pay gas for receiving)
+- Added stale data detection to verify-all.cjs (flags wallets needing resync)
+- Updated RPC endpoint to fastnear.com (mainnet RPC deprecated)
+- Documented verification formula with all components explained
+
+### v1.2.2 (2026-02-27)
+- Fixed DELETE_ACCOUNT outflow SQL to properly JOIN between deleted wallet and beneficiary
+- Added note that beneficiary must be tracked wallet for verification to work
+- Updated verify-all.cjs script with correct logic
+
+### v1.2.1 (2026-02-27)
+- Added DELETE_ACCOUNT outflow tracking for verification
+- Clarified storage cost is NOT an outflow (locked NEAR in account)
+- Added verification formula: `balance = SUM(in) - SUM(out) - fees - DELETE_ACCOUNT_outflows`
+
+### v1.2.0 (2026-02-27)
+- Added contract receipt-level transfer documentation
+- Documented NearBlocks `/receipts` endpoint usage
+- Added `fetch_receipts()` method to nearblocks_client.py
+- Created `backfill_receipts.py` for one-time historical backfill
+- Explained balance verification discrepancies for contract wallets
 
 ### v1.1.0 (2026-02-26)
 - Added comprehensive method name rules (100+ methods documented)

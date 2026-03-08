@@ -1,0 +1,25 @@
+# NearTax Indexer Cron Jobs
+# Format: minute hour day month weekday command
+
+# Price indexer - every 5 minutes
+*/5 * * * * cd /app && python price_indexer.py >> /var/log/cron.log 2>&1
+
+# NEAR indexer - every 6 hours
+0 */6 * * * cd /app && python near_indexer_nearblocks.py >> /var/log/cron.log 2>&1
+
+# FT token indexer - every 6 hours (offset by 1 hour)
+0 1,7,13,19 * * * cd /app && python ft_indexer.py >> /var/log/cron.log 2>&1
+
+# EVM indexer - every 6 hours (offset by 2 hours)
+0 2,8,14,20 * * * cd /app && python evm_indexer.py >> /var/log/cron.log 2>&1
+
+# DeFi/Burrow tracker - every 6 hours (offset by 3 hours)
+0 3,9,15,21 * * * cd /app && python burrow_tracker.py >> /var/log/cron.log 2>&1
+
+# Staking tracker - daily at 4am UTC
+0 4 * * * cd /app && python staking_tracker.py >> /var/log/cron.log 2>&1
+
+# SWEAT Jars tracker - daily at 5am UTC
+0 5 * * * cd /app && python sweat_jars_tracker.py >> /var/log/cron.log 2>&1
+
+# Empty line required at end
