@@ -10,7 +10,10 @@ import {
   LogOut,
   User,
   Coins,
-  AlertTriangle
+  AlertTriangle,
+  Landmark,
+  Repeat,
+  Settings
 } from 'lucide-react';
 import { useAuth } from './auth-provider';
 
@@ -24,9 +27,12 @@ const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/dashboard/wallets', label: 'Wallets', icon: Wallet },
   { href: '/dashboard/transactions', label: 'Transactions', icon: ArrowLeftRight },
+  { href: '/dashboard/staking', label: 'Staking Income', icon: Landmark },
   { href: '/dashboard/defi', label: 'DeFi Activity', icon: Coins },
+  { href: '/dashboard/swap', label: 'Swap', icon: Repeat },
   { href: '/dashboard/prices', label: 'Price Warnings', icon: AlertTriangle },
   { href: '/dashboard/reports', label: 'Reports', icon: FileText },
+  { href: '/dashboard/admin', label: 'Settings', icon: Settings },
 ];
 
 export function Sidebar({ user }: SidebarProps) {
@@ -52,7 +58,7 @@ export function Sidebar({ user }: SidebarProps) {
             return (
               <li key={item.href}>
                 <Link
-                  href={item.href}
+                  href={item.href} prefetch={item.href !== "/dashboard/swap"}
                   className={`flex items-center gap-3 px-3 py-2 rounded-lg transition ${
                     isActive 
                       ? 'bg-slate-800 text-white' 

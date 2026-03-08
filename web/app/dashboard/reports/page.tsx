@@ -1,15 +1,26 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { FileText, Download, AlertTriangle, CheckCircle, DollarSign, Globe, TrendingUp, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
+import { FileText, Download, AlertTriangle, CheckCircle, DollarSign, Globe, TrendingUp, RefreshCw, Landmark } from 'lucide-react';
 
 interface ReportSummary {
   year: string;
   categories: Array<{ tax_category: string; count: number; total_cad: number }>;
-  stakingRewards: number;
+  stakingIncome: {
+    near: number;
+    usd: number;
+    cad: number;
+  };
   defiIncome: Array<{ token_symbol: string; total_tokens: number; total_cad: number }>;
   trades: number;
-  disposals: Array<{ month: string; count: number; proceeds_cad: number }>;
+  capitalGains: {
+    disposals: number;
+    proceeds: number;
+    costBasis: number;
+    netGainLoss: number;
+  };
+  holdings: Array<any>;
   warnings: number;
 }
 
@@ -81,6 +92,8 @@ export default function ReportsPage() {
     }
   };
 
+  const formatCad = (n: number) => '$' + (n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -105,10 +118,13 @@ export default function ReportsPage() {
             onChange={(e) => setYear(e.target.value)}
             className="px-4 py-2 border rounded-lg bg-white"
           >
+            <option value="2026">2026</option>
             <option value="2025">2025</option>
             <option value="2024">2024</option>
             <option value="2023">2023</option>
             <option value="2022">2022</option>
+            <option value="2021">2021</option>
+            <option value="2020">2020</option>
           </select>
           <div className="flex gap-2">
             <a
@@ -126,11 +142,11 @@ export default function ReportsPage() {
               T1135 CSV
             </a>
             <a
-              href={`/api/reports/export?year=${year}&report=transactions&format=csv`}
-              className="flex items-center gap-2 px-3 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition text-sm"
+              href={`/api/reports/export?year=${year}&report=staking&format=csv`}
+              className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm"
             >
               <Download className="w-4 h-4" />
-              All Transactions
+              Staking CSV
             </a>
           </div>
         </div>
@@ -177,61 +193,81 @@ export default function ReportsPage() {
         <div className="space-y-6">
           {/* Key Stats */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            {/* Staking Income */}
+            <Link href="/dashboard/staking" className="bg-white rounded-lg shadow-sm border p-6 hover:shadow-md transition">
               <div className="flex items-center gap-3">
-                <div className="p-3 bg-green-50 rounded-lg">
-                  <DollarSign className="w-6 h-6 text-green-600" />
+                <div className="p-3 bg-purple-50 rounded-lg">
+                  <Landmark className="w-6 h-6 text-purple-600" />
                 </div>
                 <div>
-                  <p className="text-sm text-slate-500">Staking Rewards</p>
+                  <p className="text-sm text-slate-500">Staking Income</p>
                   <p className="text-xl font-bold text-slate-900">
-                    {summary.stakingRewards.toLocaleString(undefined, { maximumFractionDigits: 2 })} NEAR
+                    {formatCad(summary.stakingIncome?.cad || 0)}
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {(summary.stakingIncome?.near || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} NEAR
+                  </p>
+                </div>
+              </div>
+            </Link>
+            
+            {/* Capital Gains/Loss */}
+            <div className={`rounded-lg shadow-sm border p-6 ${
+              (summary.capitalGains?.netGainLoss || 0) >= 0 ? 'bg-green-50' : 'bg-red-50'
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className={`p-3 rounded-lg ${
+                  (summary.capitalGains?.netGainLoss || 0) >= 0 ? 'bg-green-100' : 'bg-red-100'
+                }`}>
+                  <TrendingUp className={`w-6 h-6 ${
+                    (summary.capitalGains?.netGainLoss || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                  }`} />
+                </div>
+                <div>
+                  <p className="text-sm text-slate-500">
+                    {(summary.capitalGains?.netGainLoss || 0) >= 0 ? 'Capital Gain' : 'Capital Loss'}
+                  </p>
+                  <p className={`text-xl font-bold ${
+                    (summary.capitalGains?.netGainLoss || 0) >= 0 ? 'text-green-700' : 'text-red-700'
+                  }`}>
+                    {formatCad(Math.abs(summary.capitalGains?.netGainLoss || 0))}
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {summary.capitalGains?.disposals || 0} disposals
                   </p>
                 </div>
               </div>
             </div>
             
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            {/* DeFi Trades */}
+            <Link href="/dashboard/defi" className="bg-white rounded-lg shadow-sm border p-6 hover:shadow-md transition">
               <div className="flex items-center gap-3">
                 <div className="p-3 bg-blue-50 rounded-lg">
-                  <TrendingUp className="w-6 h-6 text-blue-600" />
+                  <DollarSign className="w-6 h-6 text-blue-600" />
                 </div>
                 <div>
                   <p className="text-sm text-slate-500">DeFi Trades</p>
-                  <p className="text-xl font-bold text-slate-900">{summary.trades}</p>
+                  <p className="text-xl font-bold text-slate-900">{summary.trades || 0}</p>
                 </div>
               </div>
-            </div>
+            </Link>
             
-            <div className="bg-white rounded-lg shadow-sm border p-6">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-purple-50 rounded-lg">
-                  <FileText className="w-6 h-6 text-purple-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-slate-500">Disposals</p>
-                  <p className="text-xl font-bold text-slate-900">
-                    {summary.disposals.reduce((sum, d) => sum + d.count, 0)}
-                  </p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-white rounded-lg shadow-sm border p-6">
+            {/* Warnings */}
+            <Link href="/dashboard/prices" className="bg-white rounded-lg shadow-sm border p-6 hover:shadow-md transition">
               <div className="flex items-center gap-3">
                 <div className="p-3 bg-orange-50 rounded-lg">
                   <AlertTriangle className="w-6 h-6 text-orange-600" />
                 </div>
                 <div>
                   <p className="text-sm text-slate-500">Needs Review</p>
-                  <p className="text-xl font-bold text-slate-900">{summary.warnings}</p>
+                  <p className="text-xl font-bold text-slate-900">{summary.warnings || 0}</p>
                 </div>
               </div>
-            </div>
+            </Link>
           </div>
 
           {/* DeFi Income */}
-          {summary.defiIncome.length > 0 && (
+          {summary.defiIncome && summary.defiIncome.length > 0 && (
             <div className="bg-white rounded-lg shadow-sm border p-6">
               <h2 className="text-lg font-semibold text-slate-700 mb-4">DeFi Income</h2>
               <table className="w-full">
@@ -250,7 +286,7 @@ export default function ReportsPage() {
                         {item.total_tokens.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </td>
                       <td className="py-3 text-right">
-                        ${item.total_cad.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        {formatCad(item.total_cad)}
                       </td>
                     </tr>
                   ))}
@@ -259,32 +295,43 @@ export default function ReportsPage() {
             </div>
           )}
 
-          {/* Monthly Disposals */}
-          {summary.disposals.length > 0 && (
-            <div className="bg-white rounded-lg shadow-sm border p-6">
-              <h2 className="text-lg font-semibold text-slate-700 mb-4">Monthly Disposals</h2>
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-2 text-slate-500 font-medium">Month</th>
-                    <th className="text-right py-2 text-slate-500 font-medium">Count</th>
-                    <th className="text-right py-2 text-slate-500 font-medium">Proceeds (CAD)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {summary.disposals.map((item, i) => (
-                    <tr key={i} className="border-b last:border-0">
-                      <td className="py-3">{item.month}</td>
-                      <td className="py-3 text-right">{item.count}</td>
-                      <td className="py-3 text-right">
-                        ${item.proceeds_cad.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {/* Tax Summary Box */}
+          <div className="bg-gradient-to-r from-slate-800 to-slate-900 text-white rounded-lg p-6">
+            <h2 className="text-lg font-semibold mb-4">{year} Tax Summary</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              <div>
+                <p className="text-slate-400 text-sm">Staking Income</p>
+                <p className="text-2xl font-bold">{formatCad(summary.stakingIncome?.cad || 0)}</p>
+              </div>
+              <div>
+                <p className="text-slate-400 text-sm">Capital Gains/Loss</p>
+                <p className={`text-2xl font-bold ${
+                  (summary.capitalGains?.netGainLoss || 0) >= 0 ? 'text-green-400' : 'text-red-400'
+                }`}>
+                  {(summary.capitalGains?.netGainLoss || 0) >= 0 ? '+' : '-'}
+                  {formatCad(Math.abs(summary.capitalGains?.netGainLoss || 0))}
+                </p>
+              </div>
+              <div>
+                <p className="text-slate-400 text-sm">
+                  {(summary.capitalGains?.netGainLoss || 0) >= 0 ? "Taxable Capital (50%)" : "Allowable Loss (50%)"}
+                </p>
+                <p className={`text-2xl font-bold \${(summary.capitalGains?.netGainLoss || 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  {(summary.capitalGains?.netGainLoss || 0) < 0 ? "-" : ""}
+                  {formatCad(Math.abs((summary.capitalGains?.netGainLoss || 0) * 0.5))}
+                </p>
+              </div>
+              <div>
+                <p className="text-slate-400 text-sm">Total Taxable Income</p>
+                <p className="text-2xl font-bold text-yellow-400">
+                  {formatCad(
+                    (summary.stakingIncome?.cad || 0) + 
+                    Math.max(0, (summary.capitalGains?.netGainLoss || 0) * 0.5)
+                  )}
+                </p>
+              </div>
             </div>
-          )}
+          </div>
         </div>
       )}
 
@@ -316,65 +363,63 @@ export default function ReportsPage() {
             <div className="bg-white rounded-lg shadow-sm border p-6">
               <p className="text-sm text-slate-500">Maximum Cost Amount</p>
               <p className="text-2xl font-bold text-slate-900">
-                ${t1135.totalMaxCostAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })} CAD
+                {formatCad(t1135.totalMaxCostAmount)}
               </p>
             </div>
             <div className="bg-white rounded-lg shadow-sm border p-6">
               <p className="text-sm text-slate-500">Year-End Cost Amount</p>
               <p className="text-2xl font-bold text-slate-900">
-                ${t1135.totalYearEndCost.toLocaleString(undefined, { maximumFractionDigits: 0 })} CAD
+                {formatCad(t1135.totalYearEndCost)}
               </p>
             </div>
             <div className="bg-white rounded-lg shadow-sm border p-6">
               <p className="text-sm text-slate-500">Foreign Income</p>
               <p className="text-2xl font-bold text-slate-900">
-                ${t1135.totalIncome.toLocaleString(undefined, { maximumFractionDigits: 0 })} CAD
+                {formatCad(t1135.totalIncome)}
               </p>
             </div>
           </div>
 
           {/* Foreign Property Details */}
-          <div className="bg-white rounded-lg shadow-sm border p-6">
-            <h2 className="text-lg font-semibold text-slate-700 mb-4">Specified Foreign Property</h2>
-            <table className="w-full">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-2 text-slate-500 font-medium">Description</th>
-                  <th className="text-left py-2 text-slate-500 font-medium">Country</th>
-                  <th className="text-right py-2 text-slate-500 font-medium">Max Cost</th>
-                  <th className="text-right py-2 text-slate-500 font-medium">Year-End</th>
-                  <th className="text-right py-2 text-slate-500 font-medium">Income</th>
-                </tr>
-              </thead>
-              <tbody>
-                {t1135.foreignProperty.map((item, i) => (
-                  <tr key={i} className="border-b last:border-0">
-                    <td className="py-3">{item.description}</td>
-                    <td className="py-3">{item.country}</td>
-                    <td className="py-3 text-right">
-                      ${item.maxCostAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                    </td>
-                    <td className="py-3 text-right">
-                      ${item.yearEndCostAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                    </td>
-                    <td className="py-3 text-right">
-                      ${item.income.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                    </td>
+          {t1135.foreignProperty && t1135.foreignProperty.length > 0 && (
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <h2 className="text-lg font-semibold text-slate-700 mb-4">Specified Foreign Property</h2>
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 text-slate-500 font-medium">Description</th>
+                    <th className="text-left py-2 text-slate-500 font-medium">Country</th>
+                    <th className="text-right py-2 text-slate-500 font-medium">Max Cost</th>
+                    <th className="text-right py-2 text-slate-500 font-medium">Year-End</th>
+                    <th className="text-right py-2 text-slate-500 font-medium">Income</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {t1135.foreignProperty.map((item, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="py-3">{item.description}</td>
+                      <td className="py-3">{item.country}</td>
+                      <td className="py-3 text-right">{formatCad(item.maxCostAmount)}</td>
+                      <td className="py-3 text-right">{formatCad(item.yearEndCostAmount)}</td>
+                      <td className="py-3 text-right">{formatCad(item.income)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Notes */}
-          <div className="bg-slate-50 rounded-lg p-6">
-            <h3 className="font-medium text-slate-700 mb-2">Important Notes</h3>
-            <ul className="list-disc list-inside space-y-1 text-sm text-slate-600">
-              {t1135.notes.map((note, i) => (
-                <li key={i}>{note}</li>
-              ))}
-            </ul>
-          </div>
+          {t1135.notes && t1135.notes.length > 0 && (
+            <div className="bg-slate-50 rounded-lg p-6">
+              <h3 className="font-medium text-slate-700 mb-2">Important Notes</h3>
+              <ul className="list-disc list-inside space-y-1 text-sm text-slate-600">
+                {t1135.notes.map((note, i) => (
+                  <li key={i}>{note}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
@@ -385,13 +430,13 @@ export default function ReportsPage() {
             <div className="bg-white rounded-lg shadow-sm border p-6">
               <p className="text-sm text-slate-500">Total Proceeds</p>
               <p className="text-2xl font-bold text-slate-900">
-                ${schedule3.summary.totalProceeds.toLocaleString(undefined, { maximumFractionDigits: 0 })} CAD
+                {formatCad(schedule3.summary.totalProceeds)}
               </p>
             </div>
             <div className="bg-white rounded-lg shadow-sm border p-6">
               <p className="text-sm text-slate-500">Adjusted Cost Base</p>
               <p className="text-2xl font-bold text-slate-900">
-                ${schedule3.summary.totalACB.toLocaleString(undefined, { maximumFractionDigits: 0 })} CAD
+                {formatCad(schedule3.summary.totalACB)}
               </p>
             </div>
             <div className={`rounded-lg shadow-sm border p-6 ${
@@ -403,7 +448,7 @@ export default function ReportsPage() {
               <p className={`text-2xl font-bold ${
                 schedule3.summary.totalGainLoss >= 0 ? 'text-green-700' : 'text-red-700'
               }`}>
-                ${Math.abs(schedule3.summary.totalGainLoss).toLocaleString(undefined, { maximumFractionDigits: 0 })} CAD
+                {formatCad(Math.abs(schedule3.summary.totalGainLoss))}
               </p>
             </div>
           </div>
@@ -419,7 +464,7 @@ export default function ReportsPage() {
                   }
                 </p>
                 <p className="text-3xl font-bold text-blue-900">
-                  ${(schedule3.summary.taxableCapitalGain || schedule3.summary.allowableCapitalLoss).toLocaleString(undefined, { maximumFractionDigits: 0 })} CAD
+                  {formatCad(schedule3.summary.taxableCapitalGain || schedule3.summary.allowableCapitalLoss)}
                 </p>
               </div>
               <div className="text-right">
@@ -429,51 +474,51 @@ export default function ReportsPage() {
           </div>
 
           {/* Disposals Table */}
-          <div className="bg-white rounded-lg shadow-sm border p-6">
-            <h2 className="text-lg font-semibold text-slate-700 mb-4">Disposals</h2>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-2 text-slate-500 font-medium">Date</th>
-                    <th className="text-left py-2 text-slate-500 font-medium">Description</th>
-                    <th className="text-right py-2 text-slate-500 font-medium">Proceeds</th>
-                    <th className="text-right py-2 text-slate-500 font-medium">ACB</th>
-                    <th className="text-right py-2 text-slate-500 font-medium">Gain/Loss</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {schedule3.disposals.map((item, i) => (
-                    <tr key={i} className="border-b last:border-0">
-                      <td className="py-3 text-sm">{item.date}</td>
-                      <td className="py-3 text-sm">{item.description}</td>
-                      <td className="py-3 text-right">
-                        ${item.proceeds.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </td>
-                      <td className="py-3 text-right">
-                        ${item.acb.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </td>
-                      <td className={`py-3 text-right ${
-                        item.gainLoss >= 0 ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        ${item.gainLoss.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </td>
+          {schedule3.disposals && schedule3.disposals.length > 0 && (
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <h2 className="text-lg font-semibold text-slate-700 mb-4">Disposals</h2>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-2 text-slate-500 font-medium">Date</th>
+                      <th className="text-left py-2 text-slate-500 font-medium">Description</th>
+                      <th className="text-right py-2 text-slate-500 font-medium">Proceeds</th>
+                      <th className="text-right py-2 text-slate-500 font-medium">ACB</th>
+                      <th className="text-right py-2 text-slate-500 font-medium">Gain/Loss</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {schedule3.disposals.map((item, i) => (
+                      <tr key={i} className="border-b last:border-0">
+                        <td className="py-3 text-sm">{item.date}</td>
+                        <td className="py-3 text-sm">{item.description}</td>
+                        <td className="py-3 text-right">{formatCad(item.proceeds)}</td>
+                        <td className="py-3 text-right">{formatCad(item.acb)}</td>
+                        <td className={`py-3 text-right ${
+                          item.gainLoss >= 0 ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {formatCad(item.gainLoss)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Notes */}
-          <div className="bg-slate-50 rounded-lg p-6">
-            <h3 className="font-medium text-slate-700 mb-2">Important Notes</h3>
-            <ul className="list-disc list-inside space-y-1 text-sm text-slate-600">
-              {schedule3.notes.map((note, i) => (
-                <li key={i}>{note}</li>
-              ))}
-            </ul>
-          </div>
+          {schedule3.notes && schedule3.notes.length > 0 && (
+            <div className="bg-slate-50 rounded-lg p-6">
+              <h3 className="font-medium text-slate-700 mb-2">Important Notes</h3>
+              <ul className="list-disc list-inside space-y-1 text-sm text-slate-600">
+                {schedule3.notes.map((note, i) => (
+                  <li key={i}>{note}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </div>

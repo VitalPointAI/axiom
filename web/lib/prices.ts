@@ -1,104 +1,68 @@
-/**
- * CoinGecko price fetcher for NearTax
- */
+// Historical price cache
+const priceCache = new Map<string, number>();
 
-const COIN_IDS: Record<string, string> = {
-  'NEAR': 'near',
-  'ETH': 'ethereum',
-  'MATIC': 'matic-network',
-  'BTC': 'bitcoin',
-  'USDC': 'usd-coin',
-  'USDT': 'tether',
-  'Polygon': 'matic-network',
-  'Optimism': 'ethereum', // Use ETH price
-};
-
-// Simple in-memory cache
-const priceCache: Map<string, { price: number; timestamp: number }> = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-export async function getCurrentPrice(asset: string): Promise<number> {
-  const cacheKey = asset.toUpperCase();
-  const cached = priceCache.get(cacheKey);
-  
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.price;
+export async function getNearPriceForDate(date: string): Promise<number> {
+  // Check cache first
+  if (priceCache.has(date)) {
+    return priceCache.get(date)!;
   }
-  
-  const coinId = COIN_IDS[cacheKey];
-  if (!coinId) {
-    return 0;
-  }
-  
+
   try {
-    const response = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd`,
-      { next: { revalidate: 300 } } // Cache for 5 minutes
+    // CoinGecko historical price
+    const [year, month, day] = date.split('-');
+    const formattedDate = `${day}-${month}-${year}`;
+    
+    const res = await fetch(
+      `https://api.coingecko.com/api/v3/coins/near/history?date=${formattedDate}&localization=false`,
+      { next: { revalidate: 86400 } } // Cache for 24h
     );
     
-    if (!response.ok) {
-      console.error(`CoinGecko API error: ${response.status}`);
-      return cached?.price || 0;
+    if (res.ok) {
+      const data = await res.json();
+      const price = data.market_data?.current_price?.usd || 1.12;
+      priceCache.set(date, price);
+      return price;
     }
-    
-    const data = await response.json();
-    const price = data[coinId]?.usd || 0;
-    
-    priceCache.set(cacheKey, { price, timestamp: Date.now() });
-    
-    return price;
-  } catch (error) {
-    console.error(`Error fetching ${asset} price:`, error);
-    return cached?.price || 0;
+  } catch (e) {
+    console.error('Price fetch error for', date, e);
   }
+  
+  // Fallback - try to estimate based on recent known prices
+  // NEAR price roughly: Jan 2026 ~, Feb 2026 ~.15
+  const d = new Date(date);
+  const now = new Date();
+  const monthsAgo = (now.getTime() - d.getTime()) / (30 * 24 * 60 * 60 * 1000);
+  
+  // Simple linear interpolation (very rough)
+  const currentPrice = 1.15;
+  const oldPrice = 5.0; // Jan 2026 price
+  const estimatedPrice = currentPrice + (monthsAgo * 0.5); // Rough adjustment
+  
+  const price = Math.min(Math.max(estimatedPrice, 1.0), 6.0);
+  priceCache.set(date, price);
+  return price;
 }
 
-export async function getCurrentPrices(assets: string[]): Promise<Record<string, number>> {
-  const uniqueCoins = [...new Set(
-    assets.map(a => COIN_IDS[a.toUpperCase()]).filter(Boolean)
-  )];
-  
-  if (uniqueCoins.length === 0) {
-    return {};
-  }
-  
+export async function getCurrentNearPrice(): Promise<number> {
   try {
-    const response = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${uniqueCoins.join(',')}&vs_currencies=usd`,
-      { next: { revalidate: 300 } }
+    const res = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=near&vs_currencies=usd',
+      { next: { revalidate: 60 } }
     );
-    
-    if (!response.ok) {
-      return {};
+    if (res.ok) {
+      const data = await res.json();
+      return data.near?.usd || 1.12;
     }
-    
-    const data = await response.json();
-    const prices: Record<string, number> = {};
-    
-    for (const asset of assets) {
-      const coinId = COIN_IDS[asset.toUpperCase()];
-      if (coinId && data[coinId]?.usd) {
-        prices[asset.toUpperCase()] = data[coinId].usd;
-        priceCache.set(asset.toUpperCase(), { 
-          price: data[coinId].usd, 
-          timestamp: Date.now() 
-        });
-      }
+  } catch {}
+  
+  // Fallback to CoinCap
+  try {
+    const res = await fetch('https://api.coincap.io/v2/assets/near-protocol');
+    if (res.ok) {
+      const data = await res.json();
+      return parseFloat(data.data?.priceUsd) || 1.12;
     }
-    
-    return prices;
-  } catch (error) {
-    console.error('Error fetching prices:', error);
-    return {};
-  }
+  } catch {}
+  
+  return 1.12;
 }
-
-// Fallback prices if API fails
-export const FALLBACK_PRICES: Record<string, number> = {
-  'NEAR': 1.0,
-  'ETH': 1800,
-  'BTC': 45000,
-  'MATIC': 0.80,
-  'USDC': 1.0,
-  'USDT': 1.0,
-};

@@ -1,6 +1,6 @@
-import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { getAuthenticatedUser } from '@/lib/auth';
 
 // DELETE /api/wallets/[id] - Delete a wallet
 export async function DELETE(
@@ -8,12 +8,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const nearAccountId = cookieStore.get('neartax_session')?.value;
-
-    if (!nearAccountId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await getAuthenticatedUser();
+    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id } = await params;
     const walletId = parseInt(id, 10);
@@ -24,37 +20,24 @@ export async function DELETE(
 
     const db = getDb();
 
-    // Get user
-    const user = db.prepare(`
-      SELECT id FROM users WHERE near_account_id = ?
-    `).get(nearAccountId) as { id: number } | undefined;
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
     // Verify wallet belongs to user
-    const wallet = db.prepare(`
-      SELECT id FROM wallets WHERE id = ? AND user_id = ?
-    `).get(walletId, user.id);
+    const wallet = await db.prepare(`SELECT id FROM wallets WHERE id = ? AND user_id = ?`)
+      .get(walletId, auth.userId);
 
     if (!wallet) {
       return NextResponse.json({ error: 'Wallet not found' }, { status: 404 });
     }
 
-    // Delete associated data first (foreign key constraints)
-    db.prepare(`DELETE FROM transactions WHERE wallet_id = ?`).run(walletId);
-    db.prepare(`DELETE FROM staking_events WHERE wallet_id = ?`).run(walletId);
-    db.prepare(`DELETE FROM indexing_progress WHERE wallet_id = ?`).run(walletId);
-    db.prepare(`DELETE FROM wallets WHERE id = ?`).run(walletId);
+    // Delete associated data first
+    await db.prepare(`DELETE FROM transactions WHERE wallet_id = ?`).run(walletId);
+    await db.prepare(`DELETE FROM staking_events WHERE wallet_id = ?`).run(walletId);
+    await db.prepare(`DELETE FROM indexing_progress WHERE wallet_id = ?`).run(walletId);
+    await db.prepare(`DELETE FROM wallets WHERE id = ?`).run(walletId);
 
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Wallet delete error:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete wallet' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to delete wallet' }, { status: 500 });
   }
 }
 
@@ -64,12 +47,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const cookieStore = await cookies();
-    const nearAccountId = cookieStore.get('neartax_session')?.value;
-
-    if (!nearAccountId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await getAuthenticatedUser();
+    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id } = await params;
     const walletId = parseInt(id, 10);
@@ -81,32 +60,19 @@ export async function PATCH(
 
     const db = getDb();
 
-    // Get user
-    const user = db.prepare(`
-      SELECT id FROM users WHERE near_account_id = ?
-    `).get(nearAccountId) as { id: number } | undefined;
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
     // Verify wallet belongs to user and update
-    const result = db.prepare(`
-      UPDATE wallets SET label = ? WHERE id = ? AND user_id = ?
-    `).run(label, walletId, user.id);
+    const result = await db.prepare(`UPDATE wallets SET label = ? WHERE id = ? AND user_id = ?`)
+      .run(label, walletId, auth.userId);
 
-    if (result.changes === 0) {
+    if (result.rowCount === 0) {
       return NextResponse.json({ error: 'Wallet not found' }, { status: 404 });
     }
 
-    const wallet = db.prepare(`SELECT * FROM wallets WHERE id = ?`).get(walletId);
+    const wallet = await db.prepare(`SELECT * FROM wallets WHERE id = ?`).get(walletId);
 
     return NextResponse.json({ wallet });
   } catch (error) {
     console.error('Wallet update error:', error);
-    return NextResponse.json(
-      { error: 'Failed to update wallet' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to update wallet' }, { status: 500 });
   }
 }

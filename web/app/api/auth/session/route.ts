@@ -12,7 +12,7 @@ export async function GET() {
     }
 
     const db = getDb();
-    const user = db.prepare(`
+    const user = await db.prepare(`
       SELECT near_account_id, created_at 
       FROM users 
       WHERE near_account_id = ?

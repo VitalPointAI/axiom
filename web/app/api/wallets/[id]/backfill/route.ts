@@ -13,7 +13,7 @@ export async function POST(
     const walletId = parseInt(id);
     
     // Get wallet info
-    const wallet = db.prepare(
+    const wallet = await db.prepare(
       'SELECT * FROM wallets WHERE id = ?'
     ).get(walletId) as any;
     
@@ -25,7 +25,7 @@ export async function POST(
     }
     
     // Update status to syncing
-    db.prepare(
+    await db.prepare(
       'UPDATE wallets SET sync_status = ? WHERE id = ?'
     ).run('syncing', walletId);
     

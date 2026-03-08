@@ -2,9 +2,10 @@
 
 import { useAuth } from './auth-provider';
 import { Loader2, Wallet } from 'lucide-react';
+import Link from 'next/link';
 
 export function SignInButton() {
-  const { user, isLoading, signIn, signOut } = useAuth();
+  const { user, isLoading, signOut } = useAuth();
 
   if (isLoading) {
     return (
@@ -29,7 +30,7 @@ export function SignInButton() {
             <div>
               <p className="text-sm font-medium text-green-800">Connected</p>
               <p className="text-xs text-green-600 font-mono truncate max-w-[200px]">
-                {user.nearAccountId}
+                {user.codename || user.nearAccountId}
               </p>
             </div>
           </div>
@@ -45,12 +46,12 @@ export function SignInButton() {
   }
 
   return (
-    <button
-      onClick={signIn}
+    <Link
+      href="/auth"
       className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition font-medium"
     >
       <Wallet className="w-5 h-5" />
-      Sign in with NEAR
-    </button>
+      Sign In
+    </Link>
   );
 }

@@ -8,7 +8,7 @@ export async function GET() {
     const db = getDb();
     
     // Get wallet sync stats
-    const walletStats = db.prepare(`
+    const walletStats = await db.prepare(`
       SELECT 
         COUNT(*) as total,
         SUM(CASE WHEN sync_status = 'complete' THEN 1 ELSE 0 END) as synced,
@@ -19,13 +19,13 @@ export async function GET() {
     `).get() as any;
     
     // Get transaction stats
-    const txStats = db.prepare(`
+    const txStats = await db.prepare(`
       SELECT 
         COUNT(*) as total,
         MIN(block_height) as min_block,
         MAX(block_height) as max_block,
-        MIN(timestamp) as oldest,
-        MAX(timestamp) as newest
+        MIN(block_timestamp) as oldest,
+        MAX(block_timestamp) as newest
       FROM transactions
     `).get() as any;
     

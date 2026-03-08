@@ -5,7 +5,7 @@ export async function GET() {
   const db = getDb();
   
   // Get summary by year and category
-  const byCategoryStmt = db.prepare(`
+  const byCategoryStmt = await db.prepare(`
     SELECT 
       strftime('%Y', datetime(block_timestamp/1000000000, 'unixepoch')) as year,
       tax_category,
@@ -17,10 +17,10 @@ export async function GET() {
     GROUP BY year, tax_category, protocol
     ORDER BY year DESC, count DESC
   `);
-  const byCategory = byCategoryStmt.all();
+  const byCategory = await byCategoryStmt.all();
   
   // Get income by token (for tax reporting)
-  const incomeStmt = db.prepare(`
+  const incomeStmt = await db.prepare(`
     SELECT 
       strftime('%Y', datetime(block_timestamp/1000000000, 'unixepoch')) as year,
       token_symbol,
@@ -34,10 +34,10 @@ export async function GET() {
     GROUP BY year, token_symbol, protocol
     ORDER BY year DESC, total_tokens DESC
   `);
-  const income = incomeStmt.all();
+  const income = await incomeStmt.all();
   
   // Get trade count by year
-  const tradesStmt = db.prepare(`
+  const tradesStmt = await db.prepare(`
     SELECT 
       strftime('%Y', datetime(block_timestamp/1000000000, 'unixepoch')) as year,
       protocol,
@@ -47,10 +47,10 @@ export async function GET() {
     GROUP BY year, protocol
     ORDER BY year DESC
   `);
-  const trades = tradesStmt.all();
+  const trades = await tradesStmt.all();
   
   // Protocol totals
-  const protocolStmt = db.prepare(`
+  const protocolStmt = await db.prepare(`
     SELECT 
       protocol,
       COUNT(*) as count,
@@ -59,19 +59,19 @@ export async function GET() {
     FROM defi_events
     GROUP BY protocol
   `);
-  const protocols = protocolStmt.all();
+  const protocols = await protocolStmt.all();
   
   // Events needing review
-  const reviewStmt = db.prepare(`
+  const reviewStmt = await db.prepare(`
     SELECT COUNT(*) as count FROM defi_events WHERE needs_review = 1
   `);
-  const { count: needsReview } = reviewStmt.get() as { count: number };
+  const { count: needsReview } = await reviewStmt.get() as { count: number };
   
   // Events missing prices
-  const missingPricesStmt = db.prepare(`
+  const missingPricesStmt = await db.prepare(`
     SELECT COUNT(*) as count FROM defi_events WHERE value_usd IS NULL OR value_usd = 0
   `);
-  const { count: missingPrices } = missingPricesStmt.get() as { count: number };
+  const { count: missingPrices } = await missingPricesStmt.get() as { count: number };
   
   return NextResponse.json({
     byCategory,

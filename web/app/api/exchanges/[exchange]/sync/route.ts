@@ -21,7 +21,7 @@ export async function POST(
 
     const db = getDb();
 
-    const user = db.prepare(`
+    const user = await db.prepare(`
       SELECT id FROM users WHERE near_account_id = ?
     `).get(nearAccountId) as { id: number } | undefined;
 
@@ -30,7 +30,7 @@ export async function POST(
     }
 
     // Get credentials
-    const creds = db.prepare(`
+    const creds = await db.prepare(`
       SELECT api_key, api_secret FROM exchange_credentials
       WHERE user_id = ? AND exchange = ?
     `).get(user.id, exchange.toLowerCase()) as { api_key: string; api_secret: string } | undefined;
@@ -40,7 +40,7 @@ export async function POST(
     }
 
     // Update status
-    db.prepare(`
+    await db.prepare(`
       UPDATE exchange_credentials 
       SET sync_status = 'in_progress'
       WHERE user_id = ? AND exchange = ?
@@ -66,7 +66,7 @@ export async function POST(
       await syncExchange(projectRoot, moduleName, user.id, creds.api_key, creds.api_secret);
       
       // Update status
-      db.prepare(`
+      await db.prepare(`
         UPDATE exchange_credentials 
         SET sync_status = 'complete', last_sync_at = datetime('now')
         WHERE user_id = ? AND exchange = ?
@@ -76,7 +76,7 @@ export async function POST(
     } catch (syncError) {
       console.error('Exchange sync error:', syncError);
       
-      db.prepare(`
+      await db.prepare(`
         UPDATE exchange_credentials 
         SET sync_status = 'error'
         WHERE user_id = ? AND exchange = ?

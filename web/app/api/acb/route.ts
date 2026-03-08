@@ -1,41 +1,25 @@
-import { NextResponse } from 'next/server';
-import { getDb } from '@/lib/db';
-
-// ACB (Adjusted Cost Base) calculation endpoint
-// Uses Canadian tax rules: average cost method for identical properties
+import { NextResponse } from "next/server";
+import { getDb } from "@/lib/db";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const year = searchParams.get('year') || '2025';
+  const year = searchParams.get("year") || "2025";
   
   const db = getDb();
   
-  const yearStart = new Date(`${year}-01-01T00:00:00Z`).getTime() * 1000000;
-  const yearEnd = new Date(`${parseInt(year) + 1}-01-01T00:00:00Z`).getTime() * 1000000;
-  
   // Get calculated disposals for the year
-  const disposalsStmt = db.prepare(`
-    SELECT 
-      token,
-      disposal_date,
-      amount,
-      proceeds_cad,
-      acb_cad,
-      gain_loss_cad,
-      taxable_gain,
-      allowable_loss
+  const disposalsStmt = await db.prepare(`
+    SELECT token, disposal_date, amount, proceeds_cad, acb_cad,
+           gain_loss_cad, taxable_gain, allowable_loss
     FROM calculated_disposals
     WHERE year = ?
     ORDER BY disposal_date
   `);
-  const disposals = disposalsStmt.all(parseInt(year));
+  const disposals = await disposalsStmt.all(parseInt(year));
   
   // Calculate totals
-  let totalProceeds = 0;
-  let totalAcb = 0;
-  let totalGainLoss = 0;
-  let totalTaxableGain = 0;
-  let totalAllowableLoss = 0;
+  let totalProceeds = 0, totalAcb = 0, totalGainLoss = 0;
+  let totalTaxableGain = 0, totalAllowableLoss = 0;
   
   for (const d of disposals as any[]) {
     totalProceeds += d.proceeds_cad || 0;
@@ -45,61 +29,81 @@ export async function GET(request: Request) {
     totalAllowableLoss += d.allowable_loss || 0;
   }
   
-  // Get current holdings (end of year)
-  const holdingsStmt = db.prepare(`
+  // NEAR holdings - exclude non-taxable categories
+  const nearHoldingsStmt = await db.prepare(`
     SELECT 
-      'NEAR' as token,
-      SUM(CASE WHEN direction = 'in' THEN CAST(amount AS REAL) / 1e24 ELSE 0 END) -
-      SUM(CASE WHEN direction = 'out' THEN CAST(amount AS REAL) / 1e24 ELSE 0 END) as balance,
-      SUM(CASE WHEN direction = 'in' THEN COALESCE(cost_basis_cad, 0) ELSE 0 END) -
-      SUM(CASE WHEN direction = 'out' THEN COALESCE(cost_basis_cad, 0) * 0.5 ELSE 0 END) as acb
+      SUM(CASE WHEN direction = 'in' THEN CAST(amount AS REAL) / 1e24 ELSE 0 END) as total_in,
+      SUM(CASE WHEN direction = 'out' THEN CAST(amount AS REAL) / 1e24 ELSE 0 END) as total_out,
+      SUM(CASE WHEN direction = 'in' THEN COALESCE(cost_basis_cad, 0) ELSE 0 END) as total_cost
     FROM transactions
-    WHERE block_timestamp < ?
+    WHERE amount IS NOT NULL 
+    AND CAST(amount AS REAL) > 0
+    AND (tax_category IS NULL OR tax_category NOT IN 
+      ('unstake_return', 'internal', 'staking_deposit', 'fee_only', 
+       'unknown', 'contract_deploy', 'account_create', 'nft_purchase'))
   `);
-  const holdings = holdingsStmt.get(yearEnd) as { token: string; balance: number; acb: number };
+  const nearHoldings = await nearHoldingsStmt.get() as { total_in: number; total_out: number; total_cost: number };
+  
+  const nearBalance = (nearHoldings?.total_in || 0) - (nearHoldings?.total_out || 0);
+  const nearAcb = nearHoldings?.total_cost || 0;
+  
+  // FT holdings
+  const ftHoldingsStmt = await db.prepare(`
+    SELECT 
+      token_symbol,
+      SUM(CASE WHEN direction = 'in' THEN CAST(amount AS REAL) / POWER(10, COALESCE(token_decimals, 24)) ELSE 0 END) -
+      SUM(CASE WHEN direction = 'out' THEN CAST(amount AS REAL) / POWER(10, COALESCE(token_decimals, 24)) ELSE 0 END) as balance,
+      SUM(CASE WHEN direction = 'in' THEN COALESCE(value_cad, 0) ELSE 0 END) as cost_cad
+    FROM ft_transactions
+    WHERE token_symbol IS NOT NULL
+    GROUP BY token_symbol
+    HAVING balance > 0.01
+    ORDER BY cost_cad DESC
+    LIMIT 20
+  `);
+  const ftHoldings = await ftHoldingsStmt.all() as { token_symbol: string; balance: number; cost_cad: number }[];
   
   // Pricing status
-  const statusStmt = db.prepare(`
+  const statusStmt = await db.prepare(`
     SELECT 
-      SUM(CASE WHEN cost_basis_usd > 0 THEN 1 ELSE 0 END) as priced,
-      SUM(CASE WHEN price_warning = 'dust' THEN 1 ELSE 0 END) as dust,
-      SUM(CASE WHEN price_warning = 'historical_needed' THEN 1 ELSE 0 END) as historical,
+      SUM(CASE WHEN cost_basis_cad > 0 THEN 1 ELSE 0 END) as priced,
+      SUM(CASE WHEN cost_basis_cad IS NULL OR cost_basis_cad = 0 THEN 1 ELSE 0 END) as unpriced,
       COUNT(*) as total
     FROM transactions
+    WHERE amount IS NOT NULL AND CAST(amount AS REAL) > 0
   `);
-  const status = statusStmt.get() as { priced: number; dust: number; historical: number; total: number };
-  
+  const status = await statusStmt.get() as { priced: number; unpriced: number; total: number };
+
   return NextResponse.json({
     year,
     summary: {
       disposalCount: disposals.length,
-      totalProceeds: totalProceeds,
-      totalAcb: totalAcb,
+      totalProceeds,
+      totalAcb,
       netGainLoss: totalGainLoss,
       taxableCapitalGain: totalTaxableGain,
       allowableCapitalLoss: totalAllowableLoss,
-      // Line 12700 on T1: Taxable capital gains
       line12700: totalTaxableGain
     },
     holdings: {
-      token: holdings?.token || 'NEAR',
-      units: holdings?.balance || 0,
-      acb: holdings?.acb || 0,
-      acbPerUnit: holdings?.balance > 0 ? (holdings?.acb || 0) / holdings.balance : 0
+      near: {
+        units: nearBalance,
+        acb: nearAcb,
+        acbPerUnit: nearBalance > 0 ? nearAcb / nearBalance : 0
+      },
+      tokens: ftHoldings.map(t => ({
+        symbol: t.token_symbol,
+        balance: t.balance,
+        costCad: t.cost_cad
+      }))
     },
     pricingStatus: {
       priced: status?.priced || 0,
-      dust: status?.dust || 0,
-      needsHistorical: status?.historical || 0,
-      total: status?.total || 0
+      unpriced: status?.unpriced || 0,
+      total: status?.total || 0,
+      percentComplete: status?.total > 0 ? Math.round((status.priced / status.total) * 100) : 0
     },
     disposals: (disposals as any[]).slice(0, 50),
-    hasMore: disposals.length > 50,
-    notes: [
-      'ACB calculated using average cost method (CRA requirement)',
-      '50% inclusion rate applied to capital gains',
-      'Dust transactions (<0.01 NEAR) excluded from calculations',
-      'Some transactions need historical prices - values may be incomplete'
-    ]
+    hasMore: disposals.length > 50
   });
 }

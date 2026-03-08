@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     const db = getDb();
 
     // Upsert user
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO users (near_account_id, last_login_at)
       VALUES (?, datetime('now'))
       ON CONFLICT(near_account_id) DO UPDATE SET
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     `).run(nearAccountId);
 
     // Get user data
-    const user = db.prepare(`
+    const user = await db.prepare(`
       SELECT near_account_id, created_at
       FROM users
       WHERE near_account_id = ?

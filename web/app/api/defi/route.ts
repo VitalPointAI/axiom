@@ -31,14 +31,14 @@ export async function GET(request: Request) {
   }
   
   // Get total count
-  const countStmt = db.prepare(`
+  const countStmt = await db.prepare(`
     SELECT COUNT(*) as total FROM defi_events d WHERE ${whereClause}
   `);
-  const { total } = countStmt.get(...params) as { total: number };
+  const { total } = await countStmt.get(...params) as { total: number };
   
   // Get events
   const offset = (page - 1) * limit;
-  const stmt = db.prepare(`
+  const stmt = await db.prepare(`
     SELECT 
       d.*,
       w.account_id as wallet_address,
@@ -49,7 +49,7 @@ export async function GET(request: Request) {
     ORDER BY d.block_timestamp DESC
     LIMIT ? OFFSET ?
   `);
-  const events = stmt.all(...params, limit, offset);
+  const events = await stmt.all(...params, limit, offset);
   
   return NextResponse.json({
     events,

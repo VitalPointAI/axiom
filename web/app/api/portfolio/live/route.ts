@@ -42,10 +42,10 @@ export async function GET() {
   const db = getDb();
   
   // Get all NEAR wallets
-  const stmt = db.prepare(`
+  const stmt = await db.prepare(`
     SELECT account_id, label FROM wallets WHERE chain = 'NEAR'
   `);
-  const wallets = stmt.all() as Array<{ account_id: string; label: string | null }>;
+  const wallets = await stmt.all() as Array<{ account_id: string; label: string | null }>;
   
   // Fetch balances in parallel (with rate limiting)
   const balances: WalletBalance[] = [];

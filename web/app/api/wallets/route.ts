@@ -1,32 +1,21 @@
-import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { getAuthenticatedUser } from '@/lib/auth';
 import { spawn } from 'child_process';
 import path from 'path';
 
 // GET /api/wallets - List user's wallets
 export async function GET() {
   try {
-    const cookieStore = await cookies();
-    const nearAccountId = cookieStore.get('neartax_session')?.value;
-
-    if (!nearAccountId) {
+    const auth = await getAuthenticatedUser();
+    if (!auth) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const db = getDb();
 
-    // Get user
-    const user = db.prepare(`
-      SELECT id FROM users WHERE near_account_id = ?
-    `).get(nearAccountId) as { id: number } | undefined;
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
     // Get wallets with indexing status
-    const wallets = db.prepare(`
+    const wallets = await db.prepare(`
       SELECT 
         w.id,
         w.account_id as address,
@@ -40,95 +29,64 @@ export async function GET() {
       LEFT JOIN indexing_progress p ON w.id = p.wallet_id
       WHERE w.user_id = ?
       ORDER BY w.created_at DESC
-    `).all(user.id);
+    `).all(auth.userId);
 
     return NextResponse.json({ wallets });
   } catch (error) {
     console.error('Wallets fetch error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch wallets' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch wallets' }, { status: 500 });
   }
 }
 
 // POST /api/wallets - Add a new wallet
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = await cookies();
-    const nearAccountId = cookieStore.get('neartax_session')?.value;
-
-    if (!nearAccountId) {
+    const auth = await getAuthenticatedUser();
+    if (!auth) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { address, chain, label } = await request.json();
 
-    // Validate
     if (!address || !chain) {
-      return NextResponse.json(
-        { error: 'Address and chain are required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Address and chain are required' }, { status: 400 });
     }
 
-    // Validate address format based on chain
+    // Validate address format
     if (chain === 'NEAR') {
       if (!address.endsWith('.near') && !address.match(/^[a-f0-9]{64}$/)) {
-        return NextResponse.json(
-          { error: 'Invalid NEAR address format' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'Invalid NEAR address format' }, { status: 400 });
       }
     } else if (['ETH', 'Polygon', 'Optimism'].includes(chain)) {
       if (!address.match(/^0x[a-fA-F0-9]{40}$/)) {
-        return NextResponse.json(
-          { error: 'Invalid EVM address format' },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'Invalid EVM address format' }, { status: 400 });
       }
     }
 
     const db = getDb();
 
-    // Get user
-    const user = db.prepare(`
-      SELECT id FROM users WHERE near_account_id = ?
-    `).get(nearAccountId) as { id: number } | undefined;
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
     // Check for duplicate
-    const existing = db.prepare(`
-      SELECT id FROM wallets WHERE account_id = ?
-    `).get(address);
+    const existing = await db.prepare(`SELECT id FROM wallets WHERE account_id = ?`).get(address);
 
     if (existing) {
-      // If wallet exists but not assigned to this user, assign it
       const wallet = existing as { id: number };
-      db.prepare(`UPDATE wallets SET user_id = ? WHERE id = ? AND user_id IS NULL`).run(user.id, wallet.id);
+      await db.prepare(`UPDATE wallets SET user_id = ? WHERE id = ? AND user_id IS NULL`).run(auth.userId, wallet.id);
       
-      // Check if now assigned to user
-      const updated = db.prepare(`SELECT * FROM wallets WHERE id = ? AND user_id = ?`).get(wallet.id, user.id);
+      const updated = await db.prepare(`SELECT * FROM wallets WHERE id = ? AND user_id = ?`).get(wallet.id, auth.userId);
       if (updated) {
         return NextResponse.json({ wallet: updated }, { status: 200 });
       }
       
-      return NextResponse.json(
-        { error: 'Wallet already exists for another user' },
-        { status: 409 }
-      );
+      return NextResponse.json({ error: 'Wallet already exists for another user' }, { status: 409 });
     }
 
     // Insert wallet
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO wallets (account_id, chain, label, user_id, sync_status)
       VALUES (?, ?, ?, ?, 'pending')
-    `).run(address, chain, label || address.slice(0, 16) + '...', user.id);
+    `).run(address, chain, label || address.slice(0, 16) + '...', auth.userId);
 
-    const wallet = db.prepare(`
+    const wallet = await db.prepare(`
       SELECT id, account_id as address, chain, label, sync_status, last_synced_at, created_at
       FROM wallets WHERE id = ?
     `).get(result.lastInsertRowid) as any;
@@ -144,8 +102,7 @@ export async function POST(request: NextRequest) {
         });
         child.unref();
         
-        // Update status to syncing
-        db.prepare('UPDATE wallets SET sync_status = ? WHERE id = ?').run('syncing', wallet.id);
+        await db.prepare('UPDATE wallets SET sync_status = ? WHERE id = ?').run('syncing', wallet.id);
         wallet.sync_status = 'syncing';
       } catch (err) {
         console.error('Failed to start auto-backfill:', err);
@@ -155,9 +112,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ wallet }, { status: 201 });
   } catch (error) {
     console.error('Wallet create error:', error);
-    return NextResponse.json(
-      { error: 'Failed to create wallet' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to create wallet' }, { status: 500 });
   }
 }

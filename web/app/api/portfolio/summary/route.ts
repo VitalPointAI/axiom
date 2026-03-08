@@ -11,6 +11,42 @@ interface WalletBalance {
   staked: number;
 }
 
+// Try multiple price sources
+async function getNearPrice(): Promise<{ price: number; source: string }> {
+  // Try CoinGecko first
+  try {
+    const resp = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=near&vs_currencies=usd',
+      { next: { revalidate: 60 } } // Cache 1 min, not 5
+    );
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.near?.usd && data.near.usd > 0) {
+        return { price: data.near.usd, source: 'coingecko' };
+      }
+    }
+  } catch (e) {
+    console.warn('CoinGecko price fetch failed:', e);
+  }
+  
+  // Try CoinCap as backup
+  try {
+    const resp = await fetch('https://api.coincap.io/v2/assets/near-protocol');
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.data?.priceUsd) {
+        return { price: parseFloat(data.data.priceUsd), source: 'coincap' };
+      }
+    }
+  } catch (e) {
+    console.warn('CoinCap price fetch failed:', e);
+  }
+  
+  // Return 0 with error flag rather than wrong value
+  console.error('All price sources failed!');
+  return { price: 0, source: 'error' };
+}
+
 async function getBalance(account: string): Promise<WalletBalance | null> {
   try {
     const resp = await fetch(`${NEARBLOCKS_API}/account/${account}`, {
@@ -34,9 +70,22 @@ export async function GET() {
   const db = getDb();
   
   // Get all NEAR wallets
-  const wallets = db.prepare(`
+  const wallets = await db.prepare(`
     SELECT account_id FROM wallets WHERE chain = 'NEAR'
   `).all() as Array<{ account_id: string }>;
+  
+  // Fetch price first
+  const { price: nearPrice, source: priceSource } = await getNearPrice();
+  
+  // If price is 0, return early with error
+  if (nearPrice === 0) {
+    return NextResponse.json({
+      error: 'Could not fetch NEAR price',
+      priceSource,
+      walletCount: wallets.length,
+      message: 'Please try again in a minute'
+    }, { status: 503 });
+  }
   
   // Fetch live balances
   const balances: WalletBalance[] = [];
@@ -60,24 +109,13 @@ export async function GET() {
     }
   }
   
-  // Get NEAR price
-  let nearPrice = 5.0;
-  try {
-    const priceResp = await fetch(
-      'https://api.coingecko.com/api/v3/simple/price?ids=near&vs_currencies=usd',
-      { next: { revalidate: 300 } }
-    );
-    const priceData = await priceResp.json();
-    nearPrice = priceData.near?.usd || 5.0;
-  } catch {}
-  
   const cadRate = 1.38;
   const totalNear = totalLiquid + totalStaked;
   const totalUsd = totalNear * nearPrice;
   const totalCad = totalUsd * cadRate;
   
   // Get staking positions from DB
-  const stakingStmt = db.prepare(`
+  const stakingStmt = await db.prepare(`
     SELECT 
       validator,
       SUM(CASE WHEN event_type = 'deposit_and_stake' THEN CAST(amount AS REAL) / 1e24 ELSE 0 END) -
@@ -87,17 +125,17 @@ export async function GET() {
     HAVING net_staked > 1
     ORDER BY net_staked DESC
   `);
-  const stakingPositions = stakingStmt.all() as Array<{ validator: string; net_staked: number }>;
+  const stakingPositions = await stakingStmt.all() as Array<{ validator: string; net_staked: number }>;
   
   // Get staking rewards
-  const rewardsStmt = db.prepare(`
+  const rewardsStmt = await db.prepare(`
     SELECT SUM(reward_near) as total FROM staking_rewards
   `);
-  const rewardsResult = rewardsStmt.get() as { total: number } | null;
+  const rewardsResult = await rewardsStmt.get() as { total: number } | null;
   const totalRewards = rewardsResult?.total || 0;
   
   // Get token holdings from FT transactions
-  const tokensStmt = db.prepare(`
+  const tokensStmt = await db.prepare(`
     SELECT 
       token_symbol,
       SUM(CASE WHEN direction = 'in' THEN CAST(amount AS REAL) / POWER(10, COALESCE(token_decimals, 18)) ELSE 0 END) -
@@ -108,7 +146,7 @@ export async function GET() {
     ORDER BY balance DESC
     LIMIT 20
   `);
-  const tokenHoldings = tokensStmt.all() as Array<{ token_symbol: string; balance: number }>;
+  const tokenHoldings = await tokensStmt.all() as Array<{ token_symbol: string; balance: number }>;
   
   // Filter spam tokens
   const validTokens = tokenHoldings.filter(t => 
@@ -120,6 +158,7 @@ export async function GET() {
   
   return NextResponse.json({
     timestamp: new Date().toISOString(),
+    priceSource, // Show where price came from
     
     // Summary
     summary: {

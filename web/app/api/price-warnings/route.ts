@@ -24,13 +24,13 @@ export async function GET(request: Request) {
   }
   
   // Get total count
-  const countStmt = db.prepare(`
+  const countStmt = await db.prepare(`
     SELECT COUNT(*) as total FROM transactions WHERE ${whereClause}
   `);
-  const { total } = countStmt.get(...params) as { total: number };
+  const { total } = await countStmt.get(...params) as { total: number };
   
   // Get summary by warning type
-  const summaryStmt = db.prepare(`
+  const summaryStmt = await db.prepare(`
     SELECT 
       price_warning,
       COUNT(*) as count,
@@ -39,11 +39,11 @@ export async function GET(request: Request) {
     WHERE price_warning IS NOT NULL
     GROUP BY price_warning
   `);
-  const summary = summaryStmt.all();
+  const summary = await summaryStmt.all();
   
   // Get transactions
   const offset = (page - 1) * limit;
-  const stmt = db.prepare(`
+  const stmt = await db.prepare(`
     SELECT 
       t.*,
       w.account_id as wallet_address,
@@ -55,7 +55,7 @@ export async function GET(request: Request) {
     ORDER BY t.block_timestamp DESC
     LIMIT ? OFFSET ?
   `);
-  const transactions = stmt.all(...params, limit, offset);
+  const transactions = await stmt.all(...params, limit, offset);
   
   return NextResponse.json({
     summary,
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
   const db = getDb();
   
   if (action === 'resolve') {
-    const stmt = db.prepare(`
+    const stmt = await db.prepare(`
       UPDATE transactions 
       SET price_manual_usd = ?,
           price_manual_note = ?,
@@ -90,7 +90,7 @@ export async function POST(request: Request) {
   }
   
   if (action === 'mark_spam') {
-    const stmt = db.prepare(`
+    const stmt = await db.prepare(`
       UPDATE transactions 
       SET price_warning = 'spam_token',
           cost_basis_usd = 0,
@@ -106,7 +106,7 @@ export async function POST(request: Request) {
   
   if (action === 'bulk_resolve_spam') {
     // Auto-resolve all spam token warnings
-    const stmt = db.prepare(`
+    const stmt = await db.prepare(`
       UPDATE transactions 
       SET cost_basis_usd = 0,
           cost_basis_cad = 0,
@@ -114,9 +114,9 @@ export async function POST(request: Request) {
           price_manual_note = 'Bulk resolved as spam'
       WHERE price_warning = 'spam_token' AND (price_resolved IS NULL OR price_resolved != 1)
     `);
-    const result = stmt.run();
+    const result = await stmt.run();
     
-    return NextResponse.json({ success: true, resolved: result.changes });
+    return NextResponse.json({ success: true, resolved: result.rowCount });
   }
   
   return NextResponse.json({ error: 'Invalid action' }, { status: 400 });

@@ -14,8 +14,8 @@ export async function POST(request: Request) {
   const db = getDb();
   
   // Get transaction
-  const txStmt = db.prepare('SELECT id, amount FROM transactions WHERE id = ?');
-  const tx = txStmt.get(transactionId) as { id: number; amount: string } | undefined;
+  const txStmt = await db.prepare('SELECT id, amount FROM transactions WHERE id = ?');
+  const tx = await txStmt.get(transactionId) as { id: number; amount: string } | undefined;
   
   if (!tx) {
     return NextResponse.json({ error: 'Transaction not found' }, { status: 404 });
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   const valueCad = valueUsd * 1.38; // Approximate CAD rate
   
   // Update
-  const updateStmt = db.prepare(`
+  const updateStmt = await db.prepare(`
     UPDATE transactions 
     SET cost_basis_usd = ?,
         cost_basis_cad = ?,
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
         price_warning = NULL
     WHERE id = ?
   `);
-  updateStmt.run(valueUsd, valueCad, priceUsd, note || 'Manual override', transactionId);
+  await updateStmt.run(valueUsd, valueCad, priceUsd, note || 'Manual override', transactionId);
   
   return NextResponse.json({
     success: true,
@@ -57,7 +57,7 @@ export async function GET(request: Request) {
   
   const db = getDb();
   
-  const stmt = db.prepare(`
+  const stmt = await db.prepare(`
     SELECT 
       t.id,
       t.tx_hash,
@@ -75,10 +75,10 @@ export async function GET(request: Request) {
     LIMIT ?
   `);
   
-  const transactions = stmt.all(minAmount, limit);
+  const transactions = await stmt.all(minAmount, limit);
   
   // Get count by year
-  const yearStmt = db.prepare(`
+  const yearStmt = await db.prepare(`
     SELECT 
       strftime('%Y', datetime(block_timestamp/1000000000, 'unixepoch')) as year,
       COUNT(*) as count
@@ -88,7 +88,7 @@ export async function GET(request: Request) {
     GROUP BY year
     ORDER BY year
   `);
-  const byYear = yearStmt.all(minAmount);
+  const byYear = await yearStmt.all(minAmount);
   
   return NextResponse.json({
     transactions,

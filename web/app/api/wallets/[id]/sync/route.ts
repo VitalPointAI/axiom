@@ -27,7 +27,7 @@ export async function POST(
     const db = getDb();
 
     // Get user
-    const user = db.prepare(`
+    const user = await db.prepare(`
       SELECT id FROM users WHERE near_account_id = ?
     `).get(nearAccountId) as { id: number } | undefined;
 
@@ -36,7 +36,7 @@ export async function POST(
     }
 
     // Get wallet
-    const wallet = db.prepare(`
+    const wallet = await db.prepare(`
       SELECT * FROM wallets WHERE id = ? AND user_id = ?
     `).get(walletId, user.id) as {
       id: number;
@@ -49,7 +49,7 @@ export async function POST(
     }
 
     // Update status to syncing
-    db.prepare(`
+    await db.prepare(`
       UPDATE wallets SET sync_status = 'in_progress' WHERE id = ?
     `).run(walletId);
 
@@ -64,19 +64,22 @@ export async function POST(
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
       
+      // Run classification after successful sync
+      await runClassification();
+      
       // Update status to complete
-      db.prepare(`
+      await db.prepare(`
         UPDATE wallets SET sync_status = 'complete', last_synced_at = datetime('now') WHERE id = ?
       `).run(walletId);
     } catch (syncError) {
       console.error('Sync error:', syncError);
-      db.prepare(`
+      await db.prepare(`
         UPDATE wallets SET sync_status = 'error' WHERE id = ?
       `).run(walletId);
       throw syncError;
     }
 
-    const updatedWallet = db.prepare(`
+    const updatedWallet = await db.prepare(`
       SELECT w.*, p.total_fetched as tx_count
       FROM wallets w
       LEFT JOIN indexing_progress p ON w.id = p.wallet_id
@@ -91,6 +94,51 @@ export async function POST(
       { status: 500 }
     );
   }
+}
+
+// Run classification after syncing
+async function runClassification(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const projectRoot = path.join(process.cwd(), '..');
+    
+    console.log('[Classification] Running post-sync classification...');
+    
+    const pythonProcess = spawn('python3', ['post_sync.py'], {
+      cwd: projectRoot,
+      env: { ...process.env, PYTHONUNBUFFERED: '1' }
+    });
+
+    pythonProcess.stdout.on('data', (data) => {
+      console.log('[Classification]', data.toString().trim());
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+      console.error('[Classification Error]', data.toString().trim());
+    });
+
+    pythonProcess.on('close', (code) => {
+      if (code === 0) {
+        console.log('[Classification] Complete');
+        resolve();
+      } else {
+        // Don't fail the sync if classification fails
+        console.error('[Classification] Failed with code', code);
+        resolve();
+      }
+    });
+
+    pythonProcess.on('error', (err) => {
+      console.error('[Classification] Error:', err);
+      resolve(); // Don't fail sync
+    });
+
+    // Timeout after 2 minutes
+    setTimeout(() => {
+      pythonProcess.kill();
+      console.log('[Classification] Timeout - continuing anyway');
+      resolve();
+    }, 2 * 60 * 1000);
+  });
 }
 
 // Call Python indexer for EVM chains
