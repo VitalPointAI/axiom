@@ -75,7 +75,7 @@ export async function GET() {
       WHERE wallet_id IN (SELECT id FROM wallets WHERE user_id = ?)
         AND token_symbol NOT IN ('wNEAR', 'stNEAR', 'LiNEAR')
       GROUP BY token_symbol
-      HAVING balance > 0.01
+      HAVING SUM(CASE WHEN direction = 'in' THEN CAST(amount AS DOUBLE PRECISION) ELSE -CAST(amount AS DOUBLE PRECISION) END) / POWER(10, COALESCE(MAX(token_decimals), 24)) > 0.01
       ORDER BY balance DESC
     `).all(auth.userId) as Array<{ token_symbol: string; balance: number }>;
 

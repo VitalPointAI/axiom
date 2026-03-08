@@ -14,8 +14,16 @@ export function getPool(): Pool {
 function convertSql(sql: string): string {
   let i = 0;
   return sql
+    // Convert ? placeholders to $1, $2, etc
+    .replace(/\?/g, () => '$' + (++i))
+    // SQLite datetime('now') -> PostgreSQL NOW()
     .replace(/datetime\(['"]now['"]\)/gi, 'NOW()')
-    .replace(/\?/g, () => '$' + (++i));
+    // SQLite datetime(column, modifier) -> PostgreSQL equivalent
+    .replace(/datetime\(([^,]+),\s*['"]([^'"]+)['"]\)/gi, "($1 + INTERVAL '$2')")
+    // SQLite CAST AS REAL -> PostgreSQL CAST AS DOUBLE PRECISION
+    .replace(/CAST\(([^)]+)\s+AS\s+REAL\)/gi, 'CAST($1 AS DOUBLE PRECISION)')
+    // SQLite strftime -> PostgreSQL to_char (basic)
+    .replace(/strftime\(['"]%Y['"],\s*([^)]+)\)/gi, "EXTRACT(YEAR FROM $1)::TEXT");
 }
 
 export function getDb() {
@@ -43,7 +51,7 @@ export function getDb() {
       await p.query(sql);
     },
     pragma: () => {},
-    query: (sql: string, params?: any[]) => p.query(sql, params),
+    query: (sql: string, params?: any[]) => p.query(convertSql(sql), params),
   };
 }
 
