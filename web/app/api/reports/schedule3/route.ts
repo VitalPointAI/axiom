@@ -1,160 +1,122 @@
+import { getAuthenticatedUser } from '@/lib/auth';
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 
 // Schedule 3 - Capital Gains (or Losses)
-// Used to report disposition of capital property
+// SECURITY: All queries filtered by user_id
 
 export async function GET(request: Request) {
+  const auth = await getAuthenticatedUser();
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const { searchParams } = new URL(request.url);
   const year = searchParams.get('year') || '2025';
   
   const db = getDb();
   
-  const yearStart = new Date(`${year}-01-01T00:00:00Z`).getTime() * 1000000;
-  const yearEnd = new Date(`${parseInt(year) + 1}-01-01T00:00:00Z`).getTime() * 1000000;
+  // SECURITY: Get this user's wallet IDs first
+  const userWallets = await db.prepare(`SELECT id FROM wallets WHERE user_id = $1`).all(auth.userId) as { id: number }[];
+  const walletIds = userWallets.map(w => w.id);
   
-  // Get all disposals (outflows that are trades or transfers out)
-  const disposalsStmt = await db.prepare(`
-    SELECT 
-      t.id,
-      t.tx_hash,
-      t.block_timestamp,
-      t.counterparty,
-      t.method_name,
-      t.action_type,
-      CAST(t.amount AS REAL) / 1e24 as amount_near,
-      t.cost_basis_usd,
-      t.cost_basis_cad,
-      t.tax_category,
-      w.account_id as wallet_address,
-      datetime(t.block_timestamp/1000000000, 'unixepoch') as datetime
-    FROM transactions t
-    LEFT JOIN wallets w ON t.wallet_id = w.id
-    WHERE t.block_timestamp >= ? AND t.block_timestamp < ?
-    AND t.direction = 'out'
-    AND t.tax_category IN ('trade', 'transfer')
-    ORDER BY t.block_timestamp
-  `);
-  const disposals = await disposalsStmt.all(yearStart, yearEnd) as Array<{
-    id: number;
-    tx_hash: string;
-    block_timestamp: number;
-    counterparty: string;
-    method_name: string;
-    action_type: string;
-    amount_near: number;
-    cost_basis_usd: number | null;
-    cost_basis_cad: number | null;
-    tax_category: string;
-    wallet_address: string;
-    datetime: string;
-  }>;
-  
-  // Get DeFi trades
-  const defiTradesStmt = await db.prepare(`
-    SELECT 
-      d.id,
-      d.tx_hash,
-      d.block_timestamp,
-      d.token_symbol,
-      d.amount_decimal,
-      d.value_usd,
-      d.value_cad,
-      d.protocol,
-      datetime(d.block_timestamp/1000000000, 'unixepoch') as datetime
-    FROM defi_events d
-    WHERE d.block_timestamp >= ? AND d.block_timestamp < ?
-    AND d.tax_category = 'trade'
-    ORDER BY d.block_timestamp
-  `);
-  const defiTrades = await defiTradesStmt.all(yearStart, yearEnd);
-  
-  // Calculate totals
-  // For crypto, each trade is a disposition - need to track ACB (adjusted cost base)
-  // This is simplified - real ACB calculation tracks pool of identical properties
-  
-  let totalProceeds = 0;
-  let totalACB = 0;
-  let totalOutlays = 0; // transaction fees
-  
-  const capitalGains: Array<{
-    date: string;
-    description: string;
-    proceeds: number;
-    acb: number;
-    outlays: number;
-    gainLoss: number;
-  }> = [];
-  
-  // Process NEAR disposals
-  for (const d of disposals) {
-    const proceeds = d.cost_basis_cad || (d.cost_basis_usd || 0) * 1.35;
-    // ACB calculation would require tracking all acquisitions - simplified here
-    const acb = proceeds * 0.8; // Placeholder - assume 20% gain average
-    const outlays = 0.1; // Small fee
-    const gainLoss = proceeds - acb - outlays;
-    
-    totalProceeds += proceeds;
-    totalACB += acb;
-    totalOutlays += outlays;
-    
-    capitalGains.push({
-      date: d.datetime?.split(' ')[0] || 'Unknown',
-      description: `NEAR transfer - ${d.amount_near.toFixed(4)} NEAR`,
-      proceeds,
-      acb,
-      outlays,
-      gainLoss
+  if (walletIds.length === 0) {
+    return NextResponse.json({
+      year,
+      summary: { totalDisposals: 0, totalProceeds: 0, totalACB: 0, totalOutlays: 0, totalGainLoss: 0, taxableCapitalGain: 0, allowableCapitalLoss: 0 },
+      disposals: [],
+      hasMore: false,
+      notes: ['No wallets found for this user']
     });
   }
   
-  // Process DeFi trades
-  for (const t of defiTrades) {
-    const proceeds = (t as any).value_cad || ((t as any).value_usd || 0) * 1.35;
-    const acb = proceeds * 0.85; // Placeholder
-    const outlays = 0.05;
-    const gainLoss = proceeds - acb - outlays;
+  let disposals: any[] = [];
+  let summary = { totalDisposals: 0, totalProceeds: 0, totalACB: 0, totalOutlays: 0, totalGainLoss: 0, taxableCapitalGain: 0, allowableCapitalLoss: 0 };
+
+  try {
+    // Get summary from calculated_disposals - FILTERED BY USER via tx_id join
+    const summaryResult = await db.prepare(`
+      SELECT COUNT(*) as disposal_count, COALESCE(SUM(cd.proceeds_cad), 0) as total_proceeds, COALESCE(SUM(cd.acb_cad), 0) as total_acb, COALESCE(SUM(cd.gain_loss_cad), 0) as net_gain_loss
+      FROM calculated_disposals cd 
+      JOIN transactions t ON cd.tx_id = t.id
+      WHERE cd.year = $1 AND t.wallet_id = ANY($2::int[])
+    `).get(parseInt(year), [walletIds]) as any;
+
+    if (summaryResult) {
+      summary.totalDisposals = Number(summaryResult.disposal_count) || 0;
+      summary.totalProceeds = Number(summaryResult.total_proceeds) || 0;
+      summary.totalACB = Number(summaryResult.total_acb) || 0;
+      summary.totalGainLoss = Number(summaryResult.net_gain_loss) || 0;
+      
+      if (summary.totalGainLoss > 0) {
+        summary.taxableCapitalGain = summary.totalGainLoss * 0.5;
+      } else {
+        summary.allowableCapitalLoss = Math.abs(summary.totalGainLoss) * 0.5;
+      }
+    }
+
+    // Get individual disposals - FILTERED BY USER via tx_id join
+    disposals = await db.prepare(`
+      SELECT cd.id, cd.tx_hash, cd.disposal_date, cd.token as token_symbol, cd.amount as quantity, cd.proceeds_cad, cd.acb_cad, cd.gain_loss_cad
+      FROM calculated_disposals cd 
+      JOIN transactions t ON cd.tx_id = t.id
+      WHERE cd.year = $1 AND t.wallet_id = ANY($2::int[])
+      ORDER BY cd.disposal_date DESC LIMIT 100
+    `).all(parseInt(year), [walletIds]) as any[];
+
+  } catch (e) {
+    console.error('Error fetching calculated_disposals:', e);
     
-    totalProceeds += proceeds;
-    totalACB += acb;
-    totalOutlays += outlays;
+    // Fallback - FILTERED BY USER
+    const yearStart = new Date(`${year}-01-01T00:00:00Z`).getTime() * 1000000;
+    const yearEnd = new Date(`${parseInt(year) + 1}-01-01T00:00:00Z`).getTime() * 1000000;
     
-    capitalGains.push({
-      date: (t as any).datetime?.split(' ')[0] || 'Unknown',
-      description: `${(t as any).protocol} swap - ${(t as any).amount_decimal?.toFixed(4)} ${(t as any).token_symbol}`,
-      proceeds,
-      acb,
-      outlays,
-      gainLoss
-    });
+    const rawDisposals = await db.prepare(`
+      SELECT t.id, t.tx_hash, t.block_timestamp, CAST(t.amount AS REAL) / 1e24 as amount_near, t.cost_basis_cad,
+        to_char(to_timestamp(t.block_timestamp/1000000000), 'YYYY-MM-DD HH24:MI:SS') as datetime
+      FROM transactions t
+      WHERE t.block_timestamp >= $1 AND t.block_timestamp < $2 AND t.wallet_id = ANY($3::int[])
+      AND t.direction = 'out' AND t.tax_category IN ('trade', 'transfer', 'swap')
+      ORDER BY t.block_timestamp DESC LIMIT 100
+    `).all(yearStart, yearEnd, [walletIds]) as any[];
+
+    for (const d of rawDisposals) {
+      const proceeds = Number(d.cost_basis_cad) || 0;
+      disposals.push({ id: d.id, tx_hash: d.tx_hash, disposal_date: d.datetime, token_symbol: 'NEAR', quantity: d.amount_near, proceeds_cad: proceeds, acb_cad: null, gain_loss_cad: null });
+      summary.totalProceeds += proceeds;
+      summary.totalDisposals++;
+    }
   }
-  
-  // Sort by date
-  capitalGains.sort((a, b) => a.date.localeCompare(b.date));
-  
-  const totalGainLoss = totalProceeds - totalACB - totalOutlays;
-  const taxableGain = totalGainLoss > 0 ? totalGainLoss * 0.5 : 0; // 50% inclusion rate
-  const allowableLoss = totalGainLoss < 0 ? Math.abs(totalGainLoss) * 0.5 : 0;
-  
+
+  const formattedDisposals = disposals.map(d => ({
+    date: d.disposal_date?.split('T')[0] || d.disposal_date?.split(' ')[0] || 'Unknown',
+    description: `${d.token_symbol || 'NEAR'} - ${Number(d.quantity || 0).toFixed(4)}`,
+    txHash: d.tx_hash,
+    wallet: null,
+    proceeds: Number(d.proceeds_cad || 0),
+    acb: Number(d.acb_cad || 0),
+    outlays: 0,
+    gainLoss: Number(d.gain_loss_cad || 0),
+  }));
+
   return NextResponse.json({
     year,
     summary: {
-      totalDisposals: capitalGains.length,
-      totalProceeds,
-      totalACB,
-      totalOutlays,
-      totalGainLoss,
-      taxableCapitalGain: taxableGain,
-      allowableCapitalLoss: allowableLoss
+      totalDisposals: summary.totalDisposals,
+      totalProceeds: Number(summary.totalProceeds.toFixed(2)),
+      totalACB: Number(summary.totalACB.toFixed(2)),
+      totalOutlays: 0,
+      totalGainLoss: Number(summary.totalGainLoss.toFixed(2)),
+      taxableCapitalGain: Number(summary.taxableCapitalGain.toFixed(2)),
+      allowableCapitalLoss: Number(summary.allowableCapitalLoss.toFixed(2)),
     },
-    disposals: capitalGains.slice(0, 100), // Limit for response size
-    hasMore: capitalGains.length > 100,
+    disposals: formattedDisposals,
+    hasMore: disposals.length >= 100,
     notes: [
       'Capital gains from cryptocurrency are taxable in Canada',
       '50% of capital gains are included in income (inclusion rate)',
       'ACB (Adjusted Cost Base) calculated using average cost method',
-      'All values in CAD - verify exchange rates used',
-      'This is a simplified calculation - consult a tax professional'
+      'All values in CAD',
+      summary.totalGainLoss < 0 ? `Net capital LOSS of $${Math.abs(summary.totalGainLoss).toLocaleString()} CAD for ${year}` : `Net capital GAIN of $${summary.totalGainLoss.toLocaleString()} CAD for ${year}`,
     ]
   });
 }

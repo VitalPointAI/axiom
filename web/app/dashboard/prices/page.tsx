@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { AlertTriangle, CheckCircle, Trash2, RefreshCw, DollarSign } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Trash2, RefreshCw, DollarSign, PartyPopper } from 'lucide-react';
 
 interface PriceWarning {
   id: number;
@@ -46,9 +46,9 @@ export default function PricesPage() {
       
       const res = await fetch(`/api/price-warnings?${params}`);
       const data = await res.json();
-      setSummary(data.summary);
-      setTransactions(data.transactions);
-      setTotal(data.total);
+      setSummary(data.summary || []);
+      setTransactions(data.transactions || []);
+      setTotal(data.total || 0);
     } catch (err) {
       console.error('Failed to fetch price warnings:', err);
     } finally {
@@ -114,13 +114,60 @@ export default function PricesPage() {
 
   const unresolvedSpam = summary.find(s => s.price_warning === 'spam_token');
   const spamCount = unresolvedSpam ? unresolvedSpam.count - unresolvedSpam.resolved_count : 0;
+  
+  // Calculate total unresolved warnings
+  const totalUnresolved = summary.reduce((acc, s) => acc + (s.count - s.resolved_count), 0);
+
+  // Empty state - no price warnings at all
+  if (summary.length === 0 || totalUnresolved === 0) {
+    return (
+      <div className="space-y-6">
+        {/* Header */}
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Price Warnings</h1>
+          <p className="text-slate-500">
+            Review and resolve transactions with missing or uncertain prices
+          </p>
+        </div>
+
+        {/* Empty State */}
+        <div className="bg-white rounded-lg shadow-sm border p-12 text-center">
+          <div className="flex justify-center mb-4">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
+              <PartyPopper className="w-8 h-8 text-green-600" />
+            </div>
+          </div>
+          <h2 className="text-xl font-semibold text-slate-900 mb-2">
+            No Price Warnings! 🎉
+          </h2>
+          <p className="text-slate-500 max-w-md mx-auto">
+            All your transactions have valid price data. Your tax calculations are accurate and ready for review.
+          </p>
+          <div className="mt-6 flex justify-center gap-4">
+            <a
+              href="/dashboard/reports"
+              className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition"
+            >
+              View Reports
+            </a>
+            <a
+              href="/dashboard/transactions"
+              className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition"
+            >
+              View Transactions
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Price Warnings</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Price Warnings</h1>
           <p className="text-slate-500">
             Review and resolve transactions with missing or uncertain prices
           </p>
@@ -154,7 +201,7 @@ export default function PricesPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-500">{getWarningLabel(s.price_warning)}</p>
-                <p className="text-2xl font-bold text-slate-900">{s.count - s.resolved_count}</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">{s.count - s.resolved_count}</p>
                 <p className="text-xs text-slate-400">{s.resolved_count} resolved</p>
               </div>
               <AlertTriangle className={`w-8 h-8 ${
@@ -178,75 +225,83 @@ export default function PricesPage() {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="text-left px-4 py-3 text-slate-500 font-medium">Date</th>
-                <th className="text-left px-4 py-3 text-slate-500 font-medium">Wallet</th>
-                <th className="text-left px-4 py-3 text-slate-500 font-medium">Type</th>
-                <th className="text-right px-4 py-3 text-slate-500 font-medium">Amount</th>
-                <th className="text-left px-4 py-3 text-slate-500 font-medium">Warning</th>
-                <th className="text-right px-4 py-3 text-slate-500 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {transactions.map(tx => (
-                <tr key={tx.id} className="border-b last:border-0 hover:bg-slate-50">
-                  <td className="px-4 py-3 text-sm">
-                    {tx.datetime ? new Date(tx.datetime + 'Z').toLocaleDateString() : 'Unknown'}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="font-mono text-sm">
-                      {tx.wallet_address?.slice(0, 12)}...
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    {tx.method_name || tx.action_type || 'Transfer'}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <span className="font-mono">
-                      {tx.amount_near?.toFixed(4)} NEAR
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded text-xs ${getWarningColor(tx.price_warning)}`}>
-                      {getWarningLabel(tx.price_warning)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      {tx.price_warning === 'spam_token' && !tx.price_resolved && (
-                        <button
-                          onClick={() => resolveAsSpam(tx.id)}
-                          disabled={resolving === tx.id}
-                          className="p-2 text-slate-400 hover:text-red-500 transition"
-                          title="Mark as spam ($0)"
-                        >
-                          {resolving === tx.id ? (
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="w-4 h-4" />
-                          )}
-                        </button>
-                      )}
-                      {tx.price_resolved ? (
-                        <CheckCircle className="w-5 h-5 text-green-500" />
-                      ) : (
-                        <button
-                          className="p-2 text-slate-400 hover:text-blue-500 transition"
-                          title="Set manual price"
-                        >
-                          <DollarSign className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </td>
+        {transactions.length === 0 ? (
+          <div className="p-8 text-center text-slate-500">
+            <CheckCircle className="w-12 h-12 mx-auto mb-3 text-green-400" />
+            <p className="font-medium">No unresolved warnings in this category</p>
+            <p className="text-sm mt-1">All transactions have been reviewed</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="text-left px-4 py-3 text-slate-500 font-medium">Date</th>
+                  <th className="text-left px-4 py-3 text-slate-500 font-medium">Wallet</th>
+                  <th className="text-left px-4 py-3 text-slate-500 font-medium">Type</th>
+                  <th className="text-right px-4 py-3 text-slate-500 font-medium">Amount</th>
+                  <th className="text-left px-4 py-3 text-slate-500 font-medium">Warning</th>
+                  <th className="text-right px-4 py-3 text-slate-500 font-medium">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {transactions.map(tx => (
+                  <tr key={tx.id} className="border-b last:border-0 hover:bg-slate-50">
+                    <td className="px-4 py-3 text-sm">
+                      {tx.datetime ? new Date(tx.datetime + 'Z').toLocaleDateString() : 'Unknown'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="font-mono text-sm">
+                        {tx.wallet_address?.slice(0, 12)}...
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {tx.method_name || tx.action_type || 'Transfer'}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="font-mono">
+                        {tx.amount_near?.toFixed(4)} NEAR
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-1 rounded text-xs ${getWarningColor(tx.price_warning)}`}>
+                        {getWarningLabel(tx.price_warning)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {tx.price_warning === 'spam_token' && !tx.price_resolved && (
+                          <button
+                            onClick={() => resolveAsSpam(tx.id)}
+                            disabled={resolving === tx.id}
+                            className="p-2 text-slate-400 hover:text-red-500 transition"
+                            title="Mark as spam ($0)"
+                          >
+                            {resolving === tx.id ? (
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
+                          </button>
+                        )}
+                        {tx.price_resolved ? (
+                          <CheckCircle className="w-5 h-5 text-green-500" />
+                        ) : (
+                          <button
+                            className="p-2 text-slate-400 hover:text-blue-500 transition"
+                            title="Set manual price"
+                          >
+                            <DollarSign className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {/* Pagination */}
         {total > 50 && (

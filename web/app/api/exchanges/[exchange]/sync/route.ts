@@ -68,7 +68,7 @@ export async function POST(
       // Update status
       await db.prepare(`
         UPDATE exchange_credentials 
-        SET sync_status = 'complete', last_sync_at = datetime('now')
+        SET sync_status = 'complete', last_sync_at = NOW()
         WHERE user_id = ? AND exchange = ?
       `).run(user.id, exchange.toLowerCase());
 

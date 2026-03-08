@@ -1,3 +1,4 @@
+import { getAuthenticatedUser } from '@/lib/auth';
 import { cookies } from 'next/headers';
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
@@ -30,6 +31,10 @@ async function getLiquidBalance(account: string): Promise<number> {
 }
 
 export async function GET() {
+  const auth = await getAuthenticatedUser();
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   try {
     const cookieStore = await cookies();
     const sessionToken = cookieStore.get('neartax_session')?.value;
@@ -44,7 +49,7 @@ export async function GET() {
       SELECT u.id, u.near_account_id
       FROM sessions s
       JOIN users u ON s.user_id = u.id
-      WHERE s.id = ? AND s.expires_at > datetime('now')
+      WHERE s.id = ? AND s.expires_at > NOW()
     `).get(sessionToken) as { id: number; near_account_id: string } | undefined;
 
     if (!session) {
@@ -109,7 +114,7 @@ export async function GET() {
 
     const dailyDeltas = await db.prepare(`
       SELECT 
-        DATE(block_timestamp / 1000000000, 'unixepoch') as date,
+        to_char(to_timestamp(block_timestamp / 1000000000), 'YYYY-MM-DD') as date,
         SUM(CASE 
           WHEN LOWER(direction) = 'in' 
           AND (counterparty IS NULL OR counterparty NOT IN (${accountPlaceholders}))
@@ -130,7 +135,7 @@ export async function GET() {
       FROM transactions
       WHERE wallet_id IN (${placeholders})
         AND block_timestamp IS NOT NULL
-      GROUP BY DATE(block_timestamp / 1000000000, 'unixepoch')
+      GROUP BY to_char(to_timestamp(block_timestamp / 1000000000), 'YYYY-MM-DD')
       ORDER BY date DESC
     `).all([...trackedAccountsList, ...trackedAccountsList, ...walletIdList]) as Array<{
       date: string;
@@ -142,12 +147,12 @@ export async function GET() {
     // 5. Get staking events deltas per day  
     const stakingDeltas = await db.prepare(`
       SELECT 
-        DATE(block_timestamp / 1000000000, 'unixepoch') as date,
+        to_char(to_timestamp(block_timestamp / 1000000000), 'YYYY-MM-DD') as date,
         SUM(CASE WHEN event_type IN ('stake', 'deposit_and_stake') THEN CAST(amount AS REAL) / 1e24 ELSE 0 END) as staked,
         SUM(CASE WHEN event_type IN ('unstake', 'unstake_all', 'synthetic_unstake', 'withdraw_all') THEN CAST(amount AS REAL) / 1e24 ELSE 0 END) as unstaked
       FROM staking_events
       WHERE wallet_id IN (${placeholders})
-      GROUP BY DATE(block_timestamp / 1000000000, 'unixepoch')
+      GROUP BY to_char(to_timestamp(block_timestamp / 1000000000), 'YYYY-MM-DD')
       ORDER BY date DESC
     `).all(walletIdList) as Array<{
       date: string;

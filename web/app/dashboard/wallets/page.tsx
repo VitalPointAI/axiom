@@ -27,6 +27,7 @@ const CHAINS = [
   { id: 'NEAR', name: 'NEAR Protocol', color: 'bg-green-500' },
   { id: 'ETH', name: 'Ethereum', color: 'bg-blue-500' },
   { id: 'Polygon', name: 'Polygon', color: 'bg-purple-500' },
+  { id: 'Cronos', name: 'Cronos', color: 'bg-blue-400' },
   { id: 'Optimism', name: 'Optimism', color: 'bg-red-500' },
 ];
 
@@ -102,7 +103,7 @@ export default function WalletsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Wallets</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Wallets</h1>
           <p className="text-slate-500">Manage your crypto wallets</p>
         </div>
         <button
@@ -246,7 +247,7 @@ function AddWalletModal({ onClose, onAdd }: { onClose: () => void; onAdd: () => 
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-semibold text-slate-900">Add Wallet</h2>
+          <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Add Wallet</h2>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg">
             <X className="w-5 h-5 text-slate-400" />
           </button>

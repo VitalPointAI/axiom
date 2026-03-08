@@ -134,7 +134,7 @@ export async function GET(request: NextRequest) {
 
         await db.prepare(`
           INSERT INTO users (near_account_id, codename, created_at, last_login_at)
-          VALUES (?, ?, datetime('now'), datetime('now'))
+          VALUES (?, ?, NOW(), NOW())
         `).run(nearAccountId, codename);
 
         user = await db.prepare('SELECT * FROM users WHERE near_account_id = ?').get(nearAccountId);
@@ -166,7 +166,7 @@ export async function GET(request: NextRequest) {
 
     await db.prepare(`
       INSERT INTO sessions (id, user_id, expires_at)
-      VALUES (?, ?, datetime('now', '+7 days'))
+      VALUES (?, ?, NOW() + INTERVAL '7 days')
     `).run(sessionToken, userId);
 
     // Update last login

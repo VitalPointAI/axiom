@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     }
     
     const db = getDb();
-    const existing = await db.prepare('SELECT id FROM users WHERE username = ?').get(username);
+    const existing = await db.prepare('SELECT id FROM users WHERE near_account_id = ?').get(username);
     if (existing) {
       return NextResponse.json({ error: 'Username already taken' }, { status: 409 });
     }

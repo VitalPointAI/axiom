@@ -11,12 +11,12 @@ export function formatCurrency(value: number, currency: string = 'USD'): string 
     currency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(value);
+  }).format(typeof value === 'string' ? parseFloat(value) : value);
 }
 
-export function formatNumber(value: number, decimals: number = 2): string {
+export function formatNumber(value: number | string, decimals: number = 2): string {
   return new Intl.NumberFormat('en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
-  }).format(value);
+  }).format(typeof value === 'string' ? parseFloat(value) : value);
 }

@@ -9,7 +9,13 @@ const ORIGIN = process.env.NEXT_PUBLIC_ORIGIN || 'https://neartax.vitalpoint.ai'
 
 export async function POST(request: NextRequest) {
   try {
-    const { challengeId, credential } = await request.json();
+    const body = await request.json();
+    const { challengeId } = body;
+    // Accept both 'credential' and 'response' for library compatibility
+    const credential = body.credential || body.response;
+    
+    console.log('[Login Finish] challengeId:', challengeId);
+    console.log('[Login Finish] credential id:', credential?.id);
     
     const challengeData = loginChallenges.get(challengeId);
     if (!challengeData) {
@@ -22,9 +28,18 @@ export async function POST(request: NextRequest) {
     }
     
     const db = getDb();
-    const user = await db.prepare('SELECT * FROM users WHERE passkey_credential_id = ?').get(credential.id) as any;
     
-    if (!user) {
+    // Get passkey and user info
+    const passkey = await db.prepare(`
+      SELECT p.*, u.id as user_id, u.near_account_id, u.codename
+      FROM passkeys p
+      JOIN users u ON u.id = p.user_id
+      WHERE p.credential_id = ?
+    `).get(credential.id) as any;
+    
+    console.log('[Login Finish] Passkey found:', !!passkey);
+    
+    if (!passkey) {
       return NextResponse.json({ error: 'Passkey not found' }, { status: 404 });
     }
     
@@ -35,11 +50,13 @@ export async function POST(request: NextRequest) {
       expectedOrigin: ORIGIN,
       expectedRPID: RP_ID,
       credential: {
-        id: user.passkey_credential_id,
-        publicKey: new Uint8Array(Buffer.from(user.passkey_public_key, 'base64')),
-        counter: user.passkey_counter || 0,
+        id: passkey.credential_id,
+        publicKey: passkey.public_key,
+        counter: passkey.counter || 0,
       },
     });
+    
+    console.log('[Login Finish] Verification result:', result.verified, result.error);
     
     if (!result.verified) {
       loginChallenges.delete(challengeId);
@@ -48,26 +65,27 @@ export async function POST(request: NextRequest) {
     
     // Update counter to prevent replay attacks
     if (result.newCounter !== undefined) {
-      await db.prepare('UPDATE users SET passkey_counter = ? WHERE id = ?').run(result.newCounter, user.id);
+      await db.prepare('UPDATE passkeys SET counter = ?, last_used_at = NOW() WHERE id = ?').run(result.newCounter, passkey.id);
     }
     
     // Create session
-    await createSession(user.id);
+    await createSession(passkey.user_id);
+    console.log('[Login Finish] Session created for user:', passkey.user_id);
     
     // Clean up challenge
     loginChallenges.delete(challengeId);
     
     return NextResponse.json({ 
       success: true,
+      codename: passkey.codename || passkey.near_account_id,
       user: {
-        id: user.id,
-        username: user.username,
-        displayName: user.display_name,
-        isAdmin: !!user.is_admin,
+        id: passkey.user_id,
+        username: passkey.near_account_id,
+        displayName: passkey.codename || passkey.near_account_id,
       }
     });
   } catch (error: any) {
-    console.error('Login finish error:', error);
+    console.error('[Login Finish] Error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

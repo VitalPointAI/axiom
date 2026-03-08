@@ -23,10 +23,16 @@ interface PortfolioHistoryData {
   history: ApiHistoryPoint[];
   currentValue: number;
   currentNear: number;
+  breakdown?: {
+    liquid: number;
+    staked: number;
+    nearPrice: number;
+  };
 }
 
 export function PortfolioChart() {
   const [data, setData] = useState<PortfolioHistoryData | null>(null);
+  const [liveValue, setLiveValue] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<'30d' | '90d' | '1y'>('90d');
@@ -34,10 +40,23 @@ export function PortfolioChart() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/portfolio/history');
-      if (!res.ok) throw new Error('Failed to fetch');
-      const json = await res.json();
-      setData(json);
+      
+      // Fetch both history and live portfolio in parallel
+      const [histRes, liveRes] = await Promise.all([
+        fetch('/api/portfolio/history'),
+        fetch('/api/portfolio')
+      ]);
+      
+      if (!histRes.ok) throw new Error('Failed to fetch history');
+      const histJson = await histRes.json();
+      setData(histJson);
+      
+      // Get live value to ensure chart endpoint matches card
+      if (liveRes.ok) {
+        const liveJson = await liveRes.json();
+        setLiveValue(liveJson.totalValue || null);
+      }
+      
       setError(null);
     } catch (err) {
       setError('Failed to load history');
@@ -80,20 +99,38 @@ export function PortfolioChart() {
   
   const filteredHistory = data.history.filter(h => new Date(h.date) >= cutoff);
 
-  // Calculate change - use totalValueUsd from API
+  // Use live value for current, fall back to API currentValue, then last history point
+  const currentValue = liveValue ?? data.currentValue ?? (filteredHistory.length > 0 ? filteredHistory[filteredHistory.length - 1].totalValueUsd : 0);
+  
+  // Start value from history
   const startValue = filteredHistory.length > 0 ? (filteredHistory[0].totalValueUsd || 0) : 0;
-  const endValue = filteredHistory.length > 0 ? (filteredHistory[filteredHistory.length - 1].totalValueUsd || 0) : 0;
-  const change = endValue - startValue;
-  const changePercent = startValue > 0 ? ((endValue - startValue) / startValue) * 100 : 0;
+  
+  const change = currentValue - startValue;
+  const changePercent = startValue > 0 ? ((currentValue - startValue) / startValue) * 100 : 0;
   const isPositive = change >= 0;
 
-  // Format data for chart - map API fields to chart fields
+  // Format data for chart - inject current live value as today's point
   const chartData = filteredHistory.map(h => ({
     date: h.date,
     value: Math.round(h.totalValueUsd || 0),
     near: h.totalNear || 0,
     label: new Date(h.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   }));
+
+  // If the last point isn't today, add today with the current value
+  const today = new Date().toISOString().split('T')[0];
+  const lastDate = chartData.length > 0 ? chartData[chartData.length - 1].date : null;
+  if (lastDate !== today && currentValue > 0) {
+    chartData.push({
+      date: today,
+      value: Math.round(currentValue),
+      near: data.currentNear || 0,
+      label: new Date(today).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    });
+  } else if (chartData.length > 0) {
+    // Update the last point with live value to ensure consistency
+    chartData[chartData.length - 1].value = Math.round(currentValue);
+  }
 
   return (
     <div className="bg-white rounded-lg shadow-sm border p-6">
@@ -195,7 +232,7 @@ export function PortfolioChart() {
           Start: <span className="text-slate-700 font-medium">${startValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
         </div>
         <div>
-          Current: <span className="text-slate-700 font-medium">${endValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+          Current: <span className="text-slate-700 font-medium">${currentValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
         </div>
       </div>
     </div>

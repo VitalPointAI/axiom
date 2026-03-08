@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { RefreshCw, CheckCircle, AlertCircle, Clock, Loader2 } from 'lucide-react';
+import { RefreshCw, CheckCircle, AlertCircle, Clock, Loader2, Play, Pause, RotateCcw } from 'lucide-react';
 
-interface SyncStatus {
+interface SyncStatusData {
   status: 'idle' | 'syncing' | 'complete' | 'error';
   progress: number;
   wallets: {
@@ -27,9 +27,10 @@ interface SyncStatus {
 }
 
 export function SyncStatus() {
-  const [status, setStatus] = useState<SyncStatus | null>(null);
+  const [status, setStatus] = useState<SyncStatusData | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const fetchStatus = async () => {
     try {
@@ -55,11 +56,37 @@ export function SyncStatus() {
     return () => clearInterval(interval);
   }, [status?.status]);
 
+  const handleAction = async (action: 'pause' | 'resume' | 'refresh') => {
+    setActionLoading(action);
+    try {
+      const res = await fetch('/api/sync/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        // Refresh status after action
+        await fetchStatus();
+        
+        if (action === 'refresh' && data.walletsQueued) {
+          // Show brief success message
+          alert(`Refresh triggered for ${data.walletsQueued} wallets`);
+        }
+      }
+    } catch (error) {
+      console.error('Sync action failed:', error);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-gray-400 text-sm">
         <Loader2 className="w-4 h-4 animate-spin" />
-        <span>Loading sync status...</span>
+        <span>Loading...</span>
       </div>
     );
   }
@@ -68,43 +95,48 @@ export function SyncStatus() {
     return null;
   }
 
+  const indexerStatus = status.indexer?.status || 'idle';
+  const isRunning = indexerStatus === 'running' || indexerStatus === 'scanning';
+  const isPaused = indexerStatus === 'paused';
+
   const getStatusIcon = () => {
-    switch (status.status) {
-      case 'syncing':
-        return <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />;
-      case 'complete':
-        return <CheckCircle className="w-4 h-4 text-green-400" />;
-      case 'error':
-        return <AlertCircle className="w-4 h-4 text-red-400" />;
-      default:
-        return <Clock className="w-4 h-4 text-gray-400" />;
+    if (status.status === 'syncing' || isRunning) {
+      return <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />;
     }
+    if (status.status === 'complete' && !isPaused) {
+      return <CheckCircle className="w-4 h-4 text-green-400" />;
+    }
+    if (status.status === 'error') {
+      return <AlertCircle className="w-4 h-4 text-red-400" />;
+    }
+    if (isPaused) {
+      return <Pause className="w-4 h-4 text-amber-400" />;
+    }
+    return <Clock className="w-4 h-4 text-gray-400" />;
   };
 
   const getStatusText = () => {
-    switch (status.status) {
-      case 'syncing':
-        return 'Syncing...';
-      case 'complete':
-        return 'Synced';
-      case 'error':
-        return 'Sync Error';
-      default:
-        return 'Idle';
-    }
+    if (status.status === 'syncing' || isRunning) return 'Running';
+    if (isPaused) return 'Paused';
+    if (status.status === 'complete') return 'Synced';
+    if (status.status === 'error') return 'Error';
+    return 'Idle';
   };
 
   const getStatusColor = () => {
-    switch (status.status) {
-      case 'syncing':
-        return 'bg-blue-500/20 border-blue-500/50 text-blue-400';
-      case 'complete':
-        return 'bg-green-500/20 border-green-500/50 text-green-400';
-      case 'error':
-        return 'bg-red-500/20 border-red-500/50 text-red-400';
-      default:
-        return 'bg-gray-500/20 border-gray-500/50 text-gray-400';
+    if (status.status === 'syncing' || isRunning) {
+      return 'bg-blue-500/20 border-blue-500/50 text-blue-400';
     }
+    if (isPaused) {
+      return 'bg-amber-500/20 border-amber-500/50 text-amber-400';
+    }
+    if (status.status === 'complete') {
+      return 'bg-green-500/20 border-green-500/50 text-green-400';
+    }
+    if (status.status === 'error') {
+      return 'bg-red-500/20 border-red-500/50 text-red-400';
+    }
+    return 'bg-gray-500/20 border-gray-500/50 text-gray-400';
   };
 
   const formatNumber = (n: number) => n?.toLocaleString() || '0';
@@ -119,7 +151,7 @@ export function SyncStatus() {
       >
         {getStatusIcon()}
         <span>{getStatusText()}</span>
-        {status.status === 'syncing' && (
+        {(status.status === 'syncing' || isRunning) && (
           <span className="text-xs opacity-75">
             {status.progress}%
           </span>
@@ -130,20 +162,66 @@ export function SyncStatus() {
       {expanded && (
         <div className="absolute right-0 top-full mt-2 w-80 bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-4 z-50">
           <div className="space-y-4">
-            {/* Header */}
+            {/* Header with Controls */}
             <div className="flex items-center justify-between">
               <h3 className="font-medium text-white">Sync Status</h3>
-              <button
-                onClick={fetchStatus}
-                className="text-gray-400 hover:text-white"
-                title="Refresh"
-              >
-                <RefreshCw className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                {/* Pause/Resume Button */}
+                {isRunning ? (
+                  <button
+                    onClick={() => handleAction('pause')}
+                    disabled={actionLoading === 'pause'}
+                    className="p-1.5 text-amber-400 hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+                    title="Pause Indexer"
+                  >
+                    {actionLoading === 'pause' ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Pause className="w-4 h-4" />
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleAction('resume')}
+                    disabled={actionLoading === 'resume'}
+                    className="p-1.5 text-green-400 hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+                    title="Resume Indexer"
+                  >
+                    {actionLoading === 'resume' ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Play className="w-4 h-4" />
+                    )}
+                  </button>
+                )}
+                
+                {/* Refresh Button */}
+                <button
+                  onClick={() => handleAction('refresh')}
+                  disabled={actionLoading === 'refresh'}
+                  className="p-1.5 text-blue-400 hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+                  title="Refresh All Wallets"
+                >
+                  {actionLoading === 'refresh' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-4 h-4" />
+                  )}
+                </button>
+                
+                {/* Status Refresh Button */}
+                <button
+                  onClick={fetchStatus}
+                  className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+                  title="Refresh Status"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Progress Bar */}
-            {status.status === 'syncing' && (
+            {(status.status === 'syncing' || isRunning) && (
               <div>
                 <div className="flex justify-between text-xs text-gray-400 mb-1">
                   <span>Progress</span>
@@ -218,7 +296,8 @@ export function SyncStatus() {
                   <div className="flex justify-between">
                     <span className="text-gray-400">Status</span>
                     <span className={`capitalize ${
-                      status.indexer.status === 'scanning' ? 'text-blue-400' :
+                      isRunning ? 'text-blue-400' :
+                      isPaused ? 'text-amber-400' :
                       status.indexer.status === 'done' ? 'text-green-400' : 'text-gray-400'
                     }`}>
                       {status.indexer.status}
@@ -234,8 +313,21 @@ export function SyncStatus() {
               </div>
             )}
 
+            {/* Control Buttons Description */}
+            <div className="text-xs text-gray-500 pt-2 border-t border-gray-700 space-y-1">
+              <div className="flex items-center gap-2">
+                <Play className="w-3 h-3 text-green-400" /> Resume realtime indexing
+              </div>
+              <div className="flex items-center gap-2">
+                <Pause className="w-3 h-3 text-amber-400" /> Pause realtime indexing
+              </div>
+              <div className="flex items-center gap-2">
+                <RotateCcw className="w-3 h-3 text-blue-400" /> Full refresh all wallets
+              </div>
+            </div>
+
             {/* Last Updated */}
-            <div className="text-xs text-gray-500 pt-2 border-t border-gray-700">
+            <div className="text-xs text-gray-500">
               Last checked: {new Date(status.lastChecked).toLocaleTimeString()}
             </div>
           </div>

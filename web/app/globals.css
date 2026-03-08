@@ -1,32 +1,225 @@
 @import "tailwindcss";
 
+/* Tailwind v4 theme configuration */
 @theme {
-  --color-border: hsl(214.3 31.8% 91.4%);
-  --color-input: hsl(214.3 31.8% 91.4%);
-  --color-ring: hsl(222.2 84% 4.9%);
+  /* shadcn/ui color tokens */
   --color-background: hsl(0 0% 100%);
   --color-foreground: hsl(222.2 84% 4.9%);
-  
-  --color-primary: hsl(222.2 47.4% 11.2%);
-  --color-primary-foreground: hsl(210 40% 98%);
-  
-  --color-secondary: hsl(210 40% 96.1%);
-  --color-secondary-foreground: hsl(222.2 47.4% 11.2%);
-  
-  --color-muted: hsl(210 40% 96.1%);
-  --color-muted-foreground: hsl(215.4 16.3% 46.9%);
-  
-  --color-accent: hsl(210 40% 96.1%);
-  --color-accent-foreground: hsl(222.2 47.4% 11.2%);
-  
   --color-card: hsl(0 0% 100%);
   --color-card-foreground: hsl(222.2 84% 4.9%);
-  
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.625rem;
+  --color-popover: hsl(0 0% 100%);
+  --color-popover-foreground: hsl(222.2 84% 4.9%);
+  --color-primary: hsl(221.2 83.2% 53.3%);
+  --color-primary-foreground: hsl(210 40% 98%);
+  --color-secondary: hsl(210 40% 96.1%);
+  --color-secondary-foreground: hsl(222.2 47.4% 11.2%);
+  --color-muted: hsl(210 40% 96.1%);
+  --color-muted-foreground: hsl(215.4 16.3% 46.9%);
+  --color-accent: hsl(210 40% 96.1%);
+  --color-accent-foreground: hsl(222.2 47.4% 11.2%);
+  --color-destructive: hsl(0 84.2% 60.2%);
+  --color-destructive-foreground: hsl(210 40% 98%);
+  --color-border: hsl(214.3 31.8% 91.4%);
+  --color-input: hsl(214.3 31.8% 91.4%);
+  --color-ring: hsl(221.2 83.2% 53.3%);
+  --radius: 0.5rem;
 }
 
+/* CSS Variables for both modes */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 222.2 84% 4.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 84% 4.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 84% 4.9%;
+  --primary: 221.2 83.2% 53.3%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 210 40% 96.1%;
+  --accent-foreground: 222.2 47.4% 11.2%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 221.2 83.2% 53.3%;
+}
+
+/* Dark mode using media query */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 217 33% 17%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 25%;
+    --input: 217.2 32.6% 25%;
+    --ring: 224.3 76.3% 48%;
+  }
+}
+
+/* Base styles */
 body {
-  @apply bg-background text-foreground;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+/* Dark mode overrides for Tailwind classes */
+@media (prefers-color-scheme: dark) {
+  /* Background colors */
+  .bg-white { background-color: #1e293b !important; }
+  .bg-slate-50 { background-color: #0f172a !important; }
+  .bg-slate-100 { background-color: #1e293b !important; }
+  .bg-slate-200 { background-color: #334155 !important; }
+  .bg-gray-50 { background-color: #0f172a !important; }
+  .bg-gray-100 { background-color: #1e293b !important; }
+  
+  /* Text colors - invert for dark mode */
+  .text-slate-900 { color: #f8fafc !important; }
+  .text-slate-800 { color: #f1f5f9 !important; }
+  .text-slate-700 { color: #e2e8f0 !important; }
+  .text-slate-600 { color: #cbd5e1 !important; }
+  .text-slate-500 { color: #94a3b8 !important; }
+  .text-gray-900 { color: #f8fafc !important; }
+  .text-gray-800 { color: #f1f5f9 !important; }
+  .text-gray-700 { color: #e2e8f0 !important; }
+  .text-gray-600 { color: #cbd5e1 !important; }
+  .text-gray-500 { color: #94a3b8 !important; }
+  
+  /* Border colors */
+  .border { border-color: #334155 !important; }
+  .border-slate-200 { border-color: #334155 !important; }
+  .border-slate-300 { border-color: #475569 !important; }
+  .border-gray-200 { border-color: #334155 !important; }
+  .border-gray-300 { border-color: #475569 !important; }
+  .border-b { border-bottom-color: #334155 !important; }
+  .border-t { border-top-color: #334155 !important; }
+  .divide-y > * + * { border-top-color: #334155 !important; }
+  .divide-slate-200 > * + * { border-color: #334155 !important; }
+  
+  /* Form elements */
+  input, select, textarea {
+    background-color: #1e293b !important;
+    border-color: #475569 !important;
+    color: #f8fafc !important;
+  }
+  input::placeholder, textarea::placeholder {
+    color: #64748b !important;
+  }
+  
+  /* Table styles */
+  table { background-color: #1e293b !important; }
+  th { 
+    background-color: #0f172a !important;
+    color: #e2e8f0 !important; 
+    border-color: #334155 !important;
+  }
+  td { 
+    color: #f1f5f9 !important; 
+    border-color: #334155 !important;
+  }
+  tr:hover { background-color: #334155 !important; }
+  tbody tr { border-color: #334155 !important; }
+  
+  /* Colored backgrounds - darker versions */
+  .bg-blue-50 { background-color: #1e3a5f !important; }
+  .bg-blue-100 { background-color: #1e3a5f !important; }
+  .bg-green-50 { background-color: #14532d !important; }
+  .bg-green-100 { background-color: #14532d !important; }
+  .bg-red-50 { background-color: #450a0a !important; }
+  .bg-red-100 { background-color: #450a0a !important; }
+  .bg-yellow-50 { background-color: #422006 !important; }
+  .bg-yellow-100 { background-color: #422006 !important; }
+  .bg-purple-50 { background-color: #3b0764 !important; }
+  .bg-purple-100 { background-color: #3b0764 !important; }
+  .bg-emerald-50 { background-color: #064e3b !important; }
+  .bg-emerald-100 { background-color: #064e3b !important; }
+  
+  /* Colored text - lighter versions */
+  .text-blue-700 { color: #93c5fd !important; }
+  .text-blue-800 { color: #93c5fd !important; }
+  .text-green-700 { color: #86efac !important; }
+  .text-green-800 { color: #86efac !important; }
+  .text-red-700 { color: #fca5a5 !important; }
+  .text-red-800 { color: #fca5a5 !important; }
+  .text-yellow-700 { color: #fcd34d !important; }
+  .text-yellow-800 { color: #fcd34d !important; }
+  
+  /* Hover states */
+  .hover\:bg-slate-50:hover { background-color: #334155 !important; }
+  .hover\:bg-slate-100:hover { background-color: #475569 !important; }
+  .hover\:bg-gray-50:hover { background-color: #334155 !important; }
+  .hover\:bg-gray-100:hover { background-color: #475569 !important; }
+  
+  /* Ring colors */
+  .ring-slate-200 { --tw-ring-color: #475569 !important; }
+  .focus\:ring-slate-200:focus { --tw-ring-color: #475569 !important; }
+  
+  /* Labels */
+  label { color: #e2e8f0 !important; }
+  
+  /* Scrollbar (webkit) */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #1e293b; }
+  ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+}
+
+/* shadcn component overrides */
+.bg-card { background-color: hsl(var(--card)) !important; }
+.text-card-foreground { color: hsl(var(--card-foreground)) !important; }
+.bg-muted { background-color: hsl(var(--muted)) !important; }
+.text-muted-foreground { color: hsl(var(--muted-foreground)) !important; }
+.bg-background { background-color: hsl(var(--background)) !important; }
+.text-foreground { color: hsl(var(--foreground)) !important; }
+.bg-primary { background-color: hsl(var(--primary)) !important; }
+.text-primary { color: hsl(var(--primary)) !important; }
+.text-primary-foreground { color: hsl(var(--primary-foreground)) !important; }
+.bg-secondary { background-color: hsl(var(--secondary)) !important; }
+.text-secondary-foreground { color: hsl(var(--secondary-foreground)) !important; }
+.border-border { border-color: hsl(var(--border)) !important; }
+.bg-input { background-color: hsl(var(--input)) !important; }
+
+/* Additional dark mode text colors */
+@media (prefers-color-scheme: dark) {
+  .text-gray-400 { color: #9ca3af !important; }
+  .text-gray-300 { color: #d1d5db !important; }
+  .text-gray-200 { color: #e5e7eb !important; }
+  .text-slate-400 { color: #94a3b8 !important; }
+  .text-slate-300 { color: #cbd5e1 !important; }
+  .text-slate-200 { color: #e2e8f0 !important; }
+  
+  /* Fix icon colors */
+  .text-gray-100, .text-slate-100 { color: #f3f4f6 !important; }
+  
+  /* Fix any remaining black text */
+  .text-black { color: #f8fafc !important; }
+  
+  /* Shadow adjustments */
+  .shadow-sm, .shadow { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3) !important; }
+  .shadow-md { box-shadow: 0 4px 6px rgba(0, 0, 0, 0.4) !important; }
+  .shadow-lg { box-shadow: 0 10px 15px rgba(0, 0, 0, 0.5) !important; }
+  
+  /* Focus states */
+  *:focus { outline-color: #60a5fa !important; }
+  
+  /* Chart/Graph improvements */
+  .recharts-text { fill: #e2e8f0 !important; }
+  .recharts-cartesian-axis-tick-value { fill: #94a3b8 !important; }
+  .recharts-legend-item-text { color: #e2e8f0 !important; }
 }

@@ -3,8 +3,7 @@ import { getDb } from "@/lib/db";
 import { getAuthenticatedUser } from "@/lib/auth";
 
 const NEAR_RPC = 'https://rpc.fastnear.com';
-const STAKING_APY = 0.045;
-const EPOCHS_PER_YEAR = 730;
+const EPOCHS_PER_DAY = 2;
 
 async function rpcCall(method: string, params: any): Promise<any> {
   try {
@@ -24,8 +23,6 @@ interface ValidatorMeta {
   description?: string;
   url?: string;
   logo?: string;
-  country?: string;
-  country_code?: string;
 }
 
 interface ValidatorStats {
@@ -37,18 +34,7 @@ interface ValidatorStats {
   delegatorCount: number;
   ownStake: number;
   ownStakeByWallet: { account: string; staked: number }[];
-  othersStake: number;
   commissionRate: number;
-  estimatedDailyRewards: number;
-  estimatedMonthlyRewards: number;
-  estimatedAnnualRewards: number;
-  personalDailyRewards: number;
-  personalMonthlyRewards: number;
-  personalAnnualRewards: number;
-  // For owners: commission earnings
-  commissionDailyEarnings?: number;
-  commissionMonthlyEarnings?: number;
-  commissionAnnualEarnings?: number;
   isActive: boolean;
   lastUpdated: string;
 }
@@ -73,8 +59,6 @@ async function getValidatorMeta(poolId: string): Promise<ValidatorMeta> {
           description: fields.description,
           url: fields.url,
           logo: fields.logo || fields.icon,
-          country: fields.country,
-          country_code: fields.country_code,
         };
       } catch {}
     }
@@ -104,18 +88,8 @@ async function getAccountStake(poolId: string, accountId: string): Promise<numbe
   }
 }
 
-async function getCurrentEpoch(): Promise<number> {
-  try {
-    const result = await rpcCall('validators', [null]);
-    return result.result?.epoch_height || 0;
-  } catch {
-    return 0;
-  }
-}
-
 async function getValidatorStats(poolId: string, userWallets: string[], isOwner: boolean): Promise<ValidatorStats | null> {
   try {
-    // Get total staked
     const totalArgs = Buffer.from('{}').toString('base64');
     const totalResult = await rpcCall('query', {
       request_type: 'call_function',
@@ -125,7 +99,6 @@ async function getValidatorStats(poolId: string, userWallets: string[], isOwner:
       args_base64: totalArgs
     });
     
-    // Get number of accounts
     const countResult = await rpcCall('query', {
       request_type: 'call_function',
       finality: 'final',
@@ -134,7 +107,6 @@ async function getValidatorStats(poolId: string, userWallets: string[], isOwner:
       args_base64: totalArgs
     });
     
-    // Get reward fee fraction (commission)
     const feeResult = await rpcCall('query', {
       request_type: 'call_function',
       finality: 'final',
@@ -159,7 +131,6 @@ async function getValidatorStats(poolId: string, userWallets: string[], isOwner:
       } catch {}
     }
 
-    // Get user's stake in this pool from ALL wallets
     const ownStakeByWallet: { account: string; staked: number }[] = [];
     let ownStake = 0;
     for (const wallet of userWallets) {
@@ -170,23 +141,9 @@ async function getValidatorStats(poolId: string, userWallets: string[], isOwner:
       }
     }
 
-    const othersStake = totalStaked - ownStake;
     const meta = await getValidatorMeta(poolId);
-    
-    // Calculate rewards
-    const epochRate = STAKING_APY / EPOCHS_PER_YEAR;
-    const poolDailyReward = totalStaked * epochRate * 2; // 2 epochs per day
-    const userShare = ownStake / totalStaked;
-    const grossDailyReward = poolDailyReward * userShare;
-    const commissionPaid = grossDailyReward * (commissionRate / 100);
-    const netDailyReward = grossDailyReward - commissionPaid;
-    
-    // For owners: commission EARNED from others' stakes
-    const othersShare = othersStake / totalStaked;
-    const othersGrossReward = poolDailyReward * othersShare;
-    const commissionEarned = othersGrossReward * (commissionRate / 100);
 
-    const stats: ValidatorStats = {
+    return {
       poolId,
       label: null,
       isOwner,
@@ -195,26 +152,10 @@ async function getValidatorStats(poolId: string, userWallets: string[], isOwner:
       delegatorCount,
       ownStake,
       ownStakeByWallet,
-      othersStake,
       commissionRate,
-      estimatedDailyRewards: poolDailyReward,
-      estimatedMonthlyRewards: poolDailyReward * 30,
-      estimatedAnnualRewards: poolDailyReward * 365,
-      personalDailyRewards: netDailyReward,
-      personalMonthlyRewards: netDailyReward * 30,
-      personalAnnualRewards: netDailyReward * 365,
       isActive: totalStaked > 0,
       lastUpdated: new Date().toISOString(),
     };
-    
-    // Add commission earnings for owners
-    if (isOwner) {
-      stats.commissionDailyEarnings = commissionEarned;
-      stats.commissionMonthlyEarnings = commissionEarned * 30;
-      stats.commissionAnnualEarnings = commissionEarned * 365;
-    }
-
-    return stats;
   } catch (error) {
     console.error(`Error getting validator stats for ${poolId}:`, error);
     return null;
@@ -233,7 +174,7 @@ export async function GET(request: NextRequest) {
     const walletAccounts = userWallets.map(w => w.account_id);
     
     const poolIdParam = request.nextUrl.searchParams.get('poolId');
-    const dateFilter = request.nextUrl.searchParams.get('dateFilter'); // day, week, month, year
+    const dateFilter = request.nextUrl.searchParams.get('dateFilter');
     const customStartDate = request.nextUrl.searchParams.get('startDate');
     const customEndDate = request.nextUrl.searchParams.get('endDate');
 
@@ -255,147 +196,296 @@ export async function GET(request: NextRequest) {
         stats.isOwner = isOwner;
       }
 
-      const currentEpoch = await getCurrentEpoch();
+      const currentStake = stats?.ownStake || 0;
 
-      // Get epoch rewards from DB or generate
-      let epochEarnings = await db.prepare(`
+      // Get ALL staking events sorted by timestamp ASC
+      const allStakingEvents = await db.prepare(`
         SELECT 
-          epoch_id, epoch_date as date, staked_balance_near,
-          pool_total_stake_near, pool_reward_near, commission_rate,
-          gross_reward_near, commission_near, net_reward_near as reward_near,
-          price_usd, net_reward_usd as income_usd
-        FROM epoch_rewards
-        WHERE validator = ?
-        ORDER BY epoch_id DESC
-        LIMIT 200
-      `).all(poolIdParam) as any[];
+          se.id,
+          se.event_type,
+          CAST(se.amount AS NUMERIC) / 1e24 as amount_near,
+          se.block_timestamp,
+          se.tx_hash,
+          w.account_id as wallet,
+          TO_CHAR(TO_TIMESTAMP(se.block_timestamp::bigint / 1000000000), 'YYYY-MM-DD') as date
+        FROM staking_events se
+        JOIN wallets w ON se.wallet_id = w.id
+        WHERE se.validator_id = $1 AND w.account_id = ANY($2::text[])
+        ORDER BY se.block_timestamp ASC
+      `).all(poolIdParam, walletAccounts) as any[];
 
-      // Generate estimated data if no DB data
-      if (epochEarnings.length === 0 && stats) {
-        const epochRate = STAKING_APY / EPOCHS_PER_YEAR;
-        epochEarnings = [];
-        for (let i = 0; i < 200; i++) {
-          const epochId = currentEpoch - i;
-          const epochTime = Date.now() - (i * 12 * 3600 * 1000);
-          const date = new Date(epochTime).toISOString().split('T')[0];
-          
-          const poolReward = stats.totalStakedNear * epochRate;
-          const userShare = stats.ownStake / stats.totalStakedNear;
-          const grossReward = poolReward * userShare;
-          const commission = grossReward * (stats.commissionRate / 100);
-          const netReward = grossReward - commission;
-          
-          // For owners: calculate commission EARNED
-          const othersShare = stats.othersStake / stats.totalStakedNear;
-          const othersGross = poolReward * othersShare;
-          const commissionEarned = othersGross * (stats.commissionRate / 100);
-          
-          // Add slight variance to simulate real-world fluctuations in stake/rewards
-          // (Until we implement proper historical epoch tracking)
-          const variance = 1 + (Math.sin(epochId * 0.1) * 0.03); // +/- 3% variance
-          const adjustedOwnStake = stats.ownStake * variance;
-          const adjustedPoolReward = poolReward * variance;
-          const adjustedGrossReward = grossReward * variance;
-          const adjustedCommission = commission * variance;
-          const adjustedNetReward = netReward * variance;
-          const adjustedCommissionEarned = commissionEarned * variance;
-          
-          // Historical price estimation (rough - ideally fetch from price API)
-          const daysAgo = i * 0.5; // 2 epochs per day
-          const priceVariance = 1 + (Math.sin(epochId * 0.2) * 0.1); // +/- 10% price variance
-          const basePrice = 1.15;
-          const historicalPrice = basePrice * priceVariance;
-          
-          epochEarnings.push({
-            epoch_id: epochId,
-            date,
-            staked_balance_near: adjustedOwnStake,
-            pool_total_stake_near: stats.totalStakedNear * variance,
-            pool_reward_near: adjustedPoolReward,
-            commission_rate: stats.commissionRate,
-            gross_reward_near: adjustedGrossReward,
-            commission_near: adjustedCommission,
-            reward_near: adjustedNetReward,
-            commission_earned_near: isOwner ? adjustedCommissionEarned : 0,
-            price_usd: historicalPrice,
-            income_usd: adjustedNetReward * historicalPrice,
-            commission_earned_usd: isOwner ? adjustedCommissionEarned * historicalPrice : 0,
-            is_estimated: true,
-          });
-        }
-      } else if (isOwner && epochEarnings.length > 0 && stats) {
-        // Add commission_earned to existing data for owners
-        epochEarnings = epochEarnings.map(e => {
-          const othersStake = e.pool_total_stake_near - e.staked_balance_near;
-          const othersShare = othersStake / e.pool_total_stake_near;
-          const othersGross = e.pool_reward_near * othersShare;
-          const commissionEarned = othersGross * (e.commission_rate / 100);
-          return {
-            ...e,
-            commission_earned_near: commissionEarned,
-            commission_earned_usd: commissionEarned * (e.price_usd || 1.12),
-          };
+      if (allStakingEvents.length === 0) {
+        return NextResponse.json({
+          validator: stats,
+          stakingActivity: [],
+          periodTotals: { totalDeposits: 0, totalWithdrawals: 0, totalRewards: 0, totalRewardsUsd: 0, depositCount: 0, withdrawalCount: 0, epochCount: 0, dateRange: { from: null, to: null } },
+          allTimeTotals: { totalDeposits: 0, totalWithdrawals: 0, netDeposits: 0, currentStake, accumulatedRewards: 0, depositCount: 0, withdrawalCount: 0, epochCount: 0 },
+          isOwner,
         });
       }
 
-      // Apply date filter for summary
-      let filteredEarnings = epochEarnings;
-      const now = new Date();
+      // Calculate totals from real transactions
+      const totalDeposits = allStakingEvents.filter(e => e.event_type === 'stake').reduce((sum, e) => sum + (Number(e.amount_near) || 0), 0);
+      const totalWithdrawals = allStakingEvents.filter(e => e.event_type === 'unstake').reduce((sum, e) => sum + (Number(e.amount_near) || 0), 0);
+      const netDeposits = totalDeposits - totalWithdrawals;
+      
+      // REAL total rewards = current balance - net deposits
+      const totalRewards = Math.max(0, currentStake - netDeposits);
+
+      // Get date range
+      const firstDate = new Date(allStakingEvents[0].date);
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+
+      // Fetch ALL historical NEAR prices
+      const priceRows = await db.prepare(`
+        SELECT date, price FROM price_cache 
+        WHERE coin_id = 'NEAR' AND currency = 'USD'
+        ORDER BY date
+      `).all() as { date: string; price: number }[];
+      
+      // Build price lookup map (date -> price)
+      const priceByDate: Map<string, number> = new Map();
+      for (const row of priceRows) {
+        const dateOnly = row.date.split(' ')[0]; // Extract YYYY-MM-DD from 'YYYY-MM-DD HH:MM'
+        priceByDate.set(dateOnly, row.price);
+      }
+      
+      // Get current price as fallback
+      let currentPrice = 1.12;
+      try {
+        const priceRes = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=near&vs_currencies=usd');
+        if (priceRes.ok) {
+          const priceData = await priceRes.json();
+          currentPrice = priceData.near?.usd || 1.12;
+        }
+      } catch {}
+
+      // Build stake-by-date map
+      const stakeChanges: { date: string; timestamp: number; stake: number; event: any }[] = [];
+      let runningStake = 0;
+      
+      for (const e of allStakingEvents) {
+        const amount = Number(e.amount_near) || 0;
+        if (e.event_type === 'stake') {
+          runningStake += amount;
+        } else {
+          runningStake -= amount;
+        }
+        stakeChanges.push({
+          date: e.date,
+          timestamp: Number(e.block_timestamp),
+          stake: runningStake,
+          event: e,
+        });
+      }
+
+      // Build daily stakes and calculate total stake-epochs for reward distribution
+      const dailyStakes: { date: string; stake: number }[] = [];
+      let currentDate = new Date(firstDate);
+      let lastKnownStake = 0;
+      let totalStakeEpochs = 0;
+      
+      while (currentDate <= today) {
+        const dateStr = currentDate.toISOString().split('T')[0];
+        
+        const changesOnDate = stakeChanges.filter(sc => sc.date === dateStr);
+        if (changesOnDate.length > 0) {
+          lastKnownStake = changesOnDate[changesOnDate.length - 1].stake;
+        }
+        
+        if (lastKnownStake > 0) {
+          dailyStakes.push({ date: dateStr, stake: lastKnownStake });
+          totalStakeEpochs += lastKnownStake * EPOCHS_PER_DAY; // 2 epochs per day
+        }
+        
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+
+      // Calculate REAL per-epoch rewards from balance snapshots
+      const epochRewards: any[] = [];
+      
+      // Fetch balance snapshots for this validator/wallet combination
+      const snapshots = await db.prepare(`
+        SELECT 
+          sbs.epoch_id,
+          sbs.epoch_timestamp,
+          CAST(sbs.staked_balance AS NUMERIC) / 1e24 as staked_near,
+          CAST(sbs.unstaked_balance AS NUMERIC) / 1e24 as unstaked_near,
+          TO_CHAR(TO_TIMESTAMP(sbs.epoch_timestamp::bigint / 1000000000), 'YYYY-MM-DD') as date
+        FROM staking_balance_snapshots sbs
+        JOIN wallets w ON sbs.wallet_id = w.id
+        WHERE sbs.validator_id = $1 
+          AND w.account_id = ANY($2::text[])
+        ORDER BY sbs.epoch_id ASC
+      `).all(poolIdParam, walletAccounts) as any[];
+      
+      if (snapshots.length >= 2) {
+        // Calculate rewards between consecutive snapshots
+        for (let i = 1; i < snapshots.length; i++) {
+          const prev = snapshots[i - 1];
+          const curr = snapshots[i];
+          
+          // Get deposits/withdrawals between these epochs
+          const epochStart = prev.epoch_timestamp;
+          const epochEnd = curr.epoch_timestamp;
+          
+          const depositsInPeriod = allStakingEvents
+            .filter(e => e.event_type === 'stake' && 
+                        Number(e.block_timestamp) > epochStart && 
+                        Number(e.block_timestamp) <= epochEnd)
+            .reduce((sum, e) => sum + (Number(e.amount_near) || 0), 0);
+          
+          const withdrawalsInPeriod = allStakingEvents
+            .filter(e => e.event_type === 'unstake' && 
+                        Number(e.block_timestamp) > epochStart && 
+                        Number(e.block_timestamp) <= epochEnd)
+            .reduce((sum, e) => sum + (Number(e.amount_near) || 0), 0);
+          
+          // Real reward = balance change - deposits + withdrawals
+          const balanceChange = curr.staked_near - prev.staked_near;
+          const realReward = balanceChange - depositsInPeriod + withdrawalsInPeriod;
+          
+          // Only include positive rewards (negative could be slashing or rounding)
+          if (realReward > 0.0001) {
+            const epochPrice = priceByDate.get(curr.date) || currentPrice;
+            epochRewards.push({
+              date: curr.date,
+              epochNum: curr.epoch_id,
+              epochTime: 'Epoch ' + curr.epoch_id,
+              reward_near: realReward,
+              price_usd: epochPrice,
+              value_usd: realReward * epochPrice,
+              stakeAtEpoch: curr.staked_near,
+              note: 'Real reward from balance snapshot'
+            });
+          }
+        }
+      }
+      
+      // If no snapshots yet, show total accumulated rewards as single entry
+      if (epochRewards.length === 0 && totalRewards > 0) {
+        const latestPrice = priceByDate.get(dailyStakes[dailyStakes.length - 1]?.date) || currentPrice;
+        epochRewards.push({
+          date: dailyStakes.length > 0 ? dailyStakes[dailyStakes.length - 1].date : new Date().toISOString().split('T')[0],
+          epochNum: 0,
+          epochTime: 'Total',
+          reward_near: totalRewards,
+          price_usd: latestPrice,
+          value_usd: totalRewards * latestPrice,
+          stakeAtEpoch: currentStake,
+          note: 'Total accumulated (detailed tracking starts next epoch)'
+        });
+      }
+
+      // Build unified activity list
+      const allActivity: any[] = [];
+      
+      // Add deposit/withdrawal events
+      for (const e of allStakingEvents) {
+        const eventPrice = priceByDate.get(e.date) || currentPrice;
+        allActivity.push({
+          type: e.event_type === 'stake' ? 'deposit' : 'withdrawal',
+          date: e.date,
+          timestamp: Number(e.block_timestamp),
+          amount_near: Number(e.amount_near),
+          price_usd: eventPrice,
+          value_usd: Number(e.amount_near) * eventPrice,
+          wallet: e.wallet,
+          tx_hash: e.tx_hash,
+        });
+      }
+      
+      // Add epoch reward entries
+      for (const er of epochRewards) {
+        const epochDate = new Date(er.date);
+        const hours = er.epochTime === '00:00' ? 0 : 12;
+        epochDate.setHours(hours, 0, 0, 0);
+        
+        allActivity.push({
+          type: 'reward',
+          date: er.date,
+          epochTime: er.epochTime,
+          timestamp: epochDate.getTime() * 1000000,
+          amount_near: er.reward_near,
+          price_usd: er.price_usd,
+          value_usd: er.value_usd,
+          stakeAtEpoch: er.stakeAtEpoch,
+        });
+      }
+      
+      // Sort chronologically
+      allActivity.sort((a, b) => a.timestamp - b.timestamp);
+      
+      // Calculate cumulative stake (deposits + rewards - withdrawals)
+      let cumulativeStake = 0;
+      for (const activity of allActivity) {
+        if (activity.type === 'deposit' || activity.type === 'reward') {
+          cumulativeStake += activity.amount_near;
+        } else if (activity.type === 'withdrawal') {
+          cumulativeStake -= activity.amount_near;
+        }
+        activity.cumulative_stake = cumulativeStake;
+      }
+
       // Apply date filter
+      let filteredActivity = allActivity;
+      const now = new Date();
+      
       if (customStartDate && customEndDate) {
         const startDate = new Date(customStartDate);
-        const endDate = new Date(customEndDate);
-        endDate.setHours(23, 59, 59, 999);
-        filteredEarnings = epochEarnings.filter(e => {
+        const endDateObj = new Date(customEndDate);
+        endDateObj.setHours(23, 59, 59, 999);
+        filteredActivity = allActivity.filter(e => {
           const d = new Date(e.date);
-          return d >= startDate && d <= endDate;
+          return d >= startDate && d <= endDateObj;
         });
-      } else if (dateFilter) {
-        let cutoffDate: Date;
+      } else if (dateFilter && dateFilter !== 'all') {
+        let cutoffDate = new Date(0);
         switch (dateFilter) {
-          case 'day':
-            cutoffDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-            break;
-          case 'week':
-            cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-            break;
-          case 'month':
-            cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-            break;
-          case 'year':
-            cutoffDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
-            break;
-          default:
-            cutoffDate = new Date(0);
+          case 'day': cutoffDate = new Date(now.getTime() - 24 * 60 * 60 * 1000); break;
+          case 'week': cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); break;
+          case 'month': cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000); break;
+          case 'year': cutoffDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000); break;
         }
-        filteredEarnings = epochEarnings.filter(e => new Date(e.date) >= cutoffDate);
+        filteredActivity = allActivity.filter(e => new Date(e.date) >= cutoffDate);
       }
 
-      // Calculate period totals
+      // Sort newest first for display
+      filteredActivity.sort((a, b) => b.timestamp - a.timestamp);
+
+      // Period totals
+      const rewardItems = filteredActivity.filter(e => e.type === 'reward');
       const periodTotals = {
-        totalRewards: filteredEarnings.reduce((sum, e) => sum + (e.reward_near || 0), 0),
-        totalRewardsUsd: filteredEarnings.reduce((sum, e) => sum + (e.income_usd || 0), 0),
-        totalCommissionPaid: filteredEarnings.reduce((sum, e) => sum + (e.commission_near || 0), 0),
-        totalCommissionEarned: filteredEarnings.reduce((sum, e) => sum + (e.commission_earned_near || 0), 0),
-        totalCommissionEarnedUsd: filteredEarnings.reduce((sum, e) => sum + (e.commission_earned_usd || 0), 0),
-        epochCount: filteredEarnings.length,
+        totalDeposits: filteredActivity.filter(e => e.type === 'deposit').reduce((sum, e) => sum + e.amount_near, 0),
+        totalWithdrawals: filteredActivity.filter(e => e.type === 'withdrawal').reduce((sum, e) => sum + e.amount_near, 0),
+        totalRewards: rewardItems.reduce((sum, e) => sum + e.amount_near, 0),
+        totalRewardsUsd: rewardItems.reduce((sum, e) => sum + e.value_usd, 0),
+        depositCount: filteredActivity.filter(e => e.type === 'deposit').length,
+        withdrawalCount: filteredActivity.filter(e => e.type === 'withdrawal').length,
+        epochCount: rewardItems.length,
         dateRange: {
-          from: filteredEarnings.length > 0 ? filteredEarnings[filteredEarnings.length - 1].date : null,
-          to: filteredEarnings.length > 0 ? filteredEarnings[0].date : null,
+          from: filteredActivity.length > 0 ? filteredActivity[filteredActivity.length - 1].date : null,
+          to: filteredActivity.length > 0 ? filteredActivity[0].date : null,
         }
       };
 
       return NextResponse.json({
         validator: stats,
-        epochEarnings: filteredEarnings.slice(0, 100),
+        stakingActivity: filteredActivity,
         periodTotals,
-        currentEpoch,
-        isOwner,
-        apyInfo: {
-          currentApy: STAKING_APY * 100,
-          epochsPerYear: EPOCHS_PER_YEAR,
-          note: 'NEAR staking APY was halved in early 2026',
+        allTimeTotals: {
+          totalDeposits,
+          totalWithdrawals,
+          netDeposits,
+          currentStake,
+          accumulatedRewards: totalRewards,
+          accumulatedRewardsUsd: epochRewards.reduce((sum, e) => sum + e.value_usd, 0),
+          depositCount: allStakingEvents.filter(e => e.event_type === 'stake').length,
+          withdrawalCount: allStakingEvents.filter(e => e.event_type === 'unstake').length,
+          epochCount: epochRewards.length,
         },
+        isOwner,
       });
     }
 
@@ -406,8 +496,6 @@ export async function GET(request: NextRequest) {
 
     const validators: ValidatorStats[] = [];
     let totalStaked = 0;
-    let totalDailyRewards = 0;
-    let totalCommissionEarnings = 0;
 
     for (const v of userValidators) {
       const isOwner = v.is_owner === 1;
@@ -417,29 +505,13 @@ export async function GET(request: NextRequest) {
         stats.isOwner = isOwner;
         validators.push(stats);
         totalStaked += stats.ownStake;
-        totalDailyRewards += stats.personalDailyRewards;
-        if (isOwner && stats.commissionDailyEarnings) {
-          totalCommissionEarnings += stats.commissionDailyEarnings;
-        }
       }
     }
 
     return NextResponse.json({
       validators,
-      totals: {
-        totalStaked,
-        dailyRewards: totalDailyRewards,
-        monthlyRewards: totalDailyRewards * 30,
-        annualRewards: totalDailyRewards * 365,
-        dailyCommissionEarnings: totalCommissionEarnings,
-        monthlyCommissionEarnings: totalCommissionEarnings * 30,
-        annualCommissionEarnings: totalCommissionEarnings * 365,
-      },
+      totals: { totalStaked },
       userWalletCount: walletAccounts.length,
-      apyInfo: {
-        currentApy: STAKING_APY * 100,
-        note: 'NEAR staking APY was halved in early 2026',
-      },
     });
   } catch (error) {
     console.error('Validators API error:', error);
@@ -447,7 +519,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST to add/update validator
 export async function POST(request: NextRequest) {
   try {
     const auth = await getAuthenticatedUser();
@@ -463,9 +534,9 @@ export async function POST(request: NextRequest) {
     const db = getDb();
     await db.prepare(`
       INSERT INTO user_validators (user_id, pool_id, label, is_owner, added_at)
-      VALUES (?, ?, ?, ?, datetime('now'))
-      ON CONFLICT(user_id, pool_id) DO UPDATE SET label = ?, is_owner = ?
-    `).run(auth.userId, poolId, label || null, isOwner ? 1 : 0, label || null, isOwner ? 1 : 0);
+      VALUES ($1, $2, $3, $4, NOW())
+      ON CONFLICT(user_id, pool_id) DO UPDATE SET label = $3, is_owner = $4
+    `).run(auth.userId, poolId, label || null, isOwner ? 1 : 0);
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -474,7 +545,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE validator
 export async function DELETE(request: NextRequest) {
   try {
     const auth = await getAuthenticatedUser();
@@ -488,7 +558,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const db = getDb();
-    await db.prepare('DELETE FROM user_validators WHERE user_id = ? AND pool_id = ?').run(auth.userId, poolId);
+    await db.prepare('DELETE FROM user_validators WHERE user_id = $1 AND pool_id = $2').run(auth.userId, poolId);
 
     return NextResponse.json({ success: true });
   } catch (error) {

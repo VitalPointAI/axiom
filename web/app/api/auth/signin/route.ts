@@ -18,9 +18,9 @@ export async function POST(request: NextRequest) {
     // Upsert user
     await db.prepare(`
       INSERT INTO users (near_account_id, last_login_at)
-      VALUES (?, datetime('now'))
+      VALUES (?, NOW())
       ON CONFLICT(near_account_id) DO UPDATE SET
-        last_login_at = datetime('now')
+        last_login_at = NOW()
     `).run(nearAccountId);
 
     // Get user data

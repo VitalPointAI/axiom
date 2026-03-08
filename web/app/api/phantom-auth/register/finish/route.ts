@@ -9,63 +9,97 @@ const ORIGIN = process.env.NEXT_PUBLIC_ORIGIN || 'https://neartax.vitalpoint.ai'
 
 export async function POST(request: NextRequest) {
   try {
-    const { challengeId, credential } = await request.json();
+    const body = await request.json();
+    
+    // Client sends 'response', but we also support 'credential' for backwards compatibility
+    const { challengeId, response, credential, username } = body;
+    const passkeyResponse = response || credential;
+    
+    console.log('[Register] challengeId:', challengeId);
+    console.log('[Register] username from body:', username);
+    console.log('[Register] has response:', !!passkeyResponse);
     
     const challengeData = registerChallenges.get(challengeId);
     if (!challengeData) {
+      console.log('[Register] Challenge not found');
       return NextResponse.json({ error: 'Challenge not found or expired' }, { status: 400 });
     }
     
     if (challengeData.expires < Date.now()) {
+      console.log('[Register] Challenge expired');
       registerChallenges.delete(challengeId);
       return NextResponse.json({ error: 'Challenge expired' }, { status: 400 });
     }
     
+    // Use username from body or from challenge data
+    const finalUsername = username || challengeData.username;
+    console.log('[Register] Final username:', finalUsername);
+    
     // Verify with full cryptographic verification
     const result = await verifyRegistration({
-      response: credential,
+      response: passkeyResponse,
       expectedChallenge: challengeData.challenge,
       expectedOrigin: ORIGIN,
       expectedRPID: RP_ID,
     });
     
+    console.log('[Register] Verification result:', JSON.stringify({ 
+      verified: result.verified, 
+      error: result.error, 
+      hasCredential: !!result.credential,
+    }));
+    
     if (!result.verified || !result.credential) {
       registerChallenges.delete(challengeId);
+      console.log('[Register] Verification failed:', result.error);
       return NextResponse.json({ error: result.error || 'Verification failed' }, { status: 401 });
     }
     
     // Clean up challenge
     registerChallenges.delete(challengeId);
     
-    // Create user
     const db = getDb();
-    const insertResult = await db.prepare(`
-      INSERT INTO users (username, email, display_name, passkey_credential_id, passkey_public_key, passkey_counter)
-      VALUES (?, ?, ?, ?, ?, ?)
+    
+    console.log('[Register] Creating user:', finalUsername);
+    
+    // Create user
+    const userResult = await db.prepare(`
+      INSERT INTO users (near_account_id, created_at)
+      VALUES (?, NOW())
+      RETURNING id
+    `).get(finalUsername) as { id: number };
+    
+    const userId = userResult.id;
+    console.log('[Register] Created user with ID:', userId);
+    
+    // Create passkey
+    const passkeyId = crypto.randomUUID();
+    await db.prepare(`
+      INSERT INTO passkeys (id, user_id, credential_id, public_key, counter, created_at)
+      VALUES (?, ?, ?, ?, ?, NOW())
     `).run(
-      challengeData.username,
-      challengeData.email || null,
-      challengeData.username,
+      passkeyId,
+      userId,
       result.credential.id,
-      Buffer.from(result.credential.publicKey).toString('base64'),
+      result.credential.publicKey,
       result.credential.counter
     );
-    
-    const userId = insertResult.lastInsertRowid as number;
+    console.log('[Register] Created passkey');
     
     // Create session
     await createSession(userId);
+    console.log('[Register] Created session');
     
     return NextResponse.json({ 
       success: true,
       user: {
         id: userId,
-        username: challengeData.username,
+        username: finalUsername,
       }
     });
   } catch (error: any) {
-    console.error('Register finish error:', error);
-    if (error.message?.includes('UNIQUE constraint')) {
+    console.error('[Register] Error:', error);
+    if (error.message?.includes('duplicate key') || error.message?.includes('unique')) {
       return NextResponse.json({ error: 'Username already taken' }, { status: 409 });
     }
     return NextResponse.json({ error: error.message }, { status: 500 });

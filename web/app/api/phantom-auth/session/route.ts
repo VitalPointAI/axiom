@@ -8,7 +8,6 @@ export async function GET() {
     const sessionToken = cookieStore.get('neartax_session')?.value;
 
     console.log('[Session] Cookie token present:', !!sessionToken);
-    console.log('[Session] All cookies:', cookieStore.getAll().map(c => c.name));
 
     if (!sessionToken) {
       return NextResponse.json({ authenticated: false, user: null });
@@ -16,9 +15,10 @@ export async function GET() {
 
     const db = getDb();
 
-    // Check if sessions table exists
+    // Check if sessions table exists (PostgreSQL syntax)
     const tableExists = await db.prepare(`
-      SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename='sessions'
+      SELECT table_name FROM information_schema.tables 
+      WHERE table_schema = 'public' AND table_name = 'sessions'
     `).get();
 
     if (!tableExists) {
@@ -31,7 +31,7 @@ export async function GET() {
       SELECT s.*, s.expires_at, u.near_account_id, u.codename, u.created_at
       FROM sessions s
       JOIN users u ON s.user_id = u.id
-      WHERE s.id = ? AND s.expires_at > datetime('now')
+      WHERE s.id = ? AND s.expires_at > NOW()
     `).get(sessionToken) as {
       id: string;
       user_id: number;

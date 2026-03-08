@@ -1,22 +1,23 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { getAuthenticatedUser } from '@/lib/auth';
 
-// Live portfolio from on-chain data via NearBlocks API
 const NEARBLOCKS_API = 'https://api.nearblocks.io/v1';
 const API_KEY = process.env.NEARBLOCKS_API_KEY || '';
 
 interface WalletBalance {
   account: string;
+  label: string | null;
   liquid: number;
   staked: number;
   total: number;
 }
 
-async function getAccountBalance(account: string): Promise<WalletBalance | null> {
+async function getAccountBalance(account: string, label: string | null): Promise<WalletBalance | null> {
   try {
     const resp = await fetch(`${NEARBLOCKS_API}/account/${account}`, {
       headers: { Authorization: `Bearer ${API_KEY}` },
-      next: { revalidate: 300 } // Cache for 5 minutes
+      next: { revalidate: 300 }
     });
     
     if (!resp.ok) return null;
@@ -27,87 +28,56 @@ async function getAccountBalance(account: string): Promise<WalletBalance | null>
     const liquid = parseFloat(acct.amount || '0') / 1e24;
     const staked = parseFloat(acct.staked || '0') / 1e24;
     
-    return {
-      account,
-      liquid,
-      staked,
-      total: liquid + staked
-    };
+    return { account, label, liquid, staked, total: liquid + staked };
   } catch {
     return null;
   }
 }
 
 export async function GET() {
+  // SECURITY: Require authentication
+  const auth = await getAuthenticatedUser();
+  if (!auth) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const db = getDb();
   
-  // Get all NEAR wallets
-  const stmt = await db.prepare(`
-    SELECT account_id, label FROM wallets WHERE chain = 'NEAR'
-  `);
-  const wallets = await stmt.all() as Array<{ account_id: string; label: string | null }>;
+  // Get THIS USER's NEAR wallets only
+  const wallets = await db.prepare(`
+    SELECT account_id, label FROM wallets WHERE user_id = $1 AND chain = 'NEAR'
+  `).all(auth.userId) as Array<{ account_id: string; label: string | null }>;
   
-  // Fetch balances in parallel (with rate limiting)
+  // Fetch balances in parallel
   const balances: WalletBalance[] = [];
   let totalLiquid = 0;
   let totalStaked = 0;
   
-  // Process in batches of 10
   for (let i = 0; i < wallets.length; i += 10) {
     const batch = wallets.slice(i, i + 10);
     const results = await Promise.all(
-      batch.map(w => getAccountBalance(w.account_id))
+      batch.map(w => getAccountBalance(w.account_id, w.label))
     );
     
     for (const result of results) {
-      if (result && result.total > 0.01) {
+      if (result) {
         balances.push(result);
         totalLiquid += result.liquid;
         totalStaked += result.staked;
       }
     }
     
-    // Small delay between batches
     if (i + 10 < wallets.length) {
       await new Promise(r => setTimeout(r, 100));
     }
   }
   
-  // Sort by total balance
-  balances.sort((a, b) => b.total - a.total);
-  
-  // Get current NEAR price
-  let nearPriceUsd = 5.0; // Default
-  try {
-    const priceResp = await fetch(
-      'https://api.coingecko.com/api/v3/simple/price?ids=near&vs_currencies=usd',
-      { next: { revalidate: 300 } }
-    );
-    const priceData = await priceResp.json();
-    nearPriceUsd = priceData.near?.usd || 5.0;
-  } catch {
-    // Use default
-  }
-  
-  const totalNear = totalLiquid + totalStaked;
-  const totalUsd = totalNear * nearPriceUsd;
-  const totalCad = totalUsd * 1.38;
-  
   return NextResponse.json({
     timestamp: new Date().toISOString(),
-    walletsChecked: wallets.length,
-    walletsWithBalance: balances.length,
-    nearPrice: {
-      usd: nearPriceUsd,
-      cadRate: 1.38
-    },
-    totals: {
-      liquid: totalLiquid,
-      staked: totalStaked,
-      total: totalNear,
-      valueUsd: totalUsd,
-      valueCad: totalCad
-    },
-    wallets: balances.slice(0, 20) // Top 20 wallets
+    walletCount: wallets.length,
+    totalLiquid,
+    totalStaked,
+    totalNear: totalLiquid + totalStaked,
+    wallets: balances.sort((a, b) => b.total - a.total)
   });
 }

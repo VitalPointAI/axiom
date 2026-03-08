@@ -69,7 +69,7 @@ export async function POST(
       
       // Update status to complete
       await db.prepare(`
-        UPDATE wallets SET sync_status = 'complete', last_synced_at = datetime('now') WHERE id = ?
+        UPDATE wallets SET sync_status = 'complete', last_synced_at = NOW() WHERE id = ?
       `).run(walletId);
     } catch (syncError) {
       console.error('Sync error:', syncError);

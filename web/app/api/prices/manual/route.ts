@@ -65,7 +65,7 @@ export async function GET(request: Request) {
       CAST(t.amount AS REAL) / 1e24 as amount_near,
       t.direction,
       t.action_type,
-      datetime(t.block_timestamp/1000000000, 'unixepoch') as datetime,
+      to_char(to_timestamp(t.block_timestamp/1000000000), 'YYYY-MM-DD HH24:MI:SS') as datetime,
       w.account_id as wallet
     FROM transactions t
     LEFT JOIN wallets w ON t.wallet_id = w.id
@@ -80,7 +80,7 @@ export async function GET(request: Request) {
   // Get count by year
   const yearStmt = await db.prepare(`
     SELECT 
-      strftime('%Y', datetime(block_timestamp/1000000000, 'unixepoch')) as year,
+      to_char(to_timestamp(block_timestamp/1000000000), 'YYYY') as year,
       COUNT(*) as count
     FROM transactions
     WHERE price_warning = 'historical_needed'

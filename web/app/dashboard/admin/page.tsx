@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { 
   Settings, DollarSign, Users, Database, RefreshCw, 
-  Loader2, Check, Globe
+  Loader2, Check, Globe, Clock
 } from 'lucide-react';
 
 interface UserPreferences {
@@ -19,6 +19,13 @@ interface AdminStats {
   totalTransactions: number;
   totalTokens: number;
   lastSync: string | null;
+}
+
+interface SyncSettings {
+  sync_frequency: string;
+  sync_enabled: boolean;
+  last_sync: string | null;
+  indexer_api: string;
 }
 
 const SUPPORTED_CURRENCIES = [
@@ -36,13 +43,23 @@ const SUPPORTED_CURRENCIES = [
   { code: 'MXN', name: 'Mexican Peso', symbol: '$' },
 ];
 
+const FREQUENCY_OPTIONS = [
+  { value: 'hourly', label: 'Every hour' },
+  { value: 'every_6h', label: 'Every 6 hours' },
+  { value: 'every_12h', label: 'Every 12 hours' },
+  { value: 'daily', label: 'Once daily (6am UTC)' },
+  { value: 'manual', label: 'Manual only' },
+];
+
 export default function AdminPage() {
   const [preferences, setPreferences] = useState<UserPreferences>({ displayCurrency: 'USD' });
   const [stats, setStats] = useState<AdminStats | null>(null);
+  const [syncSettings, setSyncSettings] = useState<SyncSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -63,6 +80,13 @@ export default function AdminPage() {
       if (statsRes.ok) {
         const data = await statsRes.json();
         setStats(data);
+      }
+
+      // Load sync settings
+      const syncRes = await fetch('/api/admin/sync');
+      if (syncRes.ok) {
+        const data = await syncRes.json();
+        setSyncSettings(data);
       }
     } catch (error) {
       console.error('Failed to load data:', error);
@@ -91,15 +115,36 @@ export default function AdminPage() {
     }
   };
 
+  const updateSyncSettings = async (updates: Partial<SyncSettings>) => {
+    try {
+      const res = await fetch('/api/admin/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (res.ok) {
+        setSyncSettings(prev => prev ? { ...prev, ...updates } : prev);
+      }
+    } catch (error) {
+      console.error('Failed to update sync settings:', error);
+    }
+  };
+
   const triggerSync = async () => {
     setSyncing(true);
+    setSyncMessage(null);
     try {
-      const res = await fetch('/api/admin/sync', { method: 'POST' });
+      const res = await fetch('/api/sync/run', { method: 'POST' });
+      const data = await res.json();
       if (res.ok) {
+        setSyncMessage(`Sync complete! ${data.near_txns || 0} NEAR, ${data.ft_txns || 0} FT transactions`);
         await loadData();
+      } else {
+        setSyncMessage(`Sync failed: ${data.error || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Sync failed:', error);
+      setSyncMessage('Sync failed: Network error');
     } finally {
       setSyncing(false);
     }
@@ -172,6 +217,88 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* Sync Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-5 w-5" />
+            Transaction Sync Settings
+          </CardTitle>
+          <CardDescription>
+            Configure automatic transaction indexing from blockchain APIs
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {syncMessage && (
+            <div className={`p-3 rounded ${syncMessage.includes('complete') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+              {syncMessage}
+            </div>
+          )}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {/* Sync Frequency */}
+            <div>
+              <Label className="text-sm text-muted-foreground">Sync Frequency</Label>
+              <select
+                value={syncSettings?.sync_frequency || 'every_6h'}
+                onChange={(e) => updateSyncSettings({ sync_frequency: e.target.value })}
+                className="w-full mt-1 bg-background border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                {FREQUENCY_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Indexer API */}
+            <div>
+              <Label className="text-sm text-muted-foreground">Transaction API</Label>
+              <select
+                value={syncSettings?.indexer_api || 'nearblocks'}
+                onChange={(e) => updateSyncSettings({ indexer_api: e.target.value })}
+                className="w-full mt-1 bg-background border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="nearblocks">NearBlocks (recommended)</option>
+                <option value="pikespeak">Pikespeak (legacy)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Auto-sync Toggle */}
+          <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+            <div>
+              <div className="font-medium">Auto-sync</div>
+              <div className="text-sm text-muted-foreground">Automatically sync transactions on schedule</div>
+            </div>
+            <button
+              onClick={() => updateSyncSettings({ sync_enabled: !syncSettings?.sync_enabled })}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                syncSettings?.sync_enabled ? 'bg-green-600' : 'bg-muted'
+              }`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                syncSettings?.sync_enabled ? 'translate-x-6' : 'translate-x-1'
+              }`} />
+            </button>
+          </div>
+
+          {/* Manual Sync Button */}
+          <Button onClick={triggerSync} disabled={syncing} className="w-full">
+            {syncing ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                Syncing...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Run Manual Sync Now
+              </>
+            )}
+          </Button>
+        </CardContent>
+      </Card>
+
       {/* Display Currency */}
       <Card>
         <CardHeader>
@@ -215,34 +342,6 @@ export default function AdminPage() {
                 {saved ? 'Saved!' : 'Save Preferences'}
               </Button>
             </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Data Management */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Database className="h-5 w-5" />
-            Data Management
-          </CardTitle>
-          <CardDescription>
-            Sync your wallet data and manage indexing
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-4">
-            <Button onClick={triggerSync} disabled={syncing} variant="outline">
-              {syncing ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              {syncing ? 'Syncing...' : 'Sync All Wallets'}
-            </Button>
-            <p className="text-sm text-muted-foreground">
-              Re-indexes all wallet transactions and recalculates balances
-            </p>
           </div>
         </CardContent>
       </Card>

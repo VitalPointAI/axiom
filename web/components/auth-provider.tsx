@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 
 interface User {
   nearAccountId: string;
@@ -22,10 +22,10 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [retryCount, setRetryCount] = useState(0);
   const router = useRouter();
+  const pathname = usePathname();
 
-  const checkSession = useCallback(async (retry = false) => {
+  const checkSession = useCallback(async () => {
     try {
       const response = await fetch('/api/phantom-auth/session', {
         credentials: 'include',
@@ -39,19 +39,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             codename: data.codename,
             createdAt: data.createdAt,
           });
-          setIsLoading(false);
           return;
         }
       }
-      
-      // If not authenticated and we haven't retried, wait and retry once
-      // This handles cookie propagation timing on mobile
-      if (retry && retryCount < 2) {
-        setRetryCount(prev => prev + 1);
-        await new Promise(resolve => setTimeout(resolve, 500));
-        return checkSession(true);
-      }
-      
       setUser(null);
     } catch (error) {
       console.error('Session check failed:', error);
@@ -59,15 +49,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [retryCount]);
+  }, []);
 
+  // Check session on mount and when pathname changes (e.g., after login redirect)
   useEffect(() => {
-    // Small delay on initial load to allow cookies to be set
-    const timer = setTimeout(() => {
-      checkSession(true);
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [checkSession]);
+    setIsLoading(true);
+    checkSession();
+  }, [pathname, checkSession]);
 
   const signOut = async () => {
     try {
@@ -84,7 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshSession = async () => {
     setIsLoading(true);
-    await checkSession(false);
+    await checkSession();
   };
 
   return (

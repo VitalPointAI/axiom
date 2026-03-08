@@ -1,7 +1,12 @@
+import { getAuthenticatedUser } from '@/lib/auth';
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 
 export async function GET(request: Request) {
+  const auth = await getAuthenticatedUser();
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const { searchParams } = new URL(request.url);
   const warningType = searchParams.get('type');
   const resolved = searchParams.get('resolved') === 'true';
@@ -10,113 +15,105 @@ export async function GET(request: Request) {
   
   const db = getDb();
   
-  // Build query
-  let whereClause = 'price_warning IS NOT NULL';
-  const params: any[] = [];
+  // SECURITY: Get this user's wallet IDs first
+  const userWallets = await db.prepare(`SELECT id FROM wallets WHERE user_id = $1`).all(auth.userId) as { id: number }[];
+  const walletIds = userWallets.map(w => w.id);
+  
+  if (walletIds.length === 0) {
+    return NextResponse.json({ summary: [], transactions: [], total: 0, page, limit, pages: 0 });
+  }
+  
+  // Build query params
+  const params: any[] = [[walletIds]];
+  let whereClause = 'price_warning IS NOT NULL AND wallet_id = ANY($1::int[])';
+  let paramIndex = 2;
   
   if (warningType) {
-    whereClause += ' AND price_warning = ?';
+    whereClause += ` AND price_warning = $${paramIndex}`;
     params.push(warningType);
+    paramIndex++;
   }
   
   if (!resolved) {
-    whereClause += ' AND (price_resolved IS NULL OR price_resolved != 1)';
+    whereClause += ' AND (price_resolved IS NULL OR price_resolved != TRUE)';
   }
   
-  // Get total count
-  const countStmt = await db.prepare(`
-    SELECT COUNT(*) as total FROM transactions WHERE ${whereClause}
-  `);
-  const { total } = await countStmt.get(...params) as { total: number };
+  // Get total count - FILTERED
+  const countResult = await db.prepare(`SELECT COUNT(*) as total FROM transactions WHERE ${whereClause}`).get(...params) as { total: number };
+  const total = Number(countResult?.total) || 0;
   
-  // Get summary by warning type
-  const summaryStmt = await db.prepare(`
-    SELECT 
-      price_warning,
-      COUNT(*) as count,
-      SUM(CASE WHEN price_resolved = 1 THEN 1 ELSE 0 END) as resolved_count
-    FROM transactions
-    WHERE price_warning IS NOT NULL
+  // Get summary by warning type - FILTERED
+  const summary = await db.prepare(`
+    SELECT price_warning, COUNT(*) as count, SUM(CASE WHEN price_resolved = TRUE THEN 1 ELSE 0 END) as resolved_count
+    FROM transactions WHERE price_warning IS NOT NULL AND wallet_id = ANY($1::int[])
     GROUP BY price_warning
-  `);
-  const summary = await summaryStmt.all();
+  `).all([walletIds]);
   
-  // Get transactions
+  // Get transactions - FILTERED
   const offset = (page - 1) * limit;
-  const stmt = await db.prepare(`
-    SELECT 
-      t.*,
-      w.account_id as wallet_address,
-      CAST(t.amount AS REAL) / 1e24 as amount_near,
-      datetime(t.block_timestamp/1000000000, 'unixepoch') as datetime
-    FROM transactions t
-    LEFT JOIN wallets w ON t.wallet_id = w.id
+  const txParams = [...params, limit, offset];
+  const transactions = await db.prepare(`
+    SELECT t.*, w.account_id as wallet_address, CAST(t.amount AS REAL) / 1e24 as amount_near,
+      to_char(to_timestamp(t.block_timestamp/1000000000), 'YYYY-MM-DD HH24:MI:SS') as datetime
+    FROM transactions t LEFT JOIN wallets w ON t.wallet_id = w.id
     WHERE ${whereClause}
     ORDER BY t.block_timestamp DESC
-    LIMIT ? OFFSET ?
-  `);
-  const transactions = await stmt.all(...params, limit, offset);
+    LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+  `).all(...txParams);
   
-  return NextResponse.json({
-    summary,
-    transactions,
-    total,
-    page,
-    limit,
-    pages: Math.ceil(total / limit)
-  });
+  return NextResponse.json({ summary, transactions, total, page, limit, pages: Math.ceil(total / limit) });
 }
 
-// Resolve a price warning
+// Resolve a price warning - needs auth check for ownership
 export async function POST(request: Request) {
+  const auth = await getAuthenticatedUser();
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  
   const body = await request.json();
   const { txId, priceUsd, priceCad, note, action } = body;
   
   const db = getDb();
   
+  // SECURITY: Verify transaction belongs to user's wallet
+  const txCheck = await db.prepare(`
+    SELECT t.id FROM transactions t JOIN wallets w ON t.wallet_id = w.id WHERE t.id = $1 AND w.user_id = $2
+  `).get(txId, auth.userId);
+  
+  if (!txCheck) {
+    return NextResponse.json({ error: 'Transaction not found or access denied' }, { status: 403 });
+  }
+  
   if (action === 'resolve') {
-    const stmt = await db.prepare(`
-      UPDATE transactions 
-      SET price_manual_usd = ?,
-          price_manual_note = ?,
-          cost_basis_usd = ?,
-          cost_basis_cad = ?,
-          price_resolved = 1
-      WHERE id = ?
-    `);
-    stmt.run(priceUsd, note, priceUsd, priceCad || priceUsd * 1.35, txId);
-    
+    await db.prepare(`
+      UPDATE transactions SET price_manual_usd = $1, price_manual_note = $2, cost_basis_usd = $1, cost_basis_cad = $3, price_resolved = TRUE WHERE id = $4
+    `).run(priceUsd, note, priceCad || priceUsd * 1.35, txId);
     return NextResponse.json({ success: true });
   }
   
   if (action === 'mark_spam') {
-    const stmt = await db.prepare(`
-      UPDATE transactions 
-      SET price_warning = 'spam_token',
-          cost_basis_usd = 0,
-          cost_basis_cad = 0,
-          price_resolved = 1,
-          price_manual_note = 'Marked as spam'
-      WHERE id = ?
-    `);
-    stmt.run(txId);
-    
+    await db.prepare(`
+      UPDATE transactions SET price_warning = 'spam_token', cost_basis_usd = 0, cost_basis_cad = 0, price_resolved = TRUE, price_manual_note = 'Marked as spam' WHERE id = $1
+    `).run(txId);
     return NextResponse.json({ success: true });
   }
   
   if (action === 'bulk_resolve_spam') {
-    // Auto-resolve all spam token warnings
-    const stmt = await db.prepare(`
-      UPDATE transactions 
-      SET cost_basis_usd = 0,
-          cost_basis_cad = 0,
-          price_resolved = 1,
-          price_manual_note = 'Bulk resolved as spam'
-      WHERE price_warning = 'spam_token' AND (price_resolved IS NULL OR price_resolved != 1)
-    `);
-    const result = await stmt.run();
+    // SECURITY: Only resolve spam for user's wallets
+    const userWallets = await db.prepare(`SELECT id FROM wallets WHERE user_id = $1`).all(auth.userId) as { id: number }[];
+    const walletIds = userWallets.map(w => w.id);
     
-    return NextResponse.json({ success: true, resolved: result.rowCount });
+    if (walletIds.length === 0) {
+      return NextResponse.json({ success: true, resolved: 0 });
+    }
+    
+    const result = await db.prepare(`
+      UPDATE transactions SET cost_basis_usd = 0, cost_basis_cad = 0, price_resolved = TRUE, price_manual_note = 'Bulk resolved as spam'
+      WHERE price_warning = 'spam_token' AND (price_resolved IS NULL OR price_resolved != TRUE) AND wallet_id = ANY($1::int[])
+    `).run([walletIds]);
+    
+    return NextResponse.json({ success: true, resolved: result.rowCount || 0 });
   }
   
   return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
