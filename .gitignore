@@ -46,3 +46,6 @@ secrets.json
 # Test output
 output/
 reports/
+.credentials/
+.env
+*.json.bak
