@@ -50,6 +50,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-11: **Phase 1 context gathered** - Major scope expansion: multi-user, multi-chain-ready architecture, standalone indexer service, PostgreSQL-only, epoch-level staking, multi-source price service
 - 2026-02-24: **Phase 7 (Web UI) added** - NEAR wallet auth + portfolio UI
 - 2026-02-23: Phase 2 started - EVM schema + exchange parser framework
 - 2026-02-23: Coinbase parser complete
