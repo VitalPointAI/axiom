@@ -81,7 +81,7 @@ export function Sidebar({ user }: SidebarProps) {
       {/* Logo */}
       <div className="p-6 border-b border-slate-800 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold">NearTax</h1>
+          <h1 className="text-xl font-bold">Axiom</h1>
           <p className="text-xs text-slate-400 mt-1">Crypto Tax Reporting</p>
         </div>
         {/* Close button - only on mobile */}

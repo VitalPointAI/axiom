@@ -49,7 +49,7 @@ export function SwapWidget() {
   };
 
   const widgetConfig: Partial<WidgetConfig> = {
-    appName: "NearTax",
+    appName: "Axiom",
     connectedWallets: user?.nearAccountId ? { 
       default: user.nearAccountId, 
       near: user.nearAccountId 

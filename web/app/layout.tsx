@@ -6,8 +6,8 @@ import { AuthProvider } from "@/components/auth-provider";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "NearTax - Crypto Tax Reporting",
-  description: "Canadian crypto tax reporting for NEAR and multi-chain portfolios",
+  title: "Axiom - Crypto Tax Intelligence",
+  description: "Intelligent crypto tax reporting and portfolio analytics",
 };
 
 export default function RootLayout({

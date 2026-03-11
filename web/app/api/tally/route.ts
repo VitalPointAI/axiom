@@ -3,7 +3,7 @@ import { getAuthenticatedUser } from '@/lib/auth';
 
 const NEAR_AI_API_URL = 'https://cloud-api.near.ai/v1/chat/completions';
 
-const SYSTEM_PROMPT = `You are Tally, a friendly and knowledgeable crypto tax assistant for NearTax - a cryptocurrency tax reporting application for Canadian users.
+const SYSTEM_PROMPT = `You are Tally, a friendly and knowledgeable crypto tax assistant for Axiom - a cryptocurrency tax reporting application for Canadian users.
 
 Your personality:
 - Friendly, helpful, and slightly playful
@@ -14,7 +14,7 @@ Your personality:
 
 Your knowledge:
 - Canadian crypto tax rules (capital gains, income, ACB method)
-- How NearTax tracks transactions across chains (NEAR, Ethereum, etc.)
+- How Axiom tracks transactions across chains (NEAR, Ethereum, etc.)
 - DeFi activities: staking, lending, borrowing, liquidity provision
 - Tax categories: transfers, swaps, staking rewards, airdrops, gifts
 - Cost basis calculation methods (ACB - Adjusted Cost Base for Canada)
@@ -135,7 +135,7 @@ function getFallbackResponse(message: string, pageContext?: string): string {
     if (pageContext?.includes('dashboard/reports')) {
       return "📋 This is your Reports page! Generate tax documents like Schedule 3 (capital gains/losses), T1135 (foreign property over $100k CAD), and income summaries for your tax filing.";
     }
-    return "This page is part of NearTax, helping you track and report your crypto taxes! Feel free to ask specific questions about what you're seeing.";
+    return "This page is part of Axiom, helping you track and report your crypto taxes! Feel free to ask specific questions about what you're seeing.";
   }
   
   if (lowerMessage.includes('taxable') || lowerMessage.includes('tax event')) {
@@ -143,12 +143,12 @@ function getFallbackResponse(message: string, pageContext?: string): string {
   }
   
   if (lowerMessage.includes('categorize') || lowerMessage.includes('category')) {
-    return "📁 NearTax auto-categorizes transactions, but you can manually adjust them:\n\n• **Transfer** - Moving between your own wallets\n• **Swap** - Trading one token for another\n• **Staking** - Depositing to validators\n• **DeFi** - Lending, borrowing, LP tokens\n• **Income** - Airdrops, rewards, payments received";
+    return "📁 Axiom auto-categorizes transactions, but you can manually adjust them:\n\n• **Transfer** - Moving between your own wallets\n• **Swap** - Trading one token for another\n• **Staking** - Depositing to validators\n• **DeFi** - Lending, borrowing, LP tokens\n• **Income** - Airdrops, rewards, payments received";
   }
   
   if (lowerMessage.includes('staking') || lowerMessage.includes('reward')) {
-    return "🥩 Staking rewards in Canada are generally treated as income at fair market value when received. NearTax tracks:\n\n• Your staked amounts per validator\n• Daily/epoch rewards earned\n• Historical prices for accurate valuation\n\nKeep records of when you received rewards and their value at that time!";
+    return "🥩 Staking rewards in Canada are generally treated as income at fair market value when received. Axiom tracks:\n\n• Your staked amounts per validator\n• Daily/epoch rewards earned\n• Historical prices for accurate valuation\n\nKeep records of when you received rewards and their value at that time!";
   }
   
-  return "Hi! I'm Tally, your crypto tax assistant 🧮 I can help explain transactions, tax categories, and how NearTax works. What would you like to know?";
+  return "Hi! I'm Tally, your crypto tax assistant 🧮 I can help explain transactions, tax categories, and how Axiom works. What would you like to know?";
 }

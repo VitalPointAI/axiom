@@ -4,7 +4,7 @@ import { getDb } from '@/lib/db';
 import { registerChallenges } from '@/lib/passkey-challenges';
 
 const RP_ID = process.env.NEXT_PUBLIC_RP_ID || 'neartax.vitalpoint.ai';
-const RP_NAME = process.env.RP_NAME || 'NearTax';
+const RP_NAME = process.env.RP_NAME || 'Axiom';
 
 export async function POST(request: NextRequest) {
   try {

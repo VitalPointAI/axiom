@@ -33,7 +33,7 @@ const PAGE_CONTEXTS: Record<string, string> = {
   '/dashboard/prices': 'Price warnings page highlighting transactions with missing or potentially incorrect historical prices that may affect tax calculations.',
   '/dashboard/settings': 'Settings page for managing accountant access and sharing reports with tax professionals.',
   '/dashboard/admin': 'Admin page for system configuration, sync settings, and indexer management.',
-  '/dashboard/swap': 'Token swap interface for exchanging cryptocurrencies directly within NearTax.',
+  '/dashboard/swap': 'Token swap interface for exchanging cryptocurrencies directly within Axiom.',
 };
 
 const QUICK_QUESTIONS = [
@@ -65,7 +65,7 @@ export function Tally({ pageContext }: TallyProps) {
   }, [isOpen]);
 
   const getPageContext = () => {
-    const baseContext = PAGE_CONTEXTS[pathname] || 'A page in NearTax crypto tax reporting software.';
+    const baseContext = PAGE_CONTEXTS[pathname] || 'A page in Axiom crypto tax reporting software.';
     
     let context = `Current page: ${pathname}\n${baseContext}`;
     
@@ -181,7 +181,7 @@ export function Tally({ pageContext }: TallyProps) {
                   <HelpCircle className="w-8 h-8 text-emerald-400" />
                 </div>
                 <p className="text-slate-400 text-sm mb-4">
-                  Hi! I'm Tally, your crypto tax assistant. Ask me anything about this page or how NearTax works!
+                  Hi! I'm Tally, your crypto tax assistant. Ask me anything about this page or how Axiom works!
                 </p>
                 <div className="flex flex-wrap gap-2 justify-center">
                   {QUICK_QUESTIONS.map((q, i) => (

@@ -129,7 +129,7 @@ function AuthContent() {
     <div className="min-h-screen flex items-center justify-center bg-gray-900 p-4">
       <div className="bg-gray-800 rounded-lg p-8 max-w-md w-full">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">NearTax</h1>
+          <h1 className="text-3xl font-bold text-white mb-2">Axiom</h1>
           <p className="text-gray-400">Crypto Tax Tracking for NEAR</p>
         </div>
 

@@ -136,7 +136,7 @@ function AcceptInviteContent() {
           
           <p className="text-slate-500 mt-2">
             <strong>{inviteInfo.clientName}</strong> has invited you to access their 
-            NearTax account as their accountant.
+            Axiom account as their accountant.
           </p>
         </div>
 

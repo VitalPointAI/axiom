@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
     const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://157.90.122.69:3003'}/accountant/accept?token=${inviteToken}`;
 
     // Send email via AWS SES
-    const inviterName = userInfo?.username || userInfo?.near_account || 'A NearTax user';
+    const inviterName = userInfo?.username || userInfo?.near_account || 'A Axiom user';
     
     let emailSent = false;
     try {
