@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-12T23:27:00.000Z"
+last_updated: "2026-03-12T23:37:00.000Z"
 progress:
   total_phases: 8
   completed_phases: 4
   total_plans: 25
-  completed_plans: 21
+  completed_plans: 22
 ---
 
 # Project State
@@ -63,7 +63,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | 1. NEAR Indexer | **Complete** | 100% (6/6 plans) |
 | 2. Multi-Chain + Exchanges | **Complete** | 100% (6/6 plans) |
 | 3. Transaction Classification | **Complete** | 100% (5/5 plans) |
-| 4. Cost Basis Engine | In Progress | 33% (1/3 plans) |
+| 4. Cost Basis Engine | In Progress | 67% (2/3 plans) |
 | 5. Verification | Not Started | 0% |
 | 6. Reporting | Not Started | 0% |
 | 7. Web UI | **PLANNED** | 0% |
@@ -79,6 +79,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **04-02 complete** - Rewrote engine/acb.py (ACBPool Decimal-precise, ACBEngine replay + acb_snapshots upsert, resolve_token_symbol, normalize_timestamp), created engine/gains.py (GainsCalculator: record_disposal + record_income), 13 unit tests; 179 tests pass.
 - 2026-03-12: **04-01 complete** - Migration 004 (acb_snapshots, capital_gains_ledger, income_ledger, price_cache_minute), 4 SQLAlchemy models, PriceService extended with get_price_at_timestamp() (CoinGecko market_chart/range, minute cache), get_boc_cad_rate() (BoC Valet API, 5-day weekend fallback), get_price_cad_at_timestamp(); test scaffolds for ACBPool, ACBEngine, SuperficialLoss; 176 tests pass.
 - 2026-03-12: **03-05 complete** - ClassifierHandler job type + AI fallback via Claude API (confidence < 0.70 threshold), rule auto-seeding, full pipeline wired into IndexerService; 151 tests pass. Phase 3 COMPLETE.
 - 2026-03-12: **03-04 complete** - TransactionClassifier rewrite (rule priority matching, WalletGraph/SpamDetector integration, staking/lockup linkage, EVM swap decomposition, audit logging), 15 tests; 151 tests pass
@@ -195,6 +196,11 @@ None currently.
 | 2026-03-12 | 5-day lookback for BoC weekend/holiday gaps | Covers long weekends without excessive API calls |
 | 2026-03-12 | STABLECOIN_MAP shortcut for tether/usd-coin/dai | Always 1:1 USD; avoids unnecessary API calls |
 | 2026-03-12 | acb_added_cad = fmv_cad in IncomeLedger | Income FMV at receipt becomes cost basis for newly acquired units (Canadian ACB rule) |
+| 2026-03-12 | Legacy ACBTracker/PortfolioACB removed entirely | Float arithmetic incompatible with Canadian tax precision; Decimal-based ACBPool is clean replacement |
+| 2026-03-12 | GainsCalculator takes conn not pool | ACBEngine owns transaction boundary; calculator is stateless persistence helper |
+| 2026-03-12 | Lazy import of GainsCalculator in ACBEngine | Avoids circular import (gains.py imports normalize_timestamp from acb.py); enables patch('engine.acb.GainsCalculator') in tests |
+| 2026-03-12 | is_superficial_loss excluded from GainsCalculator INSERT params | Column defaults False; SuperficialLossDetector (Plan 04-03) updates rows after initial population |
+| 2026-03-12 | Oversell clamp not exception in ACBPool.dispose() | Produces valid snapshot with needs_review=True; partial data reviewable without blocking full replay |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 04-cost-basis-engine 04-01-PLAN.md*
+*Last updated: 2026-03-12 — Stopped at: Completed 04-cost-basis-engine 04-02-PLAN.md*

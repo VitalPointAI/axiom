@@ -21,10 +21,10 @@
 
 ### Cost Basis
 
-- [ ] **ACB-01**: System calculates Adjusted Cost Base (ACB) using Canadian average cost method
-- [ ] **ACB-02**: System tracks ACB per token across all wallets (pooled, not per-wallet)
+- [x] **ACB-01**: System calculates Adjusted Cost Base (ACB) using Canadian average cost method
+- [x] **ACB-02**: System tracks ACB per token across all wallets (pooled, not per-wallet)
 - [x] **ACB-03**: System fetches historical FMV prices for income events (staking, vesting)
-- [ ] **ACB-04**: System adjusts cost basis for fees paid
+- [x] **ACB-04**: System adjusts cost basis for fees paid
 - [ ] **ACB-05**: System handles superficial loss rules (30-day rule) — flag for manual review
 
 ### Verification
@@ -90,10 +90,10 @@
 | CLASS-03 | Phase 3 | Not Started |
 | CLASS-04 | Phase 3 | Not Started |
 | CLASS-05 | Phase 3 | Not Started |
-| ACB-01 | Phase 4 | Not Started |
-| ACB-02 | Phase 4 | Not Started |
+| ACB-01 | Phase 4 | Complete (04-02) |
+| ACB-02 | Phase 4 | Complete (04-02) |
 | ACB-03 | Phase 4 | Complete (04-01) |
-| ACB-04 | Phase 4 | Not Started |
+| ACB-04 | Phase 4 | Complete (04-02) |
 | ACB-05 | Phase 4 | Not Started |
 | VER-01 | Phase 5 | Not Started |
 | VER-02 | Phase 5 | Not Started |
@@ -118,4 +118,4 @@
 | CICD-03 | Phase 8 | Complete |
 
 ---
-*Last updated: 2026-03-12 after completing 08-01 CI/CD deployment scripts*
+*Last updated: 2026-03-12 after completing 04-02 ACBEngine + GainsCalculator*
