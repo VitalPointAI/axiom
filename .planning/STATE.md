@@ -52,6 +52,7 @@ None currently.
 ## Recent Activity
 
 - 2026-03-12: **01-06 complete** - Wallet API schema fix: GET derives sync_status from indexing_jobs subqueries, POST inserts without sync_status column, removed indexing_progress references
+- 2026-03-12: **01-05 complete** - Gap closure: _claim_next_job() JOINs wallets for account_id, _get_first_stake_timestamp() falls back to transactions table, all print() replaced with logger
 - 2026-03-12: **01-04 complete** - Integration wiring: StakingFetcher+LockupFetcher registered in IndexerService, wallet API uses job queue (3 jobs per wallet), sync status API reads from indexing_jobs
 - 2026-03-12: **01-03 complete** - PriceService (CoinGecko+CryptoCompare+outlier filtering, 17 tests), StakingFetcher (epoch reward calc), LockupFetcher (lockup event parser)
 - 2026-03-12: **01-02 complete** - Standalone IndexerService + NearFetcher (cursor resume, 20 unit tests, Dockerfile updated to service mode)
@@ -97,6 +98,8 @@ None currently.
 | 2026-03-12 | Staking sync at 4x tx interval | Staking rewards are epoch-level (~12h), hourly polling is sufficient |
 | 2026-03-12 | EVM spawn removed, job queue deferred | EVM job queue is Phase 2 scope; NEAR pipeline complete without it |
 | 2026-03-12 | Derive wallet sync_status from indexing_jobs via CASE subqueries | wallets table has no sync_status column; status derived live from job states |
+| 2026-03-12 | FOR UPDATE OF ij SKIP LOCKED for JOINed job claims | PostgreSQL requires specifying locked table when SELECT JOINs multiple tables |
+| 2026-03-12 | transactions table as fallback for first-stake timestamp | staking_events is unpopulated for fresh wallets; transactions always has STAKE/FUNCTION_CALL records |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 01-near-indexer 01-06-PLAN.md*
+*Last updated: 2026-03-12 — Stopped at: Completed 01-near-indexer 01-05-PLAN.md*
