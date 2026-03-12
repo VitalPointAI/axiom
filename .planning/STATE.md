@@ -77,6 +77,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **02-05 complete** - AIFileAgent: Claude claude-sonnet-4-20250514 extracts transactions from any CSV/XLSX/PDF; CONFIDENCE_THRESHOLD=0.8; needs_review flag; 17 unit tests (all mocked, zero real API calls)
 - 2026-03-12: **02-04 complete** - Service wiring: EVMFetcher + FileImportHandler registered in IndexerService; FileImportHandler auto-detects exchange format; POST /api/upload-file with SHA-256 dedup, 50MB limit, job queuing
 - 2026-03-12: **02-03 complete** - All 5 exchange CSV parsers (Coinbase, Crypto.com, Wealthsimple, Uphold, Coinsquare) migrated to PostgreSQL; import_to_db uses pool/user_id/ON CONFLICT; 21 unit tests passing
 - 2026-03-12: **02-02 complete** - EVMFetcher: Etherscan V2 pagination (10k/page), 4 chains (ETH/Polygon/Cronos/Optimism), PostgreSQL execute_values upsert, 23 unit tests
