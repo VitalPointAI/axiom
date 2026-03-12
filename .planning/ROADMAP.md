@@ -20,31 +20,38 @@
 
 **Goal:** Pull complete transaction history for all 64 NEAR accounts including staking rewards and lockup vesting.
 
-**Plans:** 3 plans in 2 waves
+**Plans:** 4 plans in 3 waves
 
 Plans:
-- [ ] 01-01-PLAN.md — Database schema + NearBlocks API client (Wave 1)
-- [ ] 01-02-PLAN.md — Transaction indexer + balance reconciliation (Wave 2)
-- [ ] 01-03-PLAN.md — Staking rewards + lockup parser (Wave 2)
+- [ ] 01-01-PLAN.md — Fresh PostgreSQL schema + Alembic migrations + config cleanup (Wave 1) [DATA-06]
+- [ ] 01-02-PLAN.md — Standalone indexer service + NEAR transaction fetcher (Wave 2) [DATA-01, DATA-06]
+- [ ] 01-03-PLAN.md — Multi-source price service + epoch staking rewards + lockup parser (Wave 2) [DATA-02, DATA-03]
+- [ ] 01-04-PLAN.md — Integration wiring: register all handlers + web API job queue (Wave 3) [DATA-01, DATA-02, DATA-03, DATA-06]
 
 **Requirements:**
 - DATA-01: Pull complete transaction history for any NEAR account
-- DATA-02: Pull staking rewards history from validator pool
+- DATA-02: Pull staking rewards history from validator pool (epoch-level)
 - DATA-03: Pull lockup contract vesting events
-- DATA-06: Store transactions in PostgreSQL
+- DATA-06: Store transactions in PostgreSQL (fresh schema, multi-user, multi-chain ready)
 
 **Success Criteria:**
-1. [ ] All 64 NEAR accounts have complete transaction history in database
-2. [ ] Staking rewards for vitalpointai.near are captured with timestamps and amounts
-3. [ ] Lockup vesting events are captured with unlock dates and amounts
-4. [ ] Calculated NEAR balance matches on-chain balance for vitalpointai.near (±0.01 NEAR)
-5. [ ] Database schema supports all NEAR transaction types (transfer, stake, unstake, function_call)
+1. [ ] All user-added NEAR wallets have complete transaction history in database
+2. [ ] Staking rewards captured at epoch-level granularity with FMV (USD + CAD)
+3. [ ] Lockup vesting events captured with unlock dates, amounts, and FMV
+4. [ ] Balance verification runs after each wallet sync (count check + balance reconciliation)
+5. [ ] Database schema uses proper PostgreSQL types with multi-user isolation
+6. [ ] Indexer service runs standalone, polls job queue, self-heals on failures
+7. [ ] No SQLite references in any indexer or config code
 
 **Deliverables:**
-- `db/schema.sql` — PostgreSQL schema
-- `indexers/near_indexer.py` — NEAR transaction scanner
-- `indexers/staking_rewards.py` — Validator reward extractor
-- `indexers/lockup_parser.py` — Lockup contract parser
+- `db/models.py` — SQLAlchemy models
+- `db/migrations/` — Alembic migration framework
+- `indexers/service.py` — Standalone indexer service
+- `indexers/near_fetcher.py` — NEAR transaction fetcher
+- `indexers/staking_fetcher.py` — Epoch staking reward calculator
+- `indexers/lockup_fetcher.py` — Lockup contract parser
+- `indexers/price_service.py` — Multi-source price service
+- `indexers/db.py` — Shared PostgreSQL connection module
 
 ---
 
