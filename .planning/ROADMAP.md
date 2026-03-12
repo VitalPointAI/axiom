@@ -62,24 +62,42 @@ Plans:
 
 ## Phase 2: Multi-Chain + Exchanges
 
-**Goal:** Pull EVM chain data and import exchange transaction history via CSV.
+**Goal:** Pull EVM chain data, import exchange transaction history via CSV and AI-powered file ingestion, and register chain plugins for all wallet inventory chains (ETH, Polygon, Optimism, Cronos, XRP, Akash).
+
+**Plans:** 6 plans in 4 waves
+
+Plans:
+- [ ] 02-01-PLAN.md — Alembic migration 002 + chain/exchange plugin ABCs (Wave 1) [DATA-04, DATA-05]
+- [ ] 02-02-PLAN.md — EVMFetcher with Etherscan V2 pagination + PostgreSQL upsert (Wave 2) [DATA-04]
+- [ ] 02-03-PLAN.md — Exchange parser PostgreSQL migration + unit tests (Wave 2) [DATA-05]
+- [ ] 02-04-PLAN.md — Service wiring: EVM + file import handlers + upload API (Wave 3) [DATA-04, DATA-05]
+- [ ] 02-05-PLAN.md — AI-powered file ingestion agent via Claude API (Wave 3) [DATA-05]
+- [ ] 02-06-PLAN.md — Cross-source dedup + XRP/Akash stubs + final integration (Wave 4) [DATA-04, DATA-05]
 
 **Requirements:**
 - DATA-04: Pull EVM transaction history
 - DATA-05: Parse exchange CSV exports
 
 **Success Criteria:**
-1. [ ] ETH/Polygon/Optimism transactions for both addresses imported
+1. [ ] ETH/Polygon/Optimism/Cronos transactions imported via Etherscan V2
 2. [ ] Coinbase CSV parser works and imports transactions
-3. [ ] At least 3 other exchange CSV parsers implemented
+3. [ ] At least 3 other exchange CSV parsers implemented (Crypto.com, Wealthsimple, Uphold/Coinsquare via generic)
 4. [ ] All imported transactions have consistent schema in database
-5. [ ] Calculated EVM balances match on-chain balances
+5. [ ] AI agent handles unknown file formats with confidence scoring
+6. [ ] Cross-source deduplication flags matching on-chain + exchange records
+7. [ ] XRP and Akash chain fetcher stubs registered in service.py
 
 **Deliverables:**
-- `indexers/evm_indexer.py` — Etherscan/Polygonscan scanner
-- `indexers/exchange_parsers/coinbase.py`
-- `indexers/exchange_parsers/crypto_com.py`
-- `indexers/exchange_parsers/generic.py`
+- `db/migrations/versions/002_multichain_exchanges.py` — Phase 2 schema migration
+- `indexers/chain_plugin.py` — ChainFetcher ABC
+- `indexers/exchange_plugin.py` — ExchangeParser + ExchangeConnector ABCs
+- `indexers/evm_fetcher.py` — Etherscan V2 fetcher with pagination
+- `indexers/file_handler.py` — File import job handler with parser auto-detection
+- `indexers/ai_file_agent.py` — Claude API-powered file ingestion
+- `indexers/dedup_handler.py` — Cross-source deduplication
+- `indexers/xrp_fetcher.py` — XRP Ledger chain fetcher
+- `indexers/akash_fetcher.py` — Akash (Cosmos SDK) chain fetcher
+- `web/app/api/upload-file/route.ts` — File upload API endpoint
 
 ---
 
@@ -277,4 +295,4 @@ Phase 2 ──┘                                              │
 - Phase 7 requires Phase 6 (needs complete data pipeline), but UI scaffolding can start in parallel
 
 ---
-*Last updated: 2026-03-12 — Phase 8 CI/CD Deployment fully complete: GitHub Actions workflow + Docker Compose + deployment scripts.*
+*Last updated: 2026-03-12 — Phase 2 planned: 6 plans in 4 waves for multi-chain EVM + exchange parsers + AI file ingestion.*
