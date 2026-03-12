@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { db } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth';
-import { spawn } from 'child_process';
-import path from 'path';
 
 // Chain display config
 const CHAIN_CONFIG: Record<string, { name: string; explorer: string }> = {
@@ -164,22 +163,10 @@ export async function POST(request: NextRequest) {
         FROM evm_wallets WHERE id = $1
       `).get(result.lastInsertRowid) as any;
 
-      // Auto-trigger EVM indexer
-      try {
-        const indexerPath = path.join(process.cwd(), '..', 'indexers', 'evm_indexer.py');
-        const chainArg = evmChain === 'ethereum' ? 'ETH' : evmChain.charAt(0).toUpperCase() + evmChain.slice(1);
-        const child = spawn('python3', [indexerPath, normalizedAddr, chainArg], {
-          detached: true,
-          stdio: 'ignore',
-          cwd: path.join(process.cwd(), '..'),
-          env: { ...process.env },
-        });
-        child.unref();
-      } catch (err) {
-        console.error('Failed to start EVM indexer:', err);
-      }
+      // EVM indexing job queue integration is pending (Phase 2 scope).
+      // Wallet is recorded; indexing will be triggered via job queue once EVM handlers are registered.
 
-      return NextResponse.json({ 
+      return NextResponse.json({
         wallet: {
           ...wallet,
           chain_name: CHAIN_CONFIG[evmChain]?.name || evmChain,
@@ -230,36 +217,44 @@ export async function POST(request: NextRequest) {
         FROM wallets WHERE id = $1
       `).get(result.lastInsertRowid) as any;
 
-      // Auto-trigger backfill
+      // Create background indexing jobs (queued, not immediate — decoupled via job queue)
+      const walletId = wallet.raw_id;
+      const userId = auth.userId;
+
       try {
-        const indexerPath = path.join(process.cwd(), '..', 'indexers', 'hybrid_indexer.py');
-        const child = spawn('python3', [indexerPath, '--backfill', address], {
-          detached: true,
-          stdio: 'ignore',
-          cwd: path.join(process.cwd(), '..'),
-        });
-        child.unref();
-        
-        // Also trigger staking sync for this user (runs in background)
-        const stakingPath = path.join(process.cwd(), '..', 'indexers', 'sync-staking-pg.py');
-        const stakingChild = spawn('python3', [stakingPath, '--user', String(auth.userId)], {
-          detached: true,
-          stdio: 'ignore',
-          cwd: path.join(process.cwd(), '..'),
-        });
-        stakingChild.unref();
-        
-        await db.prepare('UPDATE wallets SET sync_status = $1 WHERE id = $2').run('syncing', wallet.raw_id);
-        wallet.sync_status = 'syncing';
+        // Job 1: Full transaction history sync
+        await db.run(
+          `INSERT INTO indexing_jobs (user_id, wallet_id, job_type, chain, status, priority)
+           VALUES ($1, $2, 'full_sync', 'near', 'queued', 10)`,
+          [userId, walletId]
+        );
+
+        // Job 2: Staking rewards sync
+        await db.run(
+          `INSERT INTO indexing_jobs (user_id, wallet_id, job_type, chain, status, priority)
+           VALUES ($1, $2, 'staking_sync', 'near', 'queued', 5)`,
+          [userId, walletId]
+        );
+
+        // Job 3: Lockup contract sync (NEAR chain only)
+        await db.run(
+          `INSERT INTO indexing_jobs (user_id, wallet_id, job_type, chain, status, priority)
+           VALUES ($1, $2, 'lockup_sync', 'near', 'queued', 3)`,
+          [userId, walletId]
+        );
+
+        wallet.sync_status = 'queued';
       } catch (err) {
-        console.error('Failed to start auto-backfill:', err);
+        console.error('Failed to create indexing jobs:', err);
+        // Jobs are best-effort — wallet is still created successfully
       }
 
-      return NextResponse.json({ 
+      return NextResponse.json({
         wallet: {
           ...wallet,
           chain_name: 'NEAR',
           explorer_url: 'https://nearblocks.io/address/' + address,
+          sync_status: 'queued',
         }
       }, { status: 201 });
     }
