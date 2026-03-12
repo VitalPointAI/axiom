@@ -34,7 +34,7 @@ services:
       dockerfile: indexers/Dockerfile
     command: ["alembic", "-c", "db/migrations/alembic.ini", "upgrade", "head"]
     environment:
-      - DATABASE_URL=postgres://neartax:${POSTGRES_PASSWORD}@postgres:5432/neartax
+      - DATABASE_URL=postgresql://neartax:${POSTGRES_PASSWORD}@postgres:5432/neartax
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,7 +54,7 @@ services:
     ports:
       - "3003:3000"
     environment:
-      - DATABASE_URL=postgres://neartax:${POSTGRES_PASSWORD}@postgres:5432/neartax
+      - DATABASE_URL=postgresql://neartax:${POSTGRES_PASSWORD}@postgres:5432/neartax
       - NODE_ENV=production
     depends_on:
       postgres:
@@ -87,7 +87,7 @@ services:
       context: .
       dockerfile: indexers/Dockerfile
     environment:
-      - DATABASE_URL=postgres://neartax:${POSTGRES_PASSWORD}@postgres:5432/neartax
+      - DATABASE_URL=postgresql://neartax:${POSTGRES_PASSWORD}@postgres:5432/neartax
       - NEARBLOCKS_API_KEY=${NEARBLOCKS_API_KEY}
       - ALCHEMY_API_KEY=${ALCHEMY_API_KEY}
       - ETHERSCAN_API_KEY=${ETHERSCAN_API_KEY}
