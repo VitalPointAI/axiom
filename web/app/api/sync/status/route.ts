@@ -58,7 +58,7 @@ export async function GET() {
       const progressTotal = txJob?.progress_total ?? 0;
 
       // Per-job-type breakdown for UI
-      const breakdown: Record<string, { status: string; progress_fetched: number; progress_total: number; last_error: string | null }> = {};
+      const breakdown: Record<string, { status: string; progress_fetched: number; progress_total: number; last_error: string | null; created_at: string }> = {};
       for (const job of walletJobs) {
         // Keep the most recent job per type
         if (!breakdown[job.job_type] || job.created_at > breakdown[job.job_type].created_at) {
@@ -67,6 +67,7 @@ export async function GET() {
             progress_fetched: job.progress_fetched ?? 0,
             progress_total: job.progress_total ?? 0,
             last_error: job.last_error ?? null,
+            created_at: job.created_at,
           };
         }
       }
