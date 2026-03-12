@@ -15,11 +15,11 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Coinbase parser COMPLETE ✅
 - Remaining parsers: Crypto.com, Wealthsimple, Uphold, Coinsquare
 
-**Phase 1: NEAR Indexer** 🔨 IN PROGRESS
+**Phase 1: NEAR Indexer** COMPLETE
 - Plan 01-01: PostgreSQL schema + Alembic + config cleanup ✅ DONE (2026-03-12)
 - Plan 01-02: Standalone indexer service + NEAR transaction fetcher ✅ DONE (2026-03-12)
 - Plan 01-03: Multi-source price service + epoch staking rewards + lockup parser ✅ DONE (2026-03-12)
-- Plan 01-04: Integration wiring + web API job queue (next)
+- Plan 01-04: Integration wiring + web API job queue ✅ DONE (2026-03-12)
 
 **Phase 7: Web UI** 📋 PLANNED
 - Requirements added (UI-01 through UI-08)
@@ -35,7 +35,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 | Phase | Status | Completion |
 |-------|--------|------------|
-| 1. NEAR Indexer | **In Progress** | 75% (3/4 plans) |
+| 1. NEAR Indexer | **Complete** | 100% (4/4 plans) |
 | 2. Multi-Chain + Exchanges | In Progress | 40% |
 | 3. Transaction Classification | Not Started | 0% |
 | 4. Cost Basis Engine | Not Started | 0% |
@@ -49,6 +49,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **01-04 complete** - Integration wiring: StakingFetcher+LockupFetcher registered in IndexerService, wallet API uses job queue (3 jobs per wallet), sync status API reads from indexing_jobs
 - 2026-03-12: **01-03 complete** - PriceService (CoinGecko+CryptoCompare+outlier filtering, 17 tests), StakingFetcher (epoch reward calc), LockupFetcher (lockup event parser)
 - 2026-03-12: **01-02 complete** - Standalone IndexerService + NearFetcher (cursor resume, 20 unit tests, Dockerfile updated to service mode)
 - 2026-03-12: **01-01 complete** - PostgreSQL schema (8 tables), Alembic framework, indexers/db.py, config.py cleaned (no SQLite)
@@ -89,6 +90,9 @@ None currently.
 | 2026-03-12 | 50% outlier threshold for multi-source price | Balances detecting bad data vs. normal spread between CoinGecko + CryptoCompare |
 | 2026-03-12 | CAD rate in price_cache table | Reuses existing table vs separate exchange_rates table — simpler schema |
 | 2026-03-12 | Lockup event de-dup by tx_hash+event_type | No unique constraint on tx_hash alone in lockup_events schema |
+| 2026-03-12 | Dispatch by job_type not chain | Handlers map to operation not blockchain; correct abstraction |
+| 2026-03-12 | Staking sync at 4x tx interval | Staking rewards are epoch-level (~12h), hourly polling is sufficient |
+| 2026-03-12 | EVM spawn removed, job queue deferred | EVM job queue is Phase 2 scope; NEAR pipeline complete without it |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 01-near-indexer 01-03-PLAN.md*
+*Last updated: 2026-03-12 — Stopped at: Completed 01-near-indexer 01-04-PLAN.md*

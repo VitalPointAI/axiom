@@ -26,7 +26,7 @@ Plans:
 - [x] 01-01-PLAN.md — Fresh PostgreSQL schema + Alembic migrations + config cleanup (Wave 1) [DATA-06] ✓ DONE
 - [x] 01-02-PLAN.md — Standalone indexer service + NEAR transaction fetcher (Wave 2) [DATA-01, DATA-06] ✓ DONE
 - [x] 01-03-PLAN.md — Multi-source price service + epoch staking rewards + lockup parser (Wave 2) [DATA-02, DATA-03] ✓ DONE
-- [ ] 01-04-PLAN.md — Integration wiring: register all handlers + web API job queue (Wave 3) [DATA-01, DATA-02, DATA-03, DATA-06]
+- [x] 01-04-PLAN.md — Integration wiring: register all handlers + web API job queue (Wave 3) [DATA-01, DATA-02, DATA-03, DATA-06] ✓ DONE
 
 **Requirements:**
 - DATA-01: Pull complete transaction history for any NEAR account
@@ -239,4 +239,4 @@ Phase 2 ──┘                                              │
 - Phase 7 requires Phase 6 (needs complete data pipeline), but UI scaffolding can start in parallel
 
 ---
-*Last updated: 2026-03-12 — 01-03 complete (PriceService + StakingFetcher + LockupFetcher + 17 tests)*
+*Last updated: 2026-03-12 — 01-04 complete (integration wiring: all fetchers registered, wallet API uses job queue, sync status reads indexing_jobs). Phase 1 NEAR Indexer COMPLETE.*
