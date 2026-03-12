@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-12T19:05:59.509Z"
+last_updated: "2026-03-12T19:37:54.162Z"
 progress:
   total_phases: 8
   completed_phases: 3
-  total_plans: 19
-  completed_plans: 14
+  total_plans: 20
+  completed_plans: 15
 ---
 
 # Project State
@@ -29,6 +29,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Plan 02-04: Service wiring + file upload API (EVMFetcher + FileImportHandler wired, POST /api/upload-file) ✅ DONE (2026-03-12)
 - Plan 02-05: AIFileAgent + Claude API + confidence scoring (CONFIDENCE_THRESHOLD=0.8, 17 tests) ✅ DONE (2026-03-12)
 - Plan 02-06: DedupHandler + XRP/Akash stubs + AI fallback + all 8 job types in service.py ✅ DONE (2026-03-12)
+- Plan 02-07: Gap closure — migration 002b (updated_at), DedupHandler epoch integers, upload-file ON CONFLICT fix ✅ DONE (2026-03-12)
 - EVM schema created (`db/schema_evm.sql`)
 - Exchange parser framework built (`indexers/exchange_parsers/`)
 - All 5 exchange parsers (Coinbase, Crypto.com, Wealthsimple, Uphold, Coinsquare) COMPLETE ✅
@@ -78,6 +79,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **02-07 complete** - Gap closure: migration 002b (updated_at TIMESTAMPTZ), DedupHandler epoch int conversion, upload-file ON CONFLICT(user_id, account_id, chain); 54 tests pass
 - 2026-03-12: **02-06 complete** - DedupHandler (1% tolerance + 10-min window + direction alignment), XRPFetcher + AkashFetcher stubs, AI fallback in FileImportHandler, all 8 Phase 2 job types in service.py; 10 unit tests
 - 2026-03-12: **02-05 complete** - AIFileAgent: Claude claude-sonnet-4-20250514 extracts transactions from any CSV/XLSX/PDF; CONFIDENCE_THRESHOLD=0.8; needs_review flag; 17 unit tests (all mocked, zero real API calls)
 - 2026-03-12: **02-04 complete** - Service wiring: EVMFetcher + FileImportHandler registered in IndexerService; FileImportHandler auto-detects exchange format; POST /api/upload-file with SHA-256 dedup, 50MB limit, job queuing
@@ -163,6 +165,9 @@ None currently.
 | 2026-03-12 | 10-minute timestamp window for cross-source dedup | Covers network propagation latency + exchange recording delay |
 | 2026-03-12 | Sweat wallets handled by NearFetcher | Sweat is NEAR-based; no separate fetcher needed |
 | 2026-03-12 | Release conn before AIFileAgent call in FileImportHandler | AIFileAgent manages its own connections; releasing first prevents pool exhaustion |
+| 2026-03-12 | Migration 002b as additive gap-fix | nullable=True updated_at columns; no backfill required; preserves 002 for teams already migrated |
+| 2026-03-12 | Epoch integers for BIGINT BETWEEN | int(window.timestamp()) before BETWEEN on BIGINT block_timestamp; datetime objects cause type mismatch |
+| 2026-03-12 | ON CONFLICT (user_id, account_id, chain) in upload-file | Must match exact UNIQUE constraint column set from migration 001 wallets table |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 02-multichain-exchanges 02-06-PLAN.md*
+*Last updated: 2026-03-12 — Stopped at: Completed 02-multichain-exchanges 02-07-PLAN.md*
