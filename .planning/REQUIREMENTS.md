@@ -13,11 +13,11 @@
 
 ### Classification
 
-- [ ] **CLASS-01**: System classifies transactions as: income, capital_gain, capital_loss, transfer, fee
-- [ ] **CLASS-02**: System detects internal transfers (between owned wallets) and marks as non-taxable
-- [ ] **CLASS-03**: System identifies staking reward distributions and marks as income
-- [ ] **CLASS-04**: System identifies lockup vesting events and marks as income
-- [ ] **CLASS-05**: System identifies token swaps/trades and calculates gain/loss
+- [x] **CLASS-01**: System classifies transactions as: income, capital_gain, capital_loss, transfer, fee
+- [x] **CLASS-02**: System detects internal transfers (between owned wallets) and marks as non-taxable
+- [x] **CLASS-03**: System identifies staking reward distributions and marks as income
+- [x] **CLASS-04**: System identifies lockup vesting events and marks as income
+- [x] **CLASS-05**: System identifies token swaps/trades and calculates gain/loss
 
 ### Cost Basis
 

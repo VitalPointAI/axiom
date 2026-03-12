@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-12T19:43:26.755Z"
+last_updated: "2026-03-12T21:08:46.408Z"
 progress:
   total_phases: 8
   completed_phases: 3
-  total_plans: 20
-  completed_plans: 15
+  total_plans: 25
+  completed_plans: 16
 ---
 
 # Project State
@@ -62,7 +62,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 |-------|--------|------------|
 | 1. NEAR Indexer | **Complete** | 100% (6/6 plans) |
 | 2. Multi-Chain + Exchanges | **Complete** | 100% (6/6 plans) |
-| 3. Transaction Classification | Not Started | 0% |
+| 3. Transaction Classification | In Progress | 1 plan complete |
 | 4. Cost Basis Engine | Not Started | 0% |
 | 5. Verification | Not Started | 0% |
 | 6. Reporting | Not Started | 0% |
@@ -79,6 +79,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **03-01 complete** - Classification schema: migration 003 (4 tables: transaction_classifications, classification_rules, spam_rules, classification_audit_log), 4 SQLAlchemy models, 30 test scaffolds; 107 pre-existing tests pass
 - 2026-03-12: **02-07 complete** - Gap closure: migration 002b (updated_at TIMESTAMPTZ), DedupHandler epoch int conversion, upload-file ON CONFLICT(user_id, account_id, chain); 54 tests pass
 - 2026-03-12: **02-06 complete** - DedupHandler (1% tolerance + 10-min window + direction alignment), XRPFetcher + AkashFetcher stubs, AI fallback in FileImportHandler, all 8 Phase 2 job types in service.py; 10 unit tests
 - 2026-03-12: **02-05 complete** - AIFileAgent: Claude claude-sonnet-4-20250514 extracts transactions from any CSV/XLSX/PDF; CONFIDENCE_THRESHOLD=0.8; needs_review flag; 17 unit tests (all mocked, zero real API calls)
@@ -168,6 +169,10 @@ None currently.
 | 2026-03-12 | Migration 002b as additive gap-fix | nullable=True updated_at columns; no backfill required; preserves 002 for teams already migrated |
 | 2026-03-12 | Epoch integers for BIGINT BETWEEN | int(window.timestamp()) before BETWEEN on BIGINT block_timestamp; datetime objects cause type mismatch |
 | 2026-03-12 | ON CONFLICT (user_id, account_id, chain) in upload-file | Must match exact UNIQUE constraint column set from migration 001 wallets table |
+| 2026-03-12 | Partial unique indexes via op.execute() in migration 003 | op.create_unique_constraint() has no WHERE clause support; raw SQL in op.execute() is Alembic-documented approach |
+| 2026-03-12 | classification_rules created before transaction_classifications | FK dependency order: transaction_classifications.rule_id references classification_rules.id |
+| 2026-03-12 | uq_cr_name UNIQUE on classification_rules.name | Enables idempotent ON CONFLICT (name) DO UPDATE upsert pattern for rule seeder |
+| 2026-03-12 | Self-referential parent/child_legs on TransactionClassification | Multi-leg decomposition: parent row + sell_leg/buy_leg/fee_leg child rows share parent_classification_id |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 02-multichain-exchanges 02-07-PLAN.md*
+*Last updated: 2026-03-12 — Stopped at: Completed 03-transaction-classification 03-01-PLAN.md*
