@@ -7,8 +7,8 @@
 - [ ] **DATA-01**: System can pull complete transaction history for any NEAR account via RPC/indexer
 - [ ] **DATA-02**: System can pull staking rewards history from validator pool contracts
 - [ ] **DATA-03**: System can pull lockup contract vesting events
-- [ ] **DATA-04**: System can pull EVM transaction history via Etherscan/Polygonscan APIs
-- [ ] **DATA-05**: System can parse exchange CSV exports (Coinbase, Crypto.com, Bitbuy, Coinsquare, Wealthsimple, Uphold)
+- [x] **DATA-04**: System can pull EVM transaction history via Etherscan/Polygonscan APIs
+- [x] **DATA-05**: System can parse exchange CSV exports (Coinbase, Crypto.com, Bitbuy, Coinsquare, Wealthsimple, Uphold)
 - [ ] **DATA-06**: System stores all transactions in PostgreSQL with consistent schema
 
 ### Classification

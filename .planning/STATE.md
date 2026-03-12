@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: in_progress
-last_updated: "2026-03-12T10:28:00Z"
+status: unknown
+last_updated: "2026-03-12T18:38:59.493Z"
 progress:
-  total_phases: 3
+  total_phases: 8
   completed_phases: 2
-  total_plans: 12
-  completed_plans: 8
+  total_plans: 19
+  completed_plans: 9
 ---
 
 # Project State
@@ -23,6 +23,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 ## Current Phase
 
 **Phase 2: Multi-Chain + Exchanges** 🔨 IN PROGRESS
+- Plan 02-01: Alembic migration 002 + ChainFetcher/ExchangeParser/ExchangeConnector ABCs ✅ DONE (2026-03-12)
 - EVM schema created (`db/schema_evm.sql`)
 - Exchange parser framework built (`indexers/exchange_parsers/`)
 - Coinbase parser COMPLETE ✅
@@ -55,7 +56,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | Phase | Status | Completion |
 |-------|--------|------------|
 | 1. NEAR Indexer | **Complete** | 100% (6/6 plans) |
-| 2. Multi-Chain + Exchanges | In Progress | 40% |
+| 2. Multi-Chain + Exchanges | In Progress | 17% (1/6 plans) |
 | 3. Transaction Classification | Not Started | 0% |
 | 4. Cost Basis Engine | Not Started | 0% |
 | 5. Verification | Not Started | 0% |
@@ -73,6 +74,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **02-01 complete** - Migration 002 (exchange_transactions, exchange_connections, supported_exchanges seeded, file_imports) + ChainFetcher/ExchangeParser/ExchangeConnector ABCs
 - 2026-03-12: **08-02 complete** - GitHub Actions deploy workflow (auto-deploy on push to main, manual rollback, .gitignore hardened)
 - 2026-03-12: **08-01 complete** - Production Docker Compose (postgres, migrate, web, indexer) + SSH deploy script with rolling restart + health check script
 - 2026-03-12: **01-06 complete** - Wallet API schema fix: GET derives sync_status from indexing_jobs subqueries, POST inserts without sync_status column, removed indexing_progress references
@@ -130,6 +132,10 @@ None currently.
 | 2026-03-12 | SSH key temp file with always() cleanup | Prevents key leakage in GitHub Actions runners |
 | 2026-03-12 | .env via SSH heredoc from GitHub Secrets | Secrets never written to repo or runner filesystem |
 | 2026-03-12 | Concurrency group with cancel-in-progress: false | Queues deployments rather than canceling in-flight ones |
+| 2026-03-12 | confidence_score NUMERIC(4,3) NULL for CSV parsers | AI agent imports use 0-1 score; NULL means traditional parser (always correct) |
+| 2026-03-12 | file_imports SHA-256 content hash dedup | Prevents re-importing same file; UNIQUE(user_id, file_hash) enforced at DB level |
+| 2026-03-12 | supported_exchanges VARCHAR slug PK | Human-readable FK in exchange_transactions ('coinbase' vs 42); easier to debug |
+| 2026-03-12 | ExchangeParser and ExchangeConnector as separate ABCs | File parsing and API connectivity are orthogonal; CSV-only exchanges (Wealthsimple) need no Connector |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 08-cicd-deployment 08-02-PLAN.md (Phase 8 COMPLETE)*
+*Last updated: 2026-03-12 — Stopped at: Completed 02-multichain-exchanges 02-01-PLAN.md*
