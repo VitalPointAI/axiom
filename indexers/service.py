@@ -163,15 +163,17 @@ class IndexerService:
             cur = conn.cursor()
             cur.execute(
                 """
-                SELECT id, user_id, wallet_id, job_type, chain, status,
-                       priority, cursor, progress_fetched, progress_total,
-                       attempts, max_attempts, last_error, created_at
-                FROM indexing_jobs
-                WHERE status IN ('queued', 'retrying')
-                  AND (next_retry_at IS NULL OR next_retry_at <= NOW())
-                ORDER BY priority DESC, created_at ASC
+                SELECT ij.id, ij.user_id, ij.wallet_id, ij.job_type, ij.chain, ij.status,
+                       ij.priority, ij.cursor, ij.progress_fetched, ij.progress_total,
+                       ij.attempts, ij.max_attempts, ij.last_error, ij.created_at,
+                       w.account_id
+                FROM indexing_jobs ij
+                JOIN wallets w ON ij.wallet_id = w.id
+                WHERE ij.status IN ('queued', 'retrying')
+                  AND (ij.next_retry_at IS NULL OR ij.next_retry_at <= NOW())
+                ORDER BY ij.priority DESC, ij.created_at ASC
                 LIMIT 1
-                FOR UPDATE SKIP LOCKED
+                FOR UPDATE OF ij SKIP LOCKED
                 """,
             )
             row = cur.fetchone()
@@ -184,6 +186,7 @@ class IndexerService:
                 "id", "user_id", "wallet_id", "job_type", "chain", "status",
                 "priority", "cursor", "progress_fetched", "progress_total",
                 "attempts", "max_attempts", "last_error", "created_at",
+                "account_id",
             ]
             job = dict(zip(columns, row))
 
