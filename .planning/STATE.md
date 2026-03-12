@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-12T21:08:46.408Z"
+last_updated: "2026-03-12T21:15:50.026Z"
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 25
-  completed_plans: 16
+  completed_plans: 18
 ---
 
 # Project State
@@ -62,7 +62,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 |-------|--------|------------|
 | 1. NEAR Indexer | **Complete** | 100% (6/6 plans) |
 | 2. Multi-Chain + Exchanges | **Complete** | 100% (6/6 plans) |
-| 3. Transaction Classification | In Progress | 1 plan complete |
+| 3. Transaction Classification | In Progress | 3 plans complete (03-01, 03-02, 03-03) |
 | 4. Cost Basis Engine | Not Started | 0% |
 | 5. Verification | Not Started | 0% |
 | 6. Reporting | Not Started | 0% |
@@ -79,6 +79,8 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **03-03 complete** - EVMDecoder (21 DeFi selectors, multi-token grouping), rule seeder (56 rules: 23 NEAR + 23 EVM + 10 exchange), 16 new tests; 136 tests pass
+- 2026-03-12: **03-02 complete** - WalletGraph PostgreSQL rewrite (internal transfer detection, 5%/30-min cross-chain matching, wallet discovery), SpamDetector (multi-signal 0.46/signal, 0.99 for known contracts, global propagation), 13 unit tests; 136 tests pass
 - 2026-03-12: **03-01 complete** - Classification schema: migration 003 (4 tables: transaction_classifications, classification_rules, spam_rules, classification_audit_log), 4 SQLAlchemy models, 30 test scaffolds; 107 pre-existing tests pass
 - 2026-03-12: **02-07 complete** - Gap closure: migration 002b (updated_at TIMESTAMPTZ), DedupHandler epoch int conversion, upload-file ON CONFLICT(user_id, account_id, chain); 54 tests pass
 - 2026-03-12: **02-06 complete** - DedupHandler (1% tolerance + 10-min window + direction alignment), XRPFetcher + AkashFetcher stubs, AI fallback in FileImportHandler, all 8 Phase 2 job types in service.py; 10 unit tests
@@ -173,6 +175,8 @@ None currently.
 | 2026-03-12 | classification_rules created before transaction_classifications | FK dependency order: transaction_classifications.rule_id references classification_rules.id |
 | 2026-03-12 | uq_cr_name UNIQUE on classification_rules.name | Enables idempotent ON CONFLICT (name) DO UPDATE upsert pattern for rule seeder |
 | 2026-03-12 | Self-referential parent/child_legs on TransactionClassification | Multi-leg decomposition: parent row + sell_leg/buy_leg/fee_leg child rows share parent_classification_id |
+| 2026-03-12 | EVMDecoder is purely data-driven (no DB) | Tested with synthetic tx dicts, no fixtures required; clean separation from DB layer |
+| 2026-03-12 | get_evm_rules() iterates EVMDecoder signature dicts | Single source of truth — adding a selector to EVMDecoder automatically adds its DB rule |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 03-transaction-classification 03-01-PLAN.md*
+*Last updated: 2026-03-12 — Stopped at: Completed 03-transaction-classification 03-03-PLAN.md*
