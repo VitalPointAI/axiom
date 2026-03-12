@@ -1,0 +1,125 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=neartax
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=neartax
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    shm_size: 256mb
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    networks:
+      - axiom-net
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neartax -d neartax"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build:
+      context: .
+      dockerfile: indexers/Dockerfile
+    command: ["alembic", "-c", "db/migrations/alembic.ini", "upgrade", "head"]
+    environment:
+      - DATABASE_URL=postgres://neartax:${POSTGRES_PASSWORD}@postgres:5432/neartax
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - axiom-net
+    restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3003:3000"
+    environment:
+      - DATABASE_URL=postgres://neartax:${POSTGRES_PASSWORD}@postgres:5432/neartax
+      - NODE_ENV=production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+    networks:
+      - axiom-net
+    restart: unless-stopped
+    labels:
+      app.service: web
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  indexer:
+    build:
+      context: .
+      dockerfile: indexers/Dockerfile
+    environment:
+      - DATABASE_URL=postgres://neartax:${POSTGRES_PASSWORD}@postgres:5432/neartax
+      - NEARBLOCKS_API_KEY=${NEARBLOCKS_API_KEY}
+      - ALCHEMY_API_KEY=${ALCHEMY_API_KEY}
+      - ETHERSCAN_API_KEY=${ETHERSCAN_API_KEY}
+      - COINGECKO_API_KEY=${COINGECKO_API_KEY}
+      - CRYPTOCOMPARE_API_KEY=${CRYPTOCOMPARE_API_KEY}
+      - FASTNEAR_API_KEY=${FASTNEAR_API_KEY}
+      - JOB_POLL_INTERVAL=${JOB_POLL_INTERVAL:-5}
+      - SYNC_INTERVAL_MINUTES=${SYNC_INTERVAL_MINUTES:-15}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    networks:
+      - axiom-net
+    restart: unless-stopped
+    labels:
+      app.service: indexer
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  axiom-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
