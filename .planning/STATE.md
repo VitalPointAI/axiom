@@ -18,8 +18,8 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 **Phase 1: NEAR Indexer** 🔨 IN PROGRESS
 - Plan 01-01: PostgreSQL schema + Alembic + config cleanup ✅ DONE (2026-03-12)
 - Plan 01-02: Standalone indexer service + NEAR transaction fetcher ✅ DONE (2026-03-12)
-- Plan 01-03: Multi-source price service + epoch staking rewards + lockup parser (next)
-- Plan 01-04: Integration wiring + web API job queue
+- Plan 01-03: Multi-source price service + epoch staking rewards + lockup parser ✅ DONE (2026-03-12)
+- Plan 01-04: Integration wiring + web API job queue (next)
 
 **Phase 7: Web UI** 📋 PLANNED
 - Requirements added (UI-01 through UI-08)
@@ -35,7 +35,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 | Phase | Status | Completion |
 |-------|--------|------------|
-| 1. NEAR Indexer | **In Progress** | 50% (2/4 plans) |
+| 1. NEAR Indexer | **In Progress** | 75% (3/4 plans) |
 | 2. Multi-Chain + Exchanges | In Progress | 40% |
 | 3. Transaction Classification | Not Started | 0% |
 | 4. Cost Basis Engine | Not Started | 0% |
@@ -49,6 +49,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **01-03 complete** - PriceService (CoinGecko+CryptoCompare+outlier filtering, 17 tests), StakingFetcher (epoch reward calc), LockupFetcher (lockup event parser)
 - 2026-03-12: **01-02 complete** - Standalone IndexerService + NearFetcher (cursor resume, 20 unit tests, Dockerfile updated to service mode)
 - 2026-03-12: **01-01 complete** - PostgreSQL schema (8 tables), Alembic framework, indexers/db.py, config.py cleaned (no SQLite)
 - 2026-03-11: **Phase 1 context gathered** - Major scope expansion: multi-user, multi-chain-ready architecture, standalone indexer service, PostgreSQL-only, epoch-level staking, multi-source price service
@@ -85,6 +86,9 @@ None currently.
 | 2026-03-12 | Action priority for multi-action txs | TRANSFER > FUNCTION_CALL > STAKE > CREATE > DELETE > DEPLOY > KEY ops |
 | 2026-03-12 | Dockerfile build context = project root | Required to COPY config.py and db/ alongside indexers/ |
 | 2026-03-12 | check_incremental_syncs() on empty poll | Simpler than a timer thread; latency = JOB_POLL_INTERVAL when queue empties |
+| 2026-03-12 | 50% outlier threshold for multi-source price | Balances detecting bad data vs. normal spread between CoinGecko + CryptoCompare |
+| 2026-03-12 | CAD rate in price_cache table | Reuses existing table vs separate exchange_rates table — simpler schema |
+| 2026-03-12 | Lockup event de-dup by tx_hash+event_type | No unique constraint on tx_hash alone in lockup_events schema |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 01-near-indexer 01-02-PLAN.md*
+*Last updated: 2026-03-12 — Stopped at: Completed 01-near-indexer 01-03-PLAN.md*
