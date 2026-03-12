@@ -15,6 +15,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -455,3 +456,214 @@ class ClassificationAuditLog(Base):
     classification = relationship("TransactionClassification", back_populates="audit_log")
     changed_by_user = relationship("User", foreign_keys=[changed_by_user_id])
     rule = relationship("ClassificationRule", foreign_keys=[rule_id])
+
+
+class ACBSnapshot(Base):
+    """Per-transaction ACB (Adjusted Cost Base) state snapshots.
+
+    Represents the state of a user's ACB pool for a given token after each
+    acquisition or disposal event. Ordered by block_timestamp for replay.
+
+    event_type:
+      'acquire' — tokens received (buy, swap, staking reward treated as income+acquire)
+      'dispose' — tokens sent (sell, swap, gift, conversion)
+
+    units_delta is always positive; sign is implied by event_type.
+    proceeds_cad and gain_loss_cad are populated only for 'dispose' events.
+    """
+
+    __tablename__ = "acb_snapshots"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ('acquire', 'dispose')",
+            name="ck_acb_event_type",
+        ),
+        UniqueConstraint(
+            "user_id",
+            "token_symbol",
+            "classification_id",
+            name="uq_acb_user_token_classification",
+        ),
+        Index("ix_acb_user_id", "user_id"),
+        Index("ix_acb_token_symbol", "token_symbol"),
+        Index("ix_acb_block_timestamp", "block_timestamp"),
+    )
+
+    id = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    token_symbol = mapped_column(String(32), nullable=False)
+    classification_id = mapped_column(
+        Integer, ForeignKey("transaction_classifications.id"), nullable=False
+    )
+    block_timestamp = mapped_column(BigInteger, nullable=False)
+    event_type = mapped_column(String(20), nullable=False)
+    # positive=acquire, negative=dispose (sign implied by event_type)
+    units_delta = mapped_column(Numeric(24, 8), nullable=False)
+    units_after = mapped_column(Numeric(24, 8), nullable=False)
+    cost_cad_delta = mapped_column(Numeric(24, 8), nullable=False)
+    total_cost_cad = mapped_column(Numeric(24, 8), nullable=False)
+    acb_per_unit_cad = mapped_column(Numeric(24, 8), nullable=False)
+    proceeds_cad = mapped_column(Numeric(24, 8), nullable=True)   # dispose only
+    gain_loss_cad = mapped_column(Numeric(24, 8), nullable=True)  # dispose only
+    price_usd = mapped_column(Numeric(18, 8), nullable=True)
+    price_cad = mapped_column(Numeric(18, 8), nullable=True)
+    price_estimated = mapped_column(Boolean, nullable=False, default=False)
+    needs_review = mapped_column(Boolean, nullable=False, default=False)
+    created_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user = relationship("User", foreign_keys=[user_id])
+    classification = relationship(
+        "TransactionClassification", foreign_keys=[classification_id]
+    )
+    capital_gains_entry = relationship(
+        "CapitalGainsLedger",
+        back_populates="acb_snapshot",
+        uselist=False,
+    )
+
+
+class CapitalGainsLedger(Base):
+    """One row per disposal event recording the capital gain or loss.
+
+    Links to the originating ACBSnapshot via acb_snapshot_id (unique — one
+    disposal snapshot produces at most one capital gains record).
+
+    is_superficial_loss and denied_loss_cad are populated by SuperficialLossDetector
+    in Phase 4 Plan 02.
+
+    tax_year is the calendar year of disposal_date.
+    """
+
+    __tablename__ = "capital_gains_ledger"
+    __table_args__ = (
+        UniqueConstraint("acb_snapshot_id", name="uq_cgl_acb_snapshot_id"),
+        Index("ix_cgl_user_id", "user_id"),
+        Index("ix_cgl_tax_year", "tax_year"),
+        Index("ix_cgl_token_symbol", "token_symbol"),
+    )
+
+    id = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    acb_snapshot_id = mapped_column(
+        Integer, ForeignKey("acb_snapshots.id"), nullable=False
+    )
+    token_symbol = mapped_column(String(32), nullable=False)
+    disposal_date = mapped_column(Date, nullable=False)
+    block_timestamp = mapped_column(BigInteger, nullable=False)
+    units_disposed = mapped_column(Numeric(24, 8), nullable=False)
+    proceeds_cad = mapped_column(Numeric(24, 8), nullable=False)
+    acb_used_cad = mapped_column(Numeric(24, 8), nullable=False)
+    fees_cad = mapped_column(Numeric(24, 8), nullable=False, default=0)
+    gain_loss_cad = mapped_column(Numeric(24, 8), nullable=False)
+    is_superficial_loss = mapped_column(Boolean, nullable=False, default=False)
+    denied_loss_cad = mapped_column(Numeric(24, 8), nullable=True)
+    needs_review = mapped_column(Boolean, nullable=False, default=False)
+    tax_year = mapped_column(SmallInteger, nullable=False)
+    created_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user = relationship("User", foreign_keys=[user_id])
+    acb_snapshot = relationship(
+        "ACBSnapshot",
+        back_populates="capital_gains_entry",
+        foreign_keys=[acb_snapshot_id],
+    )
+
+
+class IncomeLedger(Base):
+    """One row per income event (staking reward, lockup vest, airdrop, other).
+
+    acb_added_cad equals fmv_cad — the FMV at receipt becomes the cost basis
+    for the newly acquired units (added to the ACBSnapshot for that token).
+
+    source_type values: 'staking', 'vesting', 'airdrop', 'other'
+    """
+
+    __tablename__ = "income_ledger"
+    __table_args__ = (
+        Index("ix_il_user_id", "user_id"),
+        Index("ix_il_tax_year", "tax_year"),
+        Index("ix_il_source_type", "source_type"),
+    )
+
+    id = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    source_type = mapped_column(String(20), nullable=False)
+    staking_event_id = mapped_column(
+        Integer, ForeignKey("staking_events.id"), nullable=True
+    )
+    lockup_event_id = mapped_column(
+        Integer, ForeignKey("lockup_events.id"), nullable=True
+    )
+    classification_id = mapped_column(
+        Integer, ForeignKey("transaction_classifications.id"), nullable=True
+    )
+    token_symbol = mapped_column(String(32), nullable=False)
+    income_date = mapped_column(Date, nullable=False)
+    block_timestamp = mapped_column(BigInteger, nullable=False)
+    units_received = mapped_column(Numeric(24, 8), nullable=False)
+    fmv_usd = mapped_column(Numeric(18, 8), nullable=False)
+    fmv_cad = mapped_column(Numeric(18, 8), nullable=False)
+    acb_added_cad = mapped_column(Numeric(24, 8), nullable=False)  # = fmv_cad
+    tax_year = mapped_column(SmallInteger, nullable=False)
+    created_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user = relationship("User", foreign_keys=[user_id])
+    staking_event = relationship("StakingEvent", foreign_keys=[staking_event_id])
+    lockup_event = relationship("LockupEvent", foreign_keys=[lockup_event_id])
+    classification = relationship(
+        "TransactionClassification", foreign_keys=[classification_id]
+    )
+
+
+class PriceCacheMinute(Base):
+    """Minute-level (or sub-hourly) price cache separate from daily price_cache.
+
+    unix_ts is rounded to the nearest minute for cache key consistency:
+      ts_minute = (unix_ts // 60) * 60
+
+    is_estimated=True when the closest available CoinGecko timestamp was more
+    than 15 minutes (900 seconds) from the requested unix_ts.
+
+    source: 'coingecko', 'coingecko_estimated', or None
+    """
+
+    __tablename__ = "price_cache_minute"
+    __table_args__ = (
+        UniqueConstraint("coin_id", "unix_ts", "currency", name="uq_pcm_coin_ts_currency"),
+        Index("ix_pcm_coin_ts", "coin_id", "unix_ts"),
+    )
+
+    id = mapped_column(Integer, primary_key=True, autoincrement=True)
+    coin_id = mapped_column(String(64), nullable=False)
+    unix_ts = mapped_column(BigInteger, nullable=False)  # seconds, rounded to minute
+    currency = mapped_column(String(10), nullable=False)
+    price = mapped_column(Numeric(24, 10), nullable=False)
+    source = mapped_column(String(32), nullable=True)
+    is_estimated = mapped_column(Boolean, nullable=False, default=False)
+    created_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
