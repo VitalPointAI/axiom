@@ -23,6 +23,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 import sys
 import os
+import logging
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -39,9 +40,24 @@ CRYPTOCOMPARE_BASE = "https://min-api.cryptocompare.com/data"
 # CoinGecko Pro base (used when API key is present)
 COINGECKO_PRO_BASE = "https://pro-api.coingecko.com/api/v3"
 
+# Bank of Canada Valet API base
+BOC_VALET_BASE = "https://www.bankofcanada.ca/valet"
+
 # Outlier threshold: if |price_a - price_b| / min(price_a, price_b) > OUTLIER_THRESHOLD
 # → treat as outlier, prefer CoinGecko as primary
 OUTLIER_THRESHOLD = Decimal("0.5")  # 50%
+
+# Stablecoins: return 1.0 without API call
+STABLECOIN_MAP: dict[str, Decimal] = {
+    "tether": Decimal("1"),
+    "usd-coin": Decimal("1"),
+    "dai": Decimal("1"),
+}
+
+# Estimation threshold: >15 minutes from target timestamp means price is estimated
+_ESTIMATION_GAP_SECONDS = 900  # 15 minutes
+
+logger = logging.getLogger(__name__)
 
 # coin_id → CryptoCompare symbol mapping
 COIN_SYMBOL_MAP: dict[str, str] = {
@@ -188,6 +204,134 @@ class PriceService:
             self._cache_price("usd", date_str, "cad", rate, "exchangerate")
 
         return rate
+
+    def get_price_at_timestamp(
+        self, coin_id: str, unix_ts: int, currency: str = "usd"
+    ) -> tuple[Optional[Decimal], bool]:
+        """
+        Return (price, is_estimated) for coin_id at a specific Unix timestamp.
+
+        Flow:
+            1. Stablecoin shortcut — return (1.0, False) without API call
+            2. Round unix_ts to nearest minute for cache key
+            3. Check price_cache_minute table — return on hit
+            4. Fetch CoinGecko market_chart/range with 2-hour window
+            5. Find closest timestamp in returned prices array
+            6. Set is_estimated=True if gap > 15 minutes (900 seconds)
+            7. Cache in price_cache_minute via INSERT ON CONFLICT DO NOTHING
+            8. Return (price, is_estimated)
+
+        Args:
+            coin_id:  CoinGecko coin id (e.g. "near", "ethereum")
+            unix_ts:  Unix timestamp in seconds
+            currency: ISO currency code lowercase (e.g. "usd", "cad")
+
+        Returns:
+            (price, is_estimated) tuple — price is None if unavailable
+        """
+        currency = currency.lower()
+
+        # 1. Stablecoin shortcut
+        if coin_id in STABLECOIN_MAP:
+            return (STABLECOIN_MAP[coin_id], False)
+
+        # 2. Round to nearest minute
+        ts_minute = (unix_ts // 60) * 60
+
+        # 3. Check minute cache
+        cached = self._get_cached_minute(coin_id, ts_minute, currency)
+        if cached is not None:
+            price, is_estimated = cached
+            return (price, is_estimated)
+
+        # 4. Fetch CoinGecko market_chart/range (±1 hour window)
+        price, is_estimated = self._fetch_coingecko_range(
+            coin_id, unix_ts, ts_minute, currency
+        )
+
+        if price is None:
+            return (None, False)
+
+        # 7. Cache result
+        self._cache_minute_price(coin_id, ts_minute, currency, price, is_estimated, "coingecko")
+
+        return (price, is_estimated)
+
+    def get_boc_cad_rate(self, date_str: str) -> Optional[Decimal]:
+        """
+        Fetch daily USD/CAD rate from Bank of Canada Valet API.
+
+        URL: GET /valet/observations/FXUSDCAD/json?start_date={date}&end_date={date}
+        No auth required.
+
+        Flow:
+            1. Check price_cache (coin_id='usd', currency='cad')
+            2. On miss: call BoC Valet API
+            3. If no observation (weekend/holiday): look back up to 5 business days
+            4. Cache result with source='bank_of_canada' or 'bank_of_canada_fallback'
+            5. Return None if still unavailable after 5-day lookback
+
+        Args:
+            date_str: ISO date string "YYYY-MM-DD"
+
+        Returns:
+            Decimal USD/CAD rate or None
+        """
+        # 1. Check cache
+        cached = self._get_cached("usd", date_str, "cad")
+        if cached is not None:
+            return cached
+
+        # 2. Try exact date + 5-day lookback for weekends/holidays
+        try:
+            target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return None
+
+        for days_back in range(6):  # 0 = exact date, 1-5 = lookback
+            check_date = target_date - timedelta(days=days_back)
+            check_str = check_date.strftime("%Y-%m-%d")
+            rate = self._fetch_boc_rate(check_str)
+            if rate is not None:
+                source = "bank_of_canada" if days_back == 0 else "bank_of_canada_fallback"
+                self._cache_price("usd", date_str, "cad", rate, source)
+                return rate
+
+        return None
+
+    def get_price_cad_at_timestamp(
+        self, coin_id: str, unix_ts: int
+    ) -> tuple[Optional[Decimal], bool]:
+        """
+        Return (price_cad, is_estimated) for coin_id at a specific Unix timestamp.
+
+        Convenience method: fetches USD price at timestamp, then multiplies by
+        BoC USD/CAD rate for that date.
+
+        is_estimated is True if either the USD price or the CAD rate was estimated.
+
+        Args:
+            coin_id:  CoinGecko coin id
+            unix_ts:  Unix timestamp in seconds
+
+        Returns:
+            (price_cad, is_estimated) — price_cad is None if USD price unavailable
+        """
+        # Get USD price at timestamp
+        price_usd, usd_estimated = self.get_price_at_timestamp(coin_id, unix_ts, "usd")
+        if price_usd is None:
+            return (None, False)
+
+        # Get BoC CAD rate for the date
+        tx_date = datetime.utcfromtimestamp(unix_ts).strftime("%Y-%m-%d")
+        cad_rate = self.get_boc_cad_rate(tx_date)
+
+        if cad_rate is None:
+            return (None, usd_estimated)
+
+        # BoC rate is from published data — treat as authoritative (not estimated)
+        price_cad = price_usd * cad_rate
+        return (price_cad, usd_estimated)
 
     # ------------------------------------------------------------------
     # Internal: symbol mapping
@@ -439,6 +583,163 @@ class PriceService:
 
         # Hardcoded approximate fallback (better than None for CAD tax reports)
         return Decimal("1.36")
+
+    # ------------------------------------------------------------------
+    # Internal: minute-level price cache helpers
+    # ------------------------------------------------------------------
+
+    def _get_cached_minute(
+        self, coin_id: str, unix_ts: int, currency: str
+    ) -> Optional[tuple[Decimal, bool]]:
+        """Return (price, is_estimated) from price_cache_minute or None."""
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT price, is_estimated
+                FROM price_cache_minute
+                WHERE coin_id=%s AND unix_ts=%s AND currency=%s
+                """,
+                (coin_id, unix_ts, currency),
+            )
+            row = cur.fetchone()
+            cur.close()
+            if row is not None:
+                return (Decimal(str(row[0])), bool(row[1]))
+            return None
+        finally:
+            self._put_conn(conn)
+
+    def _cache_minute_price(
+        self,
+        coin_id: str,
+        unix_ts: int,
+        currency: str,
+        price: Decimal,
+        is_estimated: bool,
+        source: str,
+    ) -> None:
+        """Insert into price_cache_minute via INSERT ON CONFLICT DO NOTHING."""
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO price_cache_minute
+                    (coin_id, unix_ts, currency, price, is_estimated, source)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (coin_id, unix_ts, currency) DO NOTHING
+                """,
+                (coin_id, unix_ts, currency, float(price), is_estimated, source),
+            )
+            conn.commit()
+            cur.close()
+        except Exception:
+            conn.rollback()
+        finally:
+            self._put_conn(conn)
+
+    def _fetch_coingecko_range(
+        self, coin_id: str, unix_ts: int, ts_minute: int, currency: str
+    ) -> tuple[Optional[Decimal], bool]:
+        """
+        Fetch CoinGecko market_chart/range with ±1 hour window around unix_ts.
+
+        Returns (price, is_estimated):
+          - is_estimated=True if closest data point is >15 min from target
+        """
+        global _last_coingecko_call
+
+        # Rate limiting
+        elapsed = time.time() - _last_coingecko_call
+        if elapsed < _COINGECKO_DELAY:
+            time.sleep(_COINGECKO_DELAY - elapsed)
+        _last_coingecko_call = time.time()
+
+        from_ts = unix_ts - 3600
+        to_ts = unix_ts + 3600
+
+        base = COINGECKO_PRO_BASE if self.coingecko_api_key else COINGECKO_BASE
+        url = f"{base}/coins/{coin_id}/market_chart/range"
+        params = {"vs_currency": currency, "from": from_ts, "to": to_ts}
+        headers = {}
+        if self.coingecko_api_key:
+            headers["x-cg-pro-api-key"] = self.coingecko_api_key
+
+        for attempt in range(3):
+            try:
+                resp = requests.get(url, params=params, headers=headers, timeout=15)
+
+                if resp.status_code == 429:
+                    wait = 30 * (attempt + 1)
+                    time.sleep(wait)
+                    continue
+
+                if resp.status_code == 404:
+                    return (None, False)
+
+                resp.raise_for_status()
+                data = resp.json()
+
+                # prices array: [[timestamp_ms, price], ...]
+                prices = data.get("prices", [])
+                if not prices:
+                    return (None, False)
+
+                # Find closest timestamp to target (timestamps in milliseconds)
+                target_ms = unix_ts * 1000
+                best_ts_ms, best_price = min(
+                    prices, key=lambda p: abs(p[0] - target_ms)
+                )
+
+                # Calculate gap in seconds
+                gap_seconds = abs(best_ts_ms / 1000 - unix_ts)
+                is_estimated = gap_seconds > _ESTIMATION_GAP_SECONDS
+
+                return (Decimal(str(best_price)), is_estimated)
+
+            except requests.RequestException:
+                if attempt < 2:
+                    time.sleep(5)
+                    continue
+                return (None, False)
+
+        return (None, False)
+
+    # ------------------------------------------------------------------
+    # Internal: Bank of Canada Valet API
+    # ------------------------------------------------------------------
+
+    def _fetch_boc_rate(self, date_str: str) -> Optional[Decimal]:
+        """
+        Fetch USD/CAD rate from Bank of Canada Valet API for a single date.
+
+        URL: GET /valet/observations/FXUSDCAD/json?start_date={date}&end_date={date}
+        Response: {"observations": [{"d": "2025-01-15", "FXUSDCAD": {"v": "1.4348"}}]}
+
+        Returns None if no observation exists (weekend/holiday).
+        """
+        url = f"{BOC_VALET_BASE}/observations/FXUSDCAD/json"
+        params = {"start_date": date_str, "end_date": date_str}
+
+        try:
+            resp = requests.get(url, params=params, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+
+            observations = data.get("observations", [])
+            if not observations:
+                return None
+
+            rate_str = observations[0].get("FXUSDCAD", {}).get("v")
+            if rate_str is not None:
+                return Decimal(str(rate_str))
+            return None
+
+        except Exception as exc:
+            logger.debug("BoC Valet API error for %s: %s", date_str, exc)
+            return None
 
 
 # ---------------------------------------------------------------------------

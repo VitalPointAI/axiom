@@ -320,3 +320,260 @@ class TestModuleLevelGetPrice:
         """Module-level get_price function should exist and be callable."""
         from indexers import price_service
         assert callable(getattr(price_service, "get_price", None))
+
+
+# ---------------------------------------------------------------------------
+# Minute-level price cache
+# ---------------------------------------------------------------------------
+
+
+class TestMinutePriceCache:
+    """Tests for get_price_at_timestamp() — minute-level cache and CoinGecko range fetch."""
+
+    def test_cache_hit_returns_price_and_not_estimated(self):
+        """Cache hit in price_cache_minute returns (price, is_estimated) without API call.
+
+        Scenario: price_cache_minute has a row for (coin_id, ts_minute, currency)
+        Expect: returns cached (price, False) without calling CoinGecko
+        """
+        from indexers.price_service import PriceService
+
+        pool, conn, cur = make_mock_pool()
+        # Simulate cache hit: SELECT returns (price, is_estimated)
+        cur.fetchone.return_value = ("4.5000", False)
+
+        svc = PriceService(pool)
+
+        with patch("requests.get") as mock_http:
+            result = svc.get_price_at_timestamp("near", 1700000000, "usd")
+
+        assert result == (pytest.approx(Decimal("4.5"), abs=Decimal("0.01")), False)
+        mock_http.assert_not_called()
+
+    def test_cache_miss_triggers_api_call(self):
+        """Cache miss causes CoinGecko market_chart/range to be called.
+
+        Scenario: no row in price_cache_minute
+        Expect: requests.get called with correct endpoint
+        """
+        from indexers.price_service import PriceService
+
+        pool, conn, cur = make_mock_pool()
+        cur.fetchone.return_value = None  # cache miss
+
+        svc = PriceService(pool)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "prices": [[1700000000000, 4.5]]  # ms timestamp
+        }
+
+        with patch("requests.get", return_value=mock_response) as mock_http:
+            price, is_estimated = svc.get_price_at_timestamp("near", 1700000000, "usd")
+
+        assert price == Decimal("4.5")
+        assert is_estimated is False
+        assert mock_http.called
+
+    def test_stablecoin_returns_one_without_api(self):
+        """Stablecoins (tether, usd-coin, dai) return (1, False) without API call.
+
+        Expect: no DB or HTTP call made for stablecoin coin_ids
+        """
+        from indexers.price_service import PriceService, STABLECOIN_MAP
+
+        pool, conn, cur = make_mock_pool()
+        svc = PriceService(pool)
+
+        with patch("requests.get") as mock_http:
+            price, is_estimated = svc.get_price_at_timestamp("tether", 1700000000, "usd")
+
+        assert price == Decimal("1")
+        assert is_estimated is False
+        mock_http.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Bank of Canada Valet API
+# ---------------------------------------------------------------------------
+
+
+class TestBoCRate:
+    """Tests for get_boc_cad_rate() — BoC Valet API with weekend/holiday fallback."""
+
+    def test_successful_fetch_returns_decimal(self):
+        """BoC API returns rate for a weekday.
+
+        Scenario: BoC responds with {"observations": [{"FXUSDCAD": {"v": "1.4348"}}]}
+        Expect: returns Decimal("1.4348")
+        """
+        from indexers.price_service import PriceService
+
+        pool, conn, cur = make_mock_pool()
+        cur.fetchone.return_value = None  # cache miss
+
+        svc = PriceService(pool)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "observations": [{"d": "2025-01-15", "FXUSDCAD": {"v": "1.4348"}}]
+        }
+
+        with patch("requests.get", return_value=mock_response):
+            rate = svc.get_boc_cad_rate("2025-01-15")
+
+        assert rate == Decimal("1.4348")
+
+    def test_cache_hit_skips_api(self):
+        """Cache hit in price_cache (coin_id='usd', currency='cad') skips BoC API call.
+
+        Scenario: price_cache has cached rate
+        Expect: no HTTP call to BoC API
+        """
+        from indexers.price_service import PriceService
+
+        pool, conn, cur = make_mock_pool()
+        cur.fetchone.return_value = (Decimal("1.38"),)  # cache hit
+
+        svc = PriceService(pool)
+
+        with patch("requests.get") as mock_http:
+            rate = svc.get_boc_cad_rate("2025-01-15")
+
+        assert rate == Decimal("1.38")
+        mock_http.assert_not_called()
+
+    def test_weekend_fallback_returns_friday_rate(self):
+        """Weekend date falls back to most recent business day.
+
+        Scenario: requested date is Sunday (no BoC observation),
+                  Saturday also empty, Friday has rate
+        Expect: returns Friday's rate
+        """
+        from indexers.price_service import PriceService
+
+        pool, conn, cur = make_mock_pool()
+        cur.fetchone.return_value = None  # cache miss
+
+        svc = PriceService(pool)
+
+        call_count = [0]
+
+        def mock_fetch_boc(date_str):
+            call_count[0] += 1
+            if call_count[0] >= 3:  # Third call (Friday) returns rate
+                return Decimal("1.4200")
+            return None  # Sunday, Saturday return None
+
+        with patch.object(svc, "_fetch_boc_rate", side_effect=mock_fetch_boc):
+            rate = svc.get_boc_cad_rate("2025-01-19")  # Sunday
+
+        assert rate == Decimal("1.4200")
+        assert call_count[0] == 3
+
+    def test_none_after_five_day_lookback(self):
+        """Returns None if no rate found after 5-day lookback.
+
+        Scenario: 6 consecutive days have no BoC observation (unlikely in practice,
+                  but must be handled gracefully — e.g. extended holiday or API error)
+        Expect: returns None
+        """
+        from indexers.price_service import PriceService
+
+        pool, conn, cur = make_mock_pool()
+        cur.fetchone.return_value = None  # cache miss
+
+        svc = PriceService(pool)
+
+        with patch.object(svc, "_fetch_boc_rate", return_value=None):
+            rate = svc.get_boc_cad_rate("2025-01-01")
+
+        assert rate is None
+
+
+# ---------------------------------------------------------------------------
+# CoinGecko range fetch — closest timestamp selection
+# ---------------------------------------------------------------------------
+
+
+class TestCoinGeckoRange:
+    """Tests for _fetch_coingecko_range() — closest-point selection and estimation flag."""
+
+    def test_closest_timestamp_selected(self):
+        """Returns price from the data point closest to the target timestamp.
+
+        Scenario: CoinGecko returns prices at T-5min, T-1min, T+3min
+        Expect: returns price at T-1min (smallest gap)
+        """
+        from indexers.price_service import PriceService
+
+        pool, conn, cur = make_mock_pool()
+        svc = PriceService(pool)
+
+        target_ts = 1700000000  # seconds
+        # Build prices array with timestamps in milliseconds
+        prices = [
+            [(target_ts - 300) * 1000, 4.0],  # T-5min
+            [(target_ts - 60) * 1000, 4.5],   # T-1min (closest)
+            [(target_ts + 180) * 1000, 5.0],  # T+3min
+        ]
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"prices": prices}
+
+        with patch("requests.get", return_value=mock_response):
+            price, is_estimated = svc._fetch_coingecko_range(
+                "near", target_ts, (target_ts // 60) * 60, "usd"
+            )
+
+        assert price == Decimal("4.5")
+        assert is_estimated is False  # 1 min gap < 15 min threshold
+
+    def test_is_estimated_flag_for_large_gap(self):
+        """Sets is_estimated=True when closest data point is >15 minutes away.
+
+        Scenario: CoinGecko returns price that is 20 minutes from target
+        Expect: is_estimated=True
+        """
+        from indexers.price_service import PriceService
+
+        pool, conn, cur = make_mock_pool()
+        svc = PriceService(pool)
+
+        target_ts = 1700000000
+        prices = [
+            [(target_ts + 1200) * 1000, 4.5],  # T+20min = 1200 seconds > 900 threshold
+        ]
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"prices": prices}
+
+        with patch("requests.get", return_value=mock_response):
+            price, is_estimated = svc._fetch_coingecko_range(
+                "near", target_ts, (target_ts // 60) * 60, "usd"
+            )
+
+        assert price is not None
+        assert is_estimated is True
+
+    def test_stablecoin_bypass(self):
+        """Stablecoins bypass the range fetch and return (1, False) directly.
+
+        Scenario: get_price_at_timestamp called with coin_id='usd-coin'
+        Expect: STABLECOIN_MAP hit, no CoinGecko API call
+        """
+        from indexers.price_service import PriceService
+
+        pool, conn, cur = make_mock_pool()
+        svc = PriceService(pool)
+
+        with patch("requests.get") as mock_http:
+            price, is_estimated = svc.get_price_at_timestamp("usd-coin", 1700000000)
+
+        assert price == Decimal("1")
+        assert is_estimated is False
+        mock_http.assert_not_called()
