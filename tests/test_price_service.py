@@ -231,14 +231,14 @@ class TestCoinSymbolMapping:
         assert COIN_SYMBOL_MAP.get("ethereum") == "ETH"
 
     def test_unknown_coin_uppercased(self):
-        """Unknown coin_id should be uppercased as fallback symbol."""
+        """Unknown coin_id (not in COIN_SYMBOL_MAP) should be uppercased as fallback symbol."""
         from indexers.price_service import PriceService
 
         pool, conn, cur = make_mock_pool()
         svc = PriceService(pool)
-        symbol = svc._coin_to_symbol("solana")
-        # Falls back to uppercase
-        assert symbol == "SOLANA"
+        # "mytoken" is not in COIN_SYMBOL_MAP, so it should uppercase
+        symbol = svc._coin_to_symbol("mytoken")
+        assert symbol == "MYTOKEN"
 
 
 # ---------------------------------------------------------------------------

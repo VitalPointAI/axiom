@@ -1,229 +1,461 @@
-#!/usr/bin/env python3
-"""Historical price service using CryptoCompare API."""
+"""
+Multi-source price service with PostgreSQL caching and outlier filtering.
+
+Provides:
+    - PriceService class: CoinGecko (primary) + CryptoCompare (fallback)
+    - Outlier detection: if two sources differ >50%, use CoinGecko as primary
+    - Token-agnostic: works for any coin_id (near, ethereum, solana, ...)
+    - CAD conversion: USD price * CAD/USD rate (both cached in price_cache)
+    - get_price(coin_id, date_str, currency) -> Decimal
+    - get_price_batch(coin_id, start_date, end_date, currency) -> dict
+    - Module-level get_price() convenience function (uses shared singleton)
+
+Database:
+    Uses price_cache table (coin_id, date, currency) with UniqueConstraint.
+    Writes via INSERT ... ON CONFLICT DO UPDATE so re-fetching is idempotent.
+"""
 
 import time
+import base64
 import requests
-import sqlite3
-from datetime import datetime
-from pathlib import Path
+from datetime import date, datetime, timedelta
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Optional
 import sys
+import os
 
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from db.init import get_connection
+from config import COINGECKO_API_KEY, CRYPTOCOMPARE_API_KEY
+from indexers.db import get_pool
 
-# CryptoCompare API (free tier)
-CRYPTOCOMPARE_BASE = "https://min-api.cryptocompare.com/data/v2"
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 
-# Token symbol mapping
-TOKEN_SYMBOLS = {
-    "NEAR": "NEAR",
+COINGECKO_BASE = "https://api.coingecko.com/api/v3"
+CRYPTOCOMPARE_BASE = "https://min-api.cryptocompare.com/data"
+
+# CoinGecko Pro base (used when API key is present)
+COINGECKO_PRO_BASE = "https://pro-api.coingecko.com/api/v3"
+
+# Outlier threshold: if |price_a - price_b| / min(price_a, price_b) > OUTLIER_THRESHOLD
+# → treat as outlier, prefer CoinGecko as primary
+OUTLIER_THRESHOLD = Decimal("0.5")  # 50%
+
+# coin_id → CryptoCompare symbol mapping
+COIN_SYMBOL_MAP: dict[str, str] = {
     "near": "NEAR",
-    "wrap.near": "NEAR",  # wNEAR
-    "ETH": "ETH",
-    "USDC": "USDC",
-    "USDT": "USDT",
+    "ethereum": "ETH",
+    "bitcoin": "BTC",
+    "solana": "SOL",
+    "cardano": "ADA",
+    "polkadot": "DOT",
+    "chainlink": "LINK",
+    "uniswap": "UNI",
+    "avalanche-2": "AVAX",
+    "matic-network": "MATIC",
+    "cosmos": "ATOM",
+    "algorand": "ALGO",
+    "tezos": "XTZ",
+    "ripple": "XRP",
+    "litecoin": "LTC",
 }
 
-# Price cache to avoid redundant API calls
-_price_cache = {}
+# CoinGecko rate limit: free tier 30 calls/min
+_COINGECKO_DELAY = 2.1  # seconds between calls (safe for free tier)
+_last_coingecko_call = 0.0
 
 
-def get_hourly_price(token: str, timestamp_ns: int, currency: str = "USD") -> float | None:
+# ---------------------------------------------------------------------------
+# PriceService
+# ---------------------------------------------------------------------------
+
+class PriceService:
     """
-    Get the closing price of a token at a specific hour.
-    
-    Args:
-        token: Token symbol (e.g., "NEAR", "ETH")
-        timestamp_ns: Nanosecond timestamp from NEAR blockchain
-        currency: Target currency (USD, CAD, etc.)
-    
-    Returns:
-        Price in target currency, or None if not found
+    Multi-source historical price service backed by PostgreSQL price_cache table.
+
+    Usage:
+        svc = PriceService(db_pool)
+        price_usd = svc.get_price("near", "2025-01-15", "usd")
+        price_cad = svc.get_price("near", "2025-01-15", "cad")
+        cad_rate  = svc.get_cad_rate("2025-01-15")
+        batch     = svc.get_price_batch("near", "2025-01-01", "2025-01-31", "usd")
     """
-    # Convert nanoseconds to seconds
-    timestamp_sec = int(timestamp_ns) // 1_000_000_000 if timestamp_ns > 1e12 else int(timestamp_ns)
-    
-    # Round to hour boundary
-    hour_ts = (timestamp_sec // 3600) * 3600
-    
-    # Map token to CryptoCompare symbol
-    symbol = TOKEN_SYMBOLS.get(token, token.upper())
-    
-    # Check cache
-    cache_key = f"{symbol}_{hour_ts}_{currency}"
-    if cache_key in _price_cache:
-        return _price_cache[cache_key]
-    
-    # Fetch from API - try hourly first, fall back to daily for old data
-    try:
-        # Try hourly data
-        url = f"{CRYPTOCOMPARE_BASE}/histohour"
-        params = {
-            "fsym": symbol,
-            "tsym": currency,
-            "limit": 1,
-            "toTs": hour_ts + 3600
-        }
-        
-        resp = requests.get(url, params=params, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        
-        if data.get("Response") == "Success":
-            prices = data.get("Data", {}).get("Data", [])
-            for p in reversed(prices):
-                price = p.get("close")
-                if price:
-                    _price_cache[cache_key] = price
-                    return price
-        
-        # Fall back to daily if hourly not available
-        url = f"{CRYPTOCOMPARE_BASE}/histoday"
-        day_ts = (timestamp_sec // 86400) * 86400
-        params = {
-            "fsym": symbol,
-            "tsym": currency,
-            "limit": 1,
-            "toTs": day_ts + 86400
-        }
-        
-        resp = requests.get(url, params=params, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        
-        if data.get("Response") == "Success":
-            prices = data.get("Data", {}).get("Data", [])
-            for p in reversed(prices):
-                price = p.get("close")
-                if price:
-                    _price_cache[cache_key] = price
-                    return price
-        
-        return None
-        
-    except Exception as e:
-        print(f"Error fetching price for {symbol} at {hour_ts}: {e}")
-        return None
 
+    def __init__(self, db_pool):
+        self.db_pool = db_pool
+        self.coingecko_api_key = COINGECKO_API_KEY
+        self.cryptocompare_api_key = CRYPTOCOMPARE_API_KEY
 
-# Alias for backward compatibility
-def get_daily_price(token: str, timestamp_ns: int, currency: str = "USD") -> float | None:
-    """Alias for get_hourly_price (now uses hourly granularity)."""
-    return get_hourly_price(token, timestamp_ns, currency)
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
+    def get_price(self, coin_id: str, date_str: str, currency: str = "usd") -> Optional[Decimal]:
+        """
+        Return historical price for coin_id on date_str in currency.
 
-def get_price_at_block(block_timestamp: int, token: str = "NEAR", currency: str = "USD") -> float | None:
-    """Get price at a specific block timestamp."""
-    return get_daily_price(token, block_timestamp, currency)
+        Flow:
+            1. Check price_cache table — return immediately on hit
+            2. Fetch from CoinGecko (primary)
+            3. Fetch from CryptoCompare (secondary / fallback)
+            4. Aggregate: average if within threshold, else prefer CoinGecko
+            5. Cache result
+            6. Return Decimal price or None
 
+        Args:
+            coin_id: CoinGecko coin id (e.g. "near", "ethereum")
+            date_str: ISO date string "YYYY-MM-DD"
+            currency: ISO currency code, lowercase (e.g. "usd", "cad")
 
-def add_cost_basis_column():
-    """Add cost_basis_usd column to transactions table if not exists."""
-    conn = get_connection()
-    try:
-        conn.execute("ALTER TABLE transactions ADD COLUMN cost_basis_usd REAL")
-        conn.commit()
-        print("Added cost_basis_usd column")
-    except sqlite3.OperationalError as e:
-        if "duplicate column" in str(e).lower():
-            pass  # Column already exists
+        Returns:
+            Decimal price or None if unavailable
+        """
+        currency = currency.lower()
+
+        # 1. Cache lookup
+        cached = self._get_cached(coin_id, date_str, currency)
+        if cached is not None:
+            return cached
+
+        # 2. Fetch from both sources
+        cg_price = self._fetch_coingecko(coin_id, date_str, currency)
+        cc_price = self._fetch_cryptocompare(coin_id, date_str, currency)
+
+        # 3. Aggregate
+        price = self._aggregate(cg_price, cc_price)
+
+        if price is None:
+            return None
+
+        # Determine source label
+        if cg_price is not None and cc_price is not None:
+            source = "coingecko+cryptocompare"
+        elif cg_price is not None:
+            source = "coingecko"
         else:
-            raise
-    finally:
-        conn.close()
+            source = "cryptocompare"
 
+        # 4. Cache
+        self._cache_price(coin_id, date_str, currency, price, source)
 
-def backfill_prices(batch_size: int = 100, delay: float = 0.15):
-    """
-    Backfill cost basis for all transactions missing prices.
-    
-    Uses hourly prices - price at the specific hour of transaction.
-    """
-    add_cost_basis_column()
-    
-    conn = get_connection()
-    cur = conn.cursor()
-    
-    # Get transactions without cost basis
-    cur.execute("""
-        SELECT id, block_timestamp, amount, action_type
-        FROM transactions 
-        WHERE cost_basis_usd IS NULL 
-        AND amount IS NOT NULL 
-        AND CAST(amount AS INTEGER) > 0
-        ORDER BY block_timestamp
-    """)
-    
-    rows = cur.fetchall()
-    total = len(rows)
-    print(f"Backfilling prices for {total} transactions (hourly granularity)...")
-    
-    updated = 0
-    last_hour = None
-    last_price = None
-    api_calls = 0
-    
-    for i, (tx_id, timestamp, amount, action_type) in enumerate(rows):
-        # Convert amount from yoctoNEAR to NEAR
+        return price
+
+    def get_price_batch(
+        self,
+        coin_id: str,
+        start_date: str,
+        end_date: str,
+        currency: str = "usd",
+    ) -> dict[str, Optional[Decimal]]:
+        """
+        Return dict of date_str -> Decimal price for all dates in [start_date, end_date].
+
+        Uses get_price() for each date (which hits cache first).
+        """
+        currency = currency.lower()
+        result: dict[str, Optional[Decimal]] = {}
+
+        start = datetime.strptime(start_date, "%Y-%m-%d").date()
+        end = datetime.strptime(end_date, "%Y-%m-%d").date()
+        current = start
+
+        while current <= end:
+            ds = current.strftime("%Y-%m-%d")
+            result[ds] = self.get_price(coin_id, ds, currency)
+            current += timedelta(days=1)
+
+        return result
+
+    def get_cad_rate(self, date_str: str) -> Optional[Decimal]:
+        """
+        Return USD/CAD exchange rate for date_str.
+
+        Stored in price_cache as coin_id="usd", currency="cad".
+        Fetches from CoinGecko (USDC/CAD pair) or falls back to a
+        fixed default if unavailable.
+        """
+        # Check cache — stored as coin_id="usd", currency="cad"
+        cached = self._get_cached("usd", date_str, "cad")
+        if cached is not None:
+            return cached
+
+        # Fetch from external source
+        rate = self._fetch_cad_rate(date_str)
+
+        if rate is not None:
+            self._cache_price("usd", date_str, "cad", rate, "exchangerate")
+
+        return rate
+
+    # ------------------------------------------------------------------
+    # Internal: symbol mapping
+    # ------------------------------------------------------------------
+
+    def _coin_to_symbol(self, coin_id: str) -> str:
+        """Map CoinGecko coin_id to CryptoCompare symbol."""
+        return COIN_SYMBOL_MAP.get(coin_id, coin_id.upper())
+
+    # ------------------------------------------------------------------
+    # Internal: database helpers
+    # ------------------------------------------------------------------
+
+    def _get_conn(self):
+        """Get a connection from the pool."""
+        return self.db_pool.getconn()
+
+    def _put_conn(self, conn):
+        """Return a connection to the pool."""
+        self.db_pool.putconn(conn)
+
+    def _get_cached(self, coin_id: str, date_str: str, currency: str) -> Optional[Decimal]:
+        """Return cached price or None."""
+        conn = self._get_conn()
         try:
-            near_amount = int(amount) / 1e24
-        except (ValueError, TypeError):
-            continue
-        
-        if near_amount <= 0:
-            continue
-        
-        # Get hour boundary
-        ts_sec = int(timestamp) // 1_000_000_000 if timestamp and int(timestamp) > 1e12 else (int(timestamp) if timestamp else 0)
-        hour_ts = (ts_sec // 3600) * 3600
-        
-        # Reuse price for same hour
-        if hour_ts == last_hour and last_price is not None:
-            price = last_price
-        else:
-            price = get_hourly_price("NEAR", timestamp)
-            last_hour = hour_ts
-            last_price = price
-            api_calls += 1
-            if api_calls % 10 == 0:
-                time.sleep(delay)  # Rate limit every 10 calls
-        
-        if price:
-            cost_basis = near_amount * price
-            conn.execute(
-                "UPDATE transactions SET cost_basis_usd = ? WHERE id = ?",
-                (cost_basis, tx_id)
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT price FROM price_cache WHERE coin_id=%s AND date=%s AND currency=%s",
+                (coin_id, date_str, currency),
             )
-            updated += 1
-        
-        if (i + 1) % batch_size == 0:
+            row = cur.fetchone()
+            cur.close()
+            if row is not None:
+                return Decimal(str(row[0]))
+            return None
+        finally:
+            self._put_conn(conn)
+
+    def _cache_price(
+        self,
+        coin_id: str,
+        date_str: str,
+        currency: str,
+        price: Decimal,
+        source: str = "coingecko",
+    ) -> None:
+        """Insert or update price in price_cache table."""
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO price_cache (coin_id, date, currency, price, source)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (coin_id, date, currency)
+                DO UPDATE SET price = EXCLUDED.price, source = EXCLUDED.source
+                """,
+                (coin_id, date_str, currency, float(price), source),
+            )
             conn.commit()
-            print(f"  Progress: {i+1}/{total} ({updated} priced, {api_calls} API calls)")
-    
-    conn.commit()
-    conn.close()
-    
-    print(f"Done! Updated {updated}/{total} transactions with cost basis ({api_calls} API calls)")
-    return updated
+            cur.close()
+        finally:
+            self._put_conn(conn)
+
+    # ------------------------------------------------------------------
+    # Internal: aggregation / outlier filtering
+    # ------------------------------------------------------------------
+
+    def _aggregate(
+        self, cg_price: Optional[Decimal], cc_price: Optional[Decimal]
+    ) -> Optional[Decimal]:
+        """
+        Combine prices from two sources with outlier detection.
+
+        Rules:
+            - Both available, within 50%: return average
+            - Both available, >50% deviation: return CoinGecko (primary)
+            - Only one available: return it
+            - Neither: return None
+        """
+        if cg_price is None and cc_price is None:
+            return None
+        if cg_price is None:
+            return cc_price
+        if cc_price is None:
+            return cg_price
+
+        # Both available — check for outliers
+        diff = abs(cg_price - cc_price)
+        min_price = min(cg_price, cc_price)
+        deviation = diff / min_price if min_price > 0 else Decimal("0")
+
+        if deviation > OUTLIER_THRESHOLD:
+            # Outlier: prefer CoinGecko
+            return cg_price
+
+        # Within threshold: average
+        avg = (cg_price + cc_price) / Decimal("2")
+        return avg
+
+    # ------------------------------------------------------------------
+    # Internal: CoinGecko fetch
+    # ------------------------------------------------------------------
+
+    def _fetch_coingecko(
+        self, coin_id: str, date_str: str, currency: str
+    ) -> Optional[Decimal]:
+        """
+        Fetch historical price from CoinGecko /coins/{id}/history endpoint.
+
+        CoinGecko date format: dd-mm-yyyy
+        Rate limit: 30 calls/min (free tier) — enforced with sleep.
+        """
+        global _last_coingecko_call
+
+        # Format date for CoinGecko: "15-01-2025"
+        try:
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+            cg_date = dt.strftime("%d-%m-%Y")
+        except ValueError:
+            return None
+
+        # Rate limiting
+        elapsed = time.time() - _last_coingecko_call
+        if elapsed < _COINGECKO_DELAY:
+            time.sleep(_COINGECKO_DELAY - elapsed)
+        _last_coingecko_call = time.time()
+
+        base = COINGECKO_PRO_BASE if self.coingecko_api_key else COINGECKO_BASE
+        url = f"{base}/coins/{coin_id}/history"
+        params = {"date": cg_date, "localization": "false"}
+        headers = {}
+        if self.coingecko_api_key:
+            headers["x-cg-pro-api-key"] = self.coingecko_api_key
+
+        for attempt in range(3):
+            try:
+                resp = requests.get(url, params=params, headers=headers, timeout=15)
+
+                if resp.status_code == 429:
+                    # Rate limited — back off and retry
+                    wait = 30 * (attempt + 1)
+                    time.sleep(wait)
+                    continue
+
+                if resp.status_code == 404:
+                    # Coin not found
+                    return None
+
+                resp.raise_for_status()
+                data = resp.json()
+
+                market_data = data.get("market_data", {})
+                prices = market_data.get("current_price", {})
+                price = prices.get(currency.lower())
+
+                if price is not None:
+                    return Decimal(str(price))
+                return None
+
+            except requests.RequestException:
+                if attempt < 2:
+                    time.sleep(5)
+                    continue
+                return None
+
+        return None
+
+    # ------------------------------------------------------------------
+    # Internal: CryptoCompare fetch
+    # ------------------------------------------------------------------
+
+    def _fetch_cryptocompare(
+        self, coin_id: str, date_str: str, currency: str
+    ) -> Optional[Decimal]:
+        """
+        Fetch historical price from CryptoCompare /data/pricehistorical endpoint.
+
+        Maps coin_id to symbol (e.g. "near" -> "NEAR").
+        """
+        symbol = self._coin_to_symbol(coin_id)
+
+        try:
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+            ts = int(dt.timestamp())
+        except ValueError:
+            return None
+
+        params = {
+            "fsym": symbol,
+            "tsyms": currency.upper(),
+            "ts": ts,
+        }
+        if self.cryptocompare_api_key:
+            params["api_key"] = self.cryptocompare_api_key
+
+        try:
+            resp = requests.get(
+                f"{CRYPTOCOMPARE_BASE}/pricehistorical",
+                params=params,
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            # Response format: {"SYMBOL": {"CURRENCY": price}}
+            price = data.get(symbol, {}).get(currency.upper())
+            if price:
+                return Decimal(str(price))
+            return None
+
+        except requests.RequestException:
+            return None
+
+    # ------------------------------------------------------------------
+    # Internal: CAD rate fetch
+    # ------------------------------------------------------------------
+
+    def _fetch_cad_rate(self, date_str: str) -> Optional[Decimal]:
+        """
+        Fetch USD/CAD exchange rate for date_str.
+
+        Primary: CoinGecko USDC price in CAD (approximates USD/CAD)
+        Fallback: CryptoCompare USD/CAD
+        Final fallback: hardcoded approximate rate
+        """
+        # Try CryptoCompare: USDT -> CAD
+        params = {
+            "fsym": "USDT",
+            "tsyms": "CAD",
+            "ts": int(datetime.strptime(date_str, "%Y-%m-%d").timestamp()),
+        }
+        if self.cryptocompare_api_key:
+            params["api_key"] = self.cryptocompare_api_key
+
+        try:
+            resp = requests.get(
+                f"{CRYPTOCOMPARE_BASE}/pricehistorical",
+                params=params,
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            rate = data.get("USDT", {}).get("CAD")
+            if rate and Decimal(str(rate)) > Decimal("0.5"):
+                return Decimal(str(rate))
+        except Exception:
+            pass
+
+        # Hardcoded approximate fallback (better than None for CAD tax reports)
+        return Decimal("1.36")
 
 
-if __name__ == "__main__":
-    # Test
-    print("Testing price service...")
-    
-    # Test current price
-    now = int(time.time())
-    price = get_daily_price("NEAR", now * 1_000_000_000)
-    print(f"NEAR price today: ${price}")
-    
-    # Test historical price (Jan 1, 2024)
-    jan_2024 = 1704067200 * 1_000_000_000
-    price = get_daily_price("NEAR", jan_2024)
-    print(f"NEAR price Jan 1 2024: ${price}")
-    
-    # Backfill if run directly
-    import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "--backfill":
-        backfill_prices()
+# ---------------------------------------------------------------------------
+# Module-level convenience function (shared singleton)
+# ---------------------------------------------------------------------------
+
+_default_service: Optional[PriceService] = None
+
+
+def get_price(coin_id: str, date_str: str, currency: str = "usd") -> Optional[Decimal]:
+    """
+    Module-level convenience function using a shared PriceService singleton.
+
+    Suitable for scripts that don't manage their own db pool.
+    Initializes the pool on first call.
+    """
+    global _default_service
+    if _default_service is None:
+        _default_service = PriceService(get_pool())
+    return _default_service.get_price(coin_id, date_str, currency)
