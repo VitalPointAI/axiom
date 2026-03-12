@@ -36,6 +36,7 @@ from indexers.xrp_fetcher import XRPFetcher
 from indexers.akash_fetcher import AkashFetcher
 from indexers.dedup_handler import DedupHandler
 from indexers.classifier_handler import ClassifierHandler
+from indexers.acb_handler import ACBHandler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -77,6 +78,7 @@ class IndexerService:
             "akash_incremental": AkashFetcher(self.pool),  # Akash Network incremental
             "dedup_scan": DedupHandler(self.pool),         # Cross-source deduplication
             "classify_transactions": ClassifierHandler(self.pool, self.price_service),  # Transaction classification
+            "calculate_acb": ACBHandler(self.pool, self.price_service),  # ACB calculation
         }
         self.running = True
 
@@ -153,6 +155,8 @@ class IndexerService:
                         handler.run_scan(job)
                     elif job_type == "classify_transactions":
                         handler.run_classify(job)
+                    elif job_type == "calculate_acb":
+                        handler.run_calculate_acb(job)
                     else:
                         raise ValueError(f"Unknown job_type '{job_type}' — no dispatch method")
 

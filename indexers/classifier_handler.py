@@ -87,3 +87,46 @@ class ClassifierHandler:
             stats["skipped_confirmed"],
             stats["needs_review"],
         )
+
+        # Queue a calculate_acb job now that classification is complete.
+        # ACB calculation is user-scoped (not wallet-scoped), so we use wallet_id
+        # from the current job as a FK requirement only.
+        wallet_id = job.get("wallet_id")
+        conn = self.pool.getconn()
+        try:
+            cur = conn.cursor()
+            # Check if a calculate_acb job is already pending for this user
+            cur.execute(
+                """
+                SELECT id FROM indexing_jobs
+                WHERE user_id = %s
+                  AND job_type = 'calculate_acb'
+                  AND status IN ('queued', 'running')
+                """,
+                (user_id,),
+            )
+            existing = cur.fetchone()
+            if existing is None:
+                cur.execute(
+                    """
+                    INSERT INTO indexing_jobs
+                        (user_id, wallet_id, job_type, chain, status, priority)
+                    VALUES (%s, %s, 'calculate_acb', 'all', 'queued', 5)
+                    """,
+                    (user_id, wallet_id),
+                )
+                conn.commit()
+                logger.info("Queued calculate_acb job for user_id=%s", user_id)
+            else:
+                conn.rollback()
+                logger.debug(
+                    "calculate_acb job already queued/running for user_id=%s (job_id=%s)",
+                    user_id, existing[0],
+                )
+        except Exception as exc:
+            conn.rollback()
+            logger.error(
+                "Failed to queue calculate_acb job for user_id=%s: %s", user_id, exc
+            )
+        finally:
+            self.pool.putconn(conn)
