@@ -38,14 +38,25 @@ web/out/
 *.log
 logs/
 
+# Environment
+.env
+.env.local
+.env.production
+
 # Credentials (should be in ~/.openclaw/credentials/)
 *.key
 *.pem
 secrets.json
 
+# SSH keys
+deploy_key
+id_rsa
+
+# Docker
+postgres_data/
+
 # Test output
 output/
 reports/
 .credentials/
-.env
 *.json.bak
