@@ -11,6 +11,7 @@
   "dependencies": {
     "@aurora-is-near/intents-swap-widget": "^6.3.1",
     "@aws-sdk/client-ses": "^3.1000.0",
+    "@next/swc-linux-x64-gnu": "^16.1.6",
     "@simplewebauthn/browser": "^13.2.2",
     "@simplewebauthn/server": "^13.2.3",
     "@tailwindcss/postcss": "^4.2.1",
@@ -26,8 +27,8 @@
     "pdf2json": "^3.1.4",
     "pdfjs-dist": "^3.11.174",
     "pg": "^8.19.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "recharts": "^2.15.0",
     "tailwind-merge": "^2.6.0"
   },
