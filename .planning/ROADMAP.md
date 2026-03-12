@@ -104,7 +104,16 @@ Plans:
 
 ## Phase 3: Transaction Classification
 
-**Goal:** Automatically classify all transactions by tax treatment.
+**Goal:** Build a rule-based + AI-assisted classification engine that classifies all transactions (NEAR, EVM, exchange) by tax treatment, with multi-leg decomposition, internal transfer detection, spam filtering, staking/lockup linkage, and full audit trail.
+
+**Plans:** 5 plans in 4 waves
+
+Plans:
+- [ ] 03-01-PLAN.md — Migration 003 (4 new tables) + SQLAlchemy models + test scaffolds (Wave 1) [CLASS-01, CLASS-02, CLASS-03, CLASS-04, CLASS-05]
+- [ ] 03-02-PLAN.md — WalletGraph PostgreSQL rewrite + SpamDetector (Wave 2) [CLASS-02]
+- [ ] 03-03-PLAN.md — EVMDecoder + classification rule seeder (Wave 2) [CLASS-01, CLASS-05]
+- [ ] 03-04-PLAN.md — TransactionClassifier core engine (Wave 3) [CLASS-01, CLASS-03, CLASS-04, CLASS-05]
+- [ ] 03-05-PLAN.md — ClassifierHandler + service wiring + AI fallback (Wave 4) [CLASS-01, CLASS-02, CLASS-03, CLASS-04, CLASS-05]
 
 **Requirements:**
 - CLASS-01: Classify as income/gain/loss/transfer/fee
@@ -121,9 +130,14 @@ Plans:
 5. [ ] <5% of transactions flagged for manual review
 
 **Deliverables:**
-- `engine/classifier.py` — Transaction classifier
-- `engine/wallet_graph.py` — Owned wallet detection
-- `engine/prices.py` — Historical price fetcher
+- `db/migrations/versions/003_classification_schema.py` — Classification schema (4 tables)
+- `db/models.py` — Extended with 4 new SQLAlchemy models
+- `engine/classifier.py` — TransactionClassifier (rewritten from SQLite)
+- `engine/wallet_graph.py` — WalletGraph (rewritten for PostgreSQL)
+- `engine/evm_decoder.py` — EVM swap/DeFi decoder
+- `engine/spam_detector.py` — Multi-signal spam detector
+- `engine/rule_seeder.py` — Classification rule seeder
+- `indexers/classifier_handler.py` — Job handler for classify_transactions
 
 ---
 
@@ -296,4 +310,4 @@ Phase 2 ──┘                                              │
 - Phase 7 requires Phase 6 (needs complete data pipeline), but UI scaffolding can start in parallel
 
 ---
-*Last updated: 2026-03-12 — Phase 2 gap closure: 1 plan to fix updated_at columns, dedup epoch type mismatch, upload ON CONFLICT.*
+*Last updated: 2026-03-12 — Phase 3 planned: 5 plans in 4 waves for transaction classification engine.*
