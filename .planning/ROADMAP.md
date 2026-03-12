@@ -24,7 +24,7 @@
 
 Plans:
 - [x] 01-01-PLAN.md — Fresh PostgreSQL schema + Alembic migrations + config cleanup (Wave 1) [DATA-06] ✓ DONE
-- [ ] 01-02-PLAN.md — Standalone indexer service + NEAR transaction fetcher (Wave 2) [DATA-01, DATA-06]
+- [x] 01-02-PLAN.md — Standalone indexer service + NEAR transaction fetcher (Wave 2) [DATA-01, DATA-06] ✓ DONE
 - [ ] 01-03-PLAN.md — Multi-source price service + epoch staking rewards + lockup parser (Wave 2) [DATA-02, DATA-03]
 - [ ] 01-04-PLAN.md — Integration wiring: register all handlers + web API job queue (Wave 3) [DATA-01, DATA-02, DATA-03, DATA-06]
 
@@ -239,4 +239,4 @@ Phase 2 ──┘                                              │
 - Phase 7 requires Phase 6 (needs complete data pipeline), but UI scaffolding can start in parallel
 
 ---
-*Last updated: 2026-03-12 — 01-01 complete (schema + Alembic + config cleanup)*
+*Last updated: 2026-03-12 — 01-02 complete (IndexerService + NearFetcher + 20 unit tests)*

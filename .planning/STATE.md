@@ -17,8 +17,8 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 **Phase 1: NEAR Indexer** 🔨 IN PROGRESS
 - Plan 01-01: PostgreSQL schema + Alembic + config cleanup ✅ DONE (2026-03-12)
-- Plan 01-02: Standalone indexer service + NEAR transaction fetcher (next)
-- Plan 01-03: Multi-source price service + epoch staking rewards + lockup parser
+- Plan 01-02: Standalone indexer service + NEAR transaction fetcher ✅ DONE (2026-03-12)
+- Plan 01-03: Multi-source price service + epoch staking rewards + lockup parser (next)
 - Plan 01-04: Integration wiring + web API job queue
 
 **Phase 7: Web UI** 📋 PLANNED
@@ -35,7 +35,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 | Phase | Status | Completion |
 |-------|--------|------------|
-| 1. NEAR Indexer | **In Progress** | 25% (1/4 plans) |
+| 1. NEAR Indexer | **In Progress** | 50% (2/4 plans) |
 | 2. Multi-Chain + Exchanges | In Progress | 40% |
 | 3. Transaction Classification | Not Started | 0% |
 | 4. Cost Basis Engine | Not Started | 0% |
@@ -49,6 +49,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **01-02 complete** - Standalone IndexerService + NearFetcher (cursor resume, 20 unit tests, Dockerfile updated to service mode)
 - 2026-03-12: **01-01 complete** - PostgreSQL schema (8 tables), Alembic framework, indexers/db.py, config.py cleaned (no SQLite)
 - 2026-03-11: **Phase 1 context gathered** - Major scope expansion: multi-user, multi-chain-ready architecture, standalone indexer service, PostgreSQL-only, epoch-level staking, multi-source price service
 - 2026-02-24: **Phase 7 (Web UI) added** - NEAR wallet auth + portfolio UI
@@ -80,6 +81,10 @@ None currently.
 | 2026-03-12 | NUMERIC(40,0) for yoctoNEAR | Prevents floating point precision loss |
 | 2026-03-12 | No DATABASE_URL fallback | Explicit failure prevents silent misconfiguration |
 | 2026-03-12 | Alembic for schema | Versioned migrations via op.create_table(), not raw SQL files |
+| 2026-03-12 | parse_transaction() module-level | Allows direct import in tests without instantiating DB pool |
+| 2026-03-12 | Action priority for multi-action txs | TRANSFER > FUNCTION_CALL > STAKE > CREATE > DELETE > DEPLOY > KEY ops |
+| 2026-03-12 | Dockerfile build context = project root | Required to COPY config.py and db/ alongside indexers/ |
+| 2026-03-12 | check_incremental_syncs() on empty poll | Simpler than a timer thread; latency = JOB_POLL_INTERVAL when queue empties |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 01-near-indexer 01-01-PLAN.md*
+*Last updated: 2026-03-12 — Stopped at: Completed 01-near-indexer 01-02-PLAN.md*
