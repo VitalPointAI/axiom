@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-12T18:46:21.806Z"
+last_updated: "2026-03-12T18:47:29.858Z"
 progress:
   total_phases: 8
   completed_phases: 2
   total_plans: 19
-  completed_plans: 10
+  completed_plans: 11
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 **Phase 2: Multi-Chain + Exchanges** 🔨 IN PROGRESS
 - Plan 02-01: Alembic migration 002 + ChainFetcher/ExchangeParser/ExchangeConnector ABCs ✅ DONE (2026-03-12)
 - Plan 02-02: EVMFetcher (Etherscan V2 pagination + PostgreSQL upsert, 4 chains) ✅ DONE (2026-03-12)
+- Plan 02-03: Exchange CSV parsers migrated to PostgreSQL (all 5 parsers + 21 unit tests) ✅ DONE (2026-03-12)
 - EVM schema created (`db/schema_evm.sql`)
 - Exchange parser framework built (`indexers/exchange_parsers/`)
-- Coinbase parser COMPLETE ✅
-- Remaining parsers: Crypto.com, Wealthsimple, Uphold, Coinsquare
+- All 5 exchange parsers (Coinbase, Crypto.com, Wealthsimple, Uphold, Coinsquare) COMPLETE ✅
 
 **Phase 1: NEAR Indexer** COMPLETE
 - Plan 01-01: PostgreSQL schema + Alembic + config cleanup ✅ DONE (2026-03-12)
@@ -57,7 +57,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | Phase | Status | Completion |
 |-------|--------|------------|
 | 1. NEAR Indexer | **Complete** | 100% (6/6 plans) |
-| 2. Multi-Chain + Exchanges | In Progress | 33% (2/6 plans) |
+| 2. Multi-Chain + Exchanges | In Progress | 50% (3/6 plans) |
 | 3. Transaction Classification | Not Started | 0% |
 | 4. Cost Basis Engine | Not Started | 0% |
 | 5. Verification | Not Started | 0% |
@@ -75,6 +75,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **02-03 complete** - All 5 exchange CSV parsers (Coinbase, Crypto.com, Wealthsimple, Uphold, Coinsquare) migrated to PostgreSQL; import_to_db uses pool/user_id/ON CONFLICT; 21 unit tests passing
 - 2026-03-12: **02-02 complete** - EVMFetcher: Etherscan V2 pagination (10k/page), 4 chains (ETH/Polygon/Cronos/Optimism), PostgreSQL execute_values upsert, 23 unit tests
 - 2026-03-12: **02-01 complete** - Migration 002 (exchange_transactions, exchange_connections, supported_exchanges seeded, file_imports) + ChainFetcher/ExchangeParser/ExchangeConnector ABCs
 - 2026-03-12: **08-02 complete** - GitHub Actions deploy workflow (auto-deploy on push to main, manual rollback, .gitignore hardened)
@@ -141,6 +142,9 @@ None currently.
 | 2026-03-12 | CHAIN_NAME_MAP for bidirectional resolution | Bidirectional mapping between CHAIN_CONFIG keys (ETH/Polygon) and DB values (ethereum/polygon) |
 | 2026-03-12 | ERC20/NFT tx_hash = hash-logIndex | Multiple token transfers share parent tx_hash; logIndex suffix prevents unique constraint violations |
 | 2026-03-12 | fee=None for internal/ERC20/NFT | Gas already counted in the parent normal tx; avoids double-counting fees |
+| 2026-03-12 | import_to_db pool.putconn() in finally block | Prevents connection leaks when DB insert raises exception |
+| 2026-03-12 | tx_id generated from tx_date+asset+qty+type when absent | Coinbase/Wealthsimple CSVs have no exchange tx_id; deterministic ID enables ON CONFLICT dedup |
+| 2026-03-12 | raw_data as dict in parse_row, JSON string only at INSERT | Keeps parse_row output JSONB-ready; serialization happens once at persistence boundary |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 02-multichain-exchanges 02-02-PLAN.md*
+*Last updated: 2026-03-12 — Stopped at: Completed 02-multichain-exchanges 02-03-PLAN.md*
