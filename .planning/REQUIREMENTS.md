@@ -86,7 +86,7 @@
 | DATA-05 | Phase 2 | Not Started |
 | DATA-06 | Phase 1 | Not Started |
 | CLASS-01 | Phase 3 | Not Started |
-| CLASS-02 | Phase 3 | Not Started |
+| CLASS-02 | Phase 3 | Complete |
 | CLASS-03 | Phase 3 | Not Started |
 | CLASS-04 | Phase 3 | Not Started |
 | CLASS-05 | Phase 3 | Not Started |
