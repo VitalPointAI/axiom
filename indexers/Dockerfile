@@ -1,30 +1,36 @@
 FROM python:3.11-slim
 
+# Build context is project root (set in docker-compose.yml: context: .)
+# WORKDIR is project root so imports work:
+#   from config import ...
+#   from db.models import ...
+#   from indexers.db import ...
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies (keep cron available as secondary process)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cron \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+# Install project root requirements first, then indexer-specific requirements
+COPY requirements.txt ./requirements-root.txt
+COPY indexers/requirements.txt ./requirements-indexer.txt
+RUN pip install --no-cache-dir -r requirements-root.txt -r requirements-indexer.txt
 
-# Copy indexer scripts
-COPY *.py ./
-COPY crontab /etc/cron.d/indexers
+# Copy project files maintaining import paths
+COPY config.py ./config.py
+COPY db/ ./db/
+COPY indexers/ ./indexers/
 
-# Set up cron
-RUN chmod 0644 /etc/cron.d/indexers && \
-    crontab /etc/cron.d/indexers && \
+# Ensure db package is importable
+RUN touch ./db/__init__.py 2>/dev/null || true
+
+# Legacy cron schedule (kept for reference — main process is indexers.service)
+RUN chmod 0644 ./indexers/crontab && \
+    crontab ./indexers/crontab && \
     touch /var/log/cron.log
 
-# Create entrypoint script
-RUN echo '#!/bin/bash\n\
-printenv | grep -E "DATABASE_URL|API_KEY" >> /etc/environment\n\
-cron && tail -f /var/log/cron.log' > /entrypoint.sh && \
-    chmod +x /entrypoint.sh
-
-CMD ["/entrypoint.sh"]
+# Run the standalone indexer service as the main process
+CMD ["python", "-m", "indexers.service"]

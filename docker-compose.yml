@@ -22,19 +22,23 @@ services:
 
   indexer:
     build:
-      context: ./indexers
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: indexers/Dockerfile
     environment:
       - DATABASE_URL=postgres://neartax:${POSTGRES_PASSWORD}@postgres:5432/neartax
       - NEARBLOCKS_API_KEY=${NEARBLOCKS_API_KEY}
       - ALCHEMY_API_KEY=${ALCHEMY_API_KEY}
       - ETHERSCAN_API_KEY=${ETHERSCAN_API_KEY}
       - COINGECKO_API_KEY=${COINGECKO_API_KEY}
+      - CRYPTOCOMPARE_API_KEY=${CRYPTOCOMPARE_API_KEY}
+      - FASTNEAR_API_KEY=${FASTNEAR_API_KEY}
+      - JOB_POLL_INTERVAL=${JOB_POLL_INTERVAL:-5}
+      - SYNC_INTERVAL_MINUTES=${SYNC_INTERVAL_MINUTES:-15}
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    # Runs cron internally for scheduled indexing
+    # Standalone indexer service (replaces cron-based entrypoint)
 
   postgres:
     image: postgres:16-alpine
