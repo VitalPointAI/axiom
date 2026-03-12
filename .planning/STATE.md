@@ -8,7 +8,7 @@ progress:
   total_phases: 8
   completed_phases: 4
   total_plans: 25
-  completed_plans: 22
+  completed_plans: 23
 ---
 
 # Project State
@@ -63,7 +63,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | 1. NEAR Indexer | **Complete** | 100% (6/6 plans) |
 | 2. Multi-Chain + Exchanges | **Complete** | 100% (6/6 plans) |
 | 3. Transaction Classification | **Complete** | 100% (5/5 plans) |
-| 4. Cost Basis Engine | In Progress | 67% (2/3 plans) |
+| 4. Cost Basis Engine | **Complete** | 100% (3/3 plans) |
 | 5. Verification | Not Started | 0% |
 | 6. Reporting | Not Started | 0% |
 | 7. Web UI | **PLANNED** | 0% |
@@ -79,6 +79,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **04-03 complete** - SuperficialLossDetector (61-day window, cross-source, pro-rated denial, needs_review), ACBHandler job type, calculate_acb registered in IndexerService, ClassifierHandler auto-queues ACB job after classification; 182 tests pass. Phase 4 COMPLETE.
 - 2026-03-12: **04-02 complete** - Rewrote engine/acb.py (ACBPool Decimal-precise, ACBEngine replay + acb_snapshots upsert, resolve_token_symbol, normalize_timestamp), created engine/gains.py (GainsCalculator: record_disposal + record_income), 13 unit tests; 179 tests pass.
 - 2026-03-12: **04-01 complete** - Migration 004 (acb_snapshots, capital_gains_ledger, income_ledger, price_cache_minute), 4 SQLAlchemy models, PriceService extended with get_price_at_timestamp() (CoinGecko market_chart/range, minute cache), get_boc_cad_rate() (BoC Valet API, 5-day weekend fallback), get_price_cad_at_timestamp(); test scaffolds for ACBPool, ACBEngine, SuperficialLoss; 176 tests pass.
 - 2026-03-12: **03-05 complete** - ClassifierHandler job type + AI fallback via Claude API (confidence < 0.70 threshold), rule auto-seeding, full pipeline wired into IndexerService; 151 tests pass. Phase 3 COMPLETE.
@@ -201,6 +202,12 @@ None currently.
 | 2026-03-12 | Lazy import of GainsCalculator in ACBEngine | Avoids circular import (gains.py imports normalize_timestamp from acb.py); enables patch('engine.acb.GainsCalculator') in tests |
 | 2026-03-12 | is_superficial_loss excluded from GainsCalculator INSERT params | Column defaults False; SuperficialLossDetector (Plan 04-03) updates rows after initial population |
 | 2026-03-12 | Oversell clamp not exception in ACBPool.dispose() | Produces valid snapshot with needs_review=True; partial data reviewable without blocking full replay |
+| 2026-03-12 | SuperficialLossDetector takes conn not pool | ACBEngine owns transaction boundary; detector is stateless helper — same pattern as GainsCalculator |
+| 2026-03-12 | scan_for_user() and apply_superficial_losses() as separate methods | Allows dry-run inspection before persistence; specialist can review scan output before applying |
+| 2026-03-12 | needs_review=True on all superficial losses | CRA ITA s.54 cases require specialist confirmation before finalizing tax submission |
+| 2026-03-12 | denied_loss quantized to 2 decimal places | Monetary precision for tax reporting (CAD cents) |
+| 2026-03-12 | Dedup check before calculate_acb INSERT | Prevents duplicate ACB recalculations when classify_transactions jobs run for multiple user wallets simultaneously |
+| 2026-03-12 | stats['superficial_losses'] added to ACBEngine return | ACBHandler log includes count for observability; consistent with other stats keys |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 04-cost-basis-engine 04-02-PLAN.md*
+*Last updated: 2026-03-12 — Stopped at: Completed 04-cost-basis-engine 04-03-PLAN.md*
