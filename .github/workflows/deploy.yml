@@ -36,7 +36,7 @@ jobs:
             ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
             "cat > ${{ secrets.DEPLOY_PATH }}/.env << 'ENVEOF'
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-          DATABASE_URL=postgres://neartax:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/neartax
+          DATABASE_URL=postgresql://neartax:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/neartax
           NEARBLOCKS_API_KEY=${{ secrets.NEARBLOCKS_API_KEY }}
           ALCHEMY_API_KEY=${{ secrets.ALCHEMY_API_KEY }}
           ETHERSCAN_API_KEY=${{ secrets.ETHERSCAN_API_KEY }}
@@ -46,6 +46,27 @@ jobs:
           JOB_POLL_INTERVAL=5
           SYNC_INTERVAL_MINUTES=15
           NODE_ENV=production
+          NEXT_PUBLIC_APP_URL=https://axiom.vitalpoint.ai
+          NEXT_PUBLIC_ORIGIN=https://axiom.vitalpoint.ai
+          NEXT_PUBLIC_RP_ID=axiom.vitalpoint.ai
+          RP_NAME=Axiom
+          GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SES_REGION=ca-central-1
+          AWS_SES_FROM_EMAIL=neartax@vitalpoint.ai
+          NEAR_AI_API_KEY=${{ secrets.NEAR_AI_API_KEY }}
+          ENVEOF"
+
+      - name: Create web .env.local on server
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+            "cat > ${{ secrets.DEPLOY_PATH }}/web/.env.local << 'ENVEOF'
+          NEXT_PUBLIC_APP_URL=https://axiom.vitalpoint.ai
+          NEXT_PUBLIC_ORIGIN=https://axiom.vitalpoint.ai
+          NEXT_PUBLIC_RP_ID=axiom.vitalpoint.ai
           ENVEOF"
 
       - name: Deploy
