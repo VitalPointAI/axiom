@@ -48,9 +48,12 @@ $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod
 echo "==> Running database migrations"
 $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up migrate --exit-code-from migrate"
 
-# Step 4: Restart services
-echo "==> Restarting services"
-$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d --force-recreate --no-deps web indexer"
+# Step 4: Stop old containers, then start fresh
+echo "==> Stopping web and indexer"
+$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml stop web indexer && docker compose -f docker-compose.prod.yml rm -f web indexer"
+
+echo "==> Starting web and indexer"
+$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d web indexer"
 
 echo "==> Waiting for web health check (30s)"
 sleep 30
