@@ -20,6 +20,7 @@ All amount comparisons use Decimal.
 
 import json
 import logging
+import re
 from decimal import Decimal
 
 from tax.categories import TaxCategory, CategoryResult
@@ -28,6 +29,30 @@ from engine.spam_detector import SpamDetector
 from engine.evm_decoder import EVMDecoder
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# AI fallback constants (importable by callers)
+# ---------------------------------------------------------------------------
+
+AI_CONFIDENCE_THRESHOLD = 0.70  # Below this, AI fallback is invoked
+
+CLASSIFICATION_SYSTEM_PROMPT = """You are a Canadian crypto tax classification expert.
+Given a transaction's details, classify it for Canadian tax purposes.
+
+Respond with ONLY a JSON object:
+{
+  "category": "one of: reward|airdrop|interest|income|buy|sell|trade|transfer_in|transfer_out|deposit|withdrawal|stake|unstake|liquidity_in|liquidity_out|loan_borrow|loan_repay|collateral_in|collateral_out|fee|spam|nft_mint|nft_purchase|nft_sale|internal|unknown",
+  "confidence": 0.0-1.0,
+  "reasoning": "brief explanation for CRA audit trail",
+  "needs_review": true/false
+}
+
+Canadian tax context:
+- Crypto-to-crypto trades are taxable dispositions
+- Staking rewards are income at FMV when received
+- Internal transfers between own wallets are non-taxable
+- Set confidence < 0.70 for genuinely ambiguous transactions
+- Always set needs_review: true if uncertain"""
 
 
 class TransactionClassifier:
@@ -287,8 +312,16 @@ class TransactionClassifier:
         # Step 3: Rule matching
         category_result = self._match_rules(tx, rules, chain="near")
 
+        if category_result is None or category_result["confidence"] < AI_CONFIDENCE_THRESHOLD:
+            # AI fallback for unmatched or low-confidence transactions
+            ai_context = self._build_ai_context(tx, chain="near")
+            ai_result = self._classify_with_ai(ai_context)
+            # Use AI result if no rule matched, or if AI is more confident
+            if category_result is None or ai_result["confidence"] > category_result["confidence"]:
+                category_result = ai_result
+
         if category_result is None:
-            # Fallback: unknown
+            # Safety net: should never reach here after AI fallback
             category_result = {
                 "category": TaxCategory.UNKNOWN.value,
                 "confidence": 0.30,
@@ -300,6 +333,7 @@ class TransactionClassifier:
         # Ensure needs_review if confidence below threshold
         confidence = category_result["confidence"]
         needs_review = confidence < self.REVIEW_THRESHOLD or category_result.get("needs_review", False)
+        source = category_result.get("classification_source", "rule")
 
         record = self._make_record(
             transaction_id=tx_id,
@@ -307,7 +341,7 @@ class TransactionClassifier:
             confidence=confidence,
             notes=category_result.get("notes", ""),
             needs_review=needs_review,
-            classification_source="rule",
+            classification_source=source,
             rule_id=category_result.get("rule_id"),
         )
 
@@ -347,6 +381,13 @@ class TransactionClassifier:
         tx_id = tx.get("id")
         category_result = self._match_rules(tx, rules, chain="exchange")
 
+        if category_result is None or category_result["confidence"] < AI_CONFIDENCE_THRESHOLD:
+            # AI fallback for unmatched or low-confidence exchange transactions
+            ai_context = self._build_ai_context(tx, chain="exchange")
+            ai_result = self._classify_with_ai(ai_context)
+            if category_result is None or ai_result["confidence"] > category_result["confidence"]:
+                category_result = ai_result
+
         if category_result is None:
             category_result = {
                 "category": TaxCategory.UNKNOWN.value,
@@ -358,6 +399,7 @@ class TransactionClassifier:
 
         confidence = category_result["confidence"]
         needs_review = confidence < self.REVIEW_THRESHOLD or category_result.get("needs_review", False)
+        source = category_result.get("classification_source", "rule")
 
         return [self._make_record(
             transaction_id=tx_id,
@@ -365,7 +407,7 @@ class TransactionClassifier:
             confidence=confidence,
             notes=category_result.get("notes", ""),
             needs_review=needs_review,
-            classification_source="rule",
+            classification_source=source,
             rule_id=category_result.get("rule_id"),
         )]
 
@@ -438,6 +480,13 @@ class TransactionClassifier:
             # Rule matching using EVM chain
             category_result = self._match_rules(tx, rules, chain="evm")
 
+            if category_result is None or category_result["confidence"] < AI_CONFIDENCE_THRESHOLD:
+                # AI fallback for unmatched or low-confidence EVM transactions
+                ai_context = self._build_ai_context(tx, chain="evm")
+                ai_result = self._classify_with_ai(ai_context)
+                if category_result is None or ai_result["confidence"] > category_result["confidence"]:
+                    category_result = ai_result
+
             if category_result is None:
                 category_result = {
                     "category": TaxCategory.UNKNOWN.value,
@@ -449,6 +498,7 @@ class TransactionClassifier:
 
             confidence = category_result["confidence"]
             needs_review = confidence < self.REVIEW_THRESHOLD or category_result.get("needs_review", False)
+            source = category_result.get("classification_source", "rule")
 
             results.append(self._make_record(
                 transaction_id=tx.get("id"),
@@ -456,7 +506,7 @@ class TransactionClassifier:
                 confidence=confidence,
                 notes=category_result.get("notes", ""),
                 needs_review=needs_review,
-                classification_source="rule",
+                classification_source=source,
                 rule_id=category_result.get("rule_id"),
             ))
 
@@ -917,6 +967,132 @@ class TransactionClassifier:
                 record.get("notes", ""),
             ),
         )
+
+    # ------------------------------------------------------------------
+    # AI fallback (lazy Anthropic client — same pattern as AIFileAgent)
+    # ------------------------------------------------------------------
+
+    @property
+    def ai_client(self):
+        """Lazy Anthropic client. Returns None if SDK not installed."""
+        if not hasattr(self, '_ai_client') or self._ai_client is None:
+            try:
+                from anthropic import Anthropic
+                self._ai_client = Anthropic()
+            except ImportError:
+                logger.warning("anthropic SDK not installed; AI fallback disabled")
+                self._ai_client = None
+        return self._ai_client
+
+    def _classify_with_ai(self, tx_context: dict) -> dict:
+        """Classify an ambiguous transaction using Claude API.
+
+        Args:
+            tx_context: dict with tx details (chain, action_type, method_name,
+                       counterparty, direction, amount, token_id, raw_data summary)
+
+        Returns:
+            Classification result dict with category, confidence, notes, needs_review.
+        """
+        if self.ai_client is None:
+            return {
+                "category": TaxCategory.UNKNOWN.value,
+                "confidence": 0.30,
+                "notes": "AI fallback unavailable (anthropic SDK not installed)",
+                "needs_review": True,
+                "rule_id": None,
+                "classification_source": "ai",
+            }
+
+        try:
+            response = self.ai_client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=512,
+                system=CLASSIFICATION_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": json.dumps(tx_context, default=str)}],
+            )
+
+            result = self._parse_json_response(response.content[0].text)
+
+            category_str = result.get("category", "unknown").lower()
+            confidence = float(result.get("confidence", 0.30))
+            reasoning = result.get("reasoning", "")
+            needs_review = result.get("needs_review", True)
+
+            # Validate category against known values
+            try:
+                TaxCategory(category_str)
+            except ValueError:
+                logger.warning("AI returned unknown category '%s'; falling back to unknown", category_str)
+                category_str = TaxCategory.UNKNOWN.value
+                confidence = min(confidence, 0.50)
+                needs_review = True
+
+            # Always flag low-confidence AI results for review
+            if confidence < AI_CONFIDENCE_THRESHOLD:
+                needs_review = True
+
+            return {
+                "category": category_str,
+                "confidence": confidence,
+                "notes": f"AI: {reasoning}" if reasoning else "AI classification",
+                "needs_review": needs_review,
+                "rule_id": None,
+                "classification_source": "ai",
+            }
+
+        except Exception as exc:
+            logger.warning("AI classification failed: %s", exc)
+            return {
+                "category": TaxCategory.UNKNOWN.value,
+                "confidence": 0.30,
+                "notes": f"AI classification error: {exc}",
+                "needs_review": True,
+                "rule_id": None,
+                "classification_source": "ai",
+            }
+
+    def _parse_json_response(self, text: str) -> dict:
+        """Parse AI JSON response with regex fallback for markdown code blocks.
+
+        Reuses exact pattern from indexers/ai_file_agent.py.
+        """
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            match = re.search(r'```(?:json)?\s*(.*?)\s*```', text, re.DOTALL)
+            if match:
+                return json.loads(match.group(1))
+            raise
+
+    def _build_ai_context(self, tx: dict, chain: str) -> dict:
+        """Build context dict for AI classification.
+
+        Includes relevant tx fields but excludes raw_data bulk to keep
+        token count low.
+        """
+        raw_data = tx.get("raw_data") or {}
+        # Include only key raw_data fields, not entire blob
+        raw_summary = {}
+        if isinstance(raw_data, dict):
+            for key in ("input", "logs", "events", "token_id", "memo"):
+                if key in raw_data:
+                    val = raw_data[key]
+                    # Truncate long strings
+                    if isinstance(val, str) and len(val) > 200:
+                        val = val[:200] + "..."
+                    raw_summary[key] = val
+
+        return {
+            "chain": chain,
+            "action_type": tx.get("action_type", ""),
+            "method_name": tx.get("method_name", ""),
+            "counterparty": tx.get("counterparty", ""),
+            "direction": tx.get("direction", ""),
+            "amount": str(tx.get("amount") or 0),
+            "tx_type": tx.get("tx_type", ""),
+            "raw_data_summary": raw_summary,
+        }
 
     # ------------------------------------------------------------------
     # FMV helper
