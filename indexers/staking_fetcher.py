@@ -24,6 +24,7 @@ NEAR epoch timing:
 
 import json
 import base64
+import logging
 import time
 import requests
 from datetime import datetime, timezone, timedelta
@@ -36,6 +37,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import FASTNEAR_RPC, FASTNEAR_ARCHIVAL_RPC
 from indexers.price_service import PriceService
+
+logger = logging.getLogger(__name__)
 
 # Precision for yoctoNEAR arithmetic
 getcontext().prec = 50
@@ -90,21 +93,21 @@ class StakingFetcher:
         user_id = job_row["user_id"]
         account_id = job_row["account_id"]
 
-        print(f"[StakingFetcher] Syncing staking for {account_id} (wallet_id={wallet_id})")
+        logger.info("Syncing staking for %s (wallet_id=%d)", account_id, wallet_id)
 
         validators = self._discover_validators(account_id)
         if not validators:
-            print(f"  No validators found for {account_id}")
+            logger.info("No validators found for %s", account_id)
             return 0
 
-        print(f"  Found {len(validators)} validator(s): {validators}")
+        logger.info("Found %d validator(s): %s", len(validators), validators)
 
         total_rewards = 0
         for validator_id in validators:
             count = self.backfill_epoch_rewards(wallet_id, user_id, account_id, validator_id)
             total_rewards += count
 
-        print(f"  Total reward events inserted: {total_rewards}")
+        logger.info("Total reward events inserted: %d", total_rewards)
         return total_rewards
 
     def backfill_epoch_rewards(
@@ -126,12 +129,12 @@ class StakingFetcher:
         Returns:
             Number of reward events inserted
         """
-        print(f"\n  [backfill] {account_id} @ {validator_id}")
+        logger.info("[backfill] %s @ %s", account_id, validator_id)
 
         # Get current epoch info
         current_epoch_info = self._get_current_epoch()
         if not current_epoch_info:
-            print(f"  Could not get current epoch info")
+            logger.warning("Could not get current epoch info for %s @ %s", account_id, validator_id)
             return 0
 
         current_epoch = current_epoch_info["epoch_height"]
@@ -140,11 +143,11 @@ class StakingFetcher:
         # Find first stake event timestamp
         first_stake_ts = self._get_first_stake_timestamp(wallet_id, validator_id)
         if first_stake_ts is None:
-            print(f"  No stake events found in DB for {account_id} @ {validator_id}")
+            logger.info("No stake events found in DB for %s @ %s", account_id, validator_id)
             return 0
 
         first_stake_dt = datetime.fromtimestamp(first_stake_ts / 1e9, tz=timezone.utc)
-        print(f"  First stake: {first_stake_dt.strftime('%Y-%m-%d %H:%M')} UTC")
+        logger.info("First stake: %s UTC", first_stake_dt.strftime('%Y-%m-%d %H:%M'))
 
         # Find last snapshotted epoch
         last_snapshot_epoch = self._get_last_snapshot_epoch(wallet_id, validator_id)
@@ -159,11 +162,11 @@ class StakingFetcher:
         start_epoch = (last_snapshot_epoch + 1) if last_snapshot_epoch else first_epoch
 
         if start_epoch >= current_epoch:
-            print(f"  Already up to date (last snapshot epoch {last_snapshot_epoch})")
+            logger.info("Already up to date (last snapshot epoch %s)", last_snapshot_epoch)
             return 0
 
         num_epochs = current_epoch - start_epoch
-        print(f"  Backfilling {num_epochs} epochs from {start_epoch} to {current_epoch}")
+        logger.info("Backfilling %d epochs from %d to %d", num_epochs, start_epoch, current_epoch)
 
         rewards_inserted = 0
         prev_staked: Optional[Decimal] = None
@@ -181,7 +184,7 @@ class StakingFetcher:
                     account_id, validator_id, epoch_id, epoch_ts
                 )
             except Exception as e:
-                print(f"  Skipping epoch {epoch_id}: {e}")
+                logger.warning("Skipping epoch %d: %s", epoch_id, e)
                 # Store zero snapshot to mark as processed
                 self._store_epoch_snapshot(
                     wallet_id, user_id, validator_id, epoch_id,
@@ -224,13 +227,15 @@ class StakingFetcher:
                     rewards_inserted += 1
 
                     if rewards_inserted % 50 == 0:
-                        print(f"  Progress: {epoch_offset}/{num_epochs} epochs, "
-                              f"{rewards_inserted} rewards...")
+                        logger.info(
+                            "Progress: %d/%d epochs, %d rewards...",
+                            epoch_offset, num_epochs, rewards_inserted,
+                        )
 
             prev_staked = staked
             prev_epoch_ts = epoch_ts
 
-        print(f"  Inserted {rewards_inserted} reward events for {validator_id}")
+        logger.info("Inserted %d reward events for %s", rewards_inserted, validator_id)
         return rewards_inserted
 
     # ------------------------------------------------------------------
@@ -256,7 +261,7 @@ class StakingFetcher:
                 if vid:
                     validators.add(vid)
         except Exception as e:
-            print(f"  Warning: NearBlocks staking lookup failed: {e}")
+            logger.warning("NearBlocks staking lookup failed: %s", e)
 
         return list(validators)
 
@@ -280,7 +285,7 @@ class StakingFetcher:
                 "epoch_start_timestamp_ns": int(time.time() * 1e9),  # approximate
             }
         except Exception as e:
-            print(f"  Error getting current epoch: {e}")
+            logger.error("Error getting current epoch: %s", e)
             return None
 
     def _query_validator_balance(
@@ -378,7 +383,7 @@ class StakingFetcher:
                     return estimated_height
 
         except Exception as e:
-            print(f"  Warning: Could not estimate block height for epoch {epoch_id}: {e}")
+            logger.warning("Could not estimate block height for epoch %d: %s", epoch_id, e)
 
         self._epoch_block_cache[epoch_id] = None
         return None
@@ -540,15 +545,40 @@ class StakingFetcher:
     def _get_first_stake_timestamp(
         self, wallet_id: int, validator_id: str
     ) -> Optional[int]:
-        """Get the earliest staking event timestamp for wallet+validator."""
+        """Get the earliest staking event timestamp for wallet+validator.
+
+        First checks staking_events for deposit records. If none found,
+        falls back to the transactions table for STAKE actions or
+        function calls to the validator pool contract.
+        """
         conn = self.db_pool.getconn()
         try:
             cur = conn.cursor()
+            # Primary: check staking_events
             cur.execute(
                 """
                 SELECT MIN(block_timestamp)
                 FROM staking_events
                 WHERE wallet_id = %s AND validator_id = %s AND event_type = 'deposit'
+                """,
+                (wallet_id, validator_id),
+            )
+            row = cur.fetchone()
+            if row and row[0]:
+                cur.close()
+                return row[0]
+
+            # Fallback: check transactions for STAKE actions or calls to this validator
+            cur.execute(
+                """
+                SELECT MIN(block_timestamp)
+                FROM transactions
+                WHERE wallet_id = %s
+                  AND (
+                    (action_type = 'STAKE')
+                    OR (action_type = 'FUNCTION_CALL' AND counterparty = %s)
+                  )
+                  AND block_timestamp IS NOT NULL
                 """,
                 (wallet_id, validator_id),
             )

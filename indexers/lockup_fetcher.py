@@ -22,6 +22,7 @@ Lockup event types tracked:
 
 import json
 import base64
+import logging
 import time
 import requests
 from datetime import datetime, timezone
@@ -34,6 +35,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import FASTNEAR_RPC
 from indexers.price_service import PriceService
+
+logger = logging.getLogger(__name__)
 
 getcontext().prec = 50
 
@@ -111,22 +114,22 @@ class LockupFetcher:
         user_id = job_row["user_id"]
         account_id = job_row["account_id"]
 
-        print(f"[LockupFetcher] Syncing lockup for {account_id} (wallet_id={wallet_id})")
+        logger.info("Syncing lockup for %s (wallet_id=%d)", account_id, wallet_id)
 
         # Determine lockup account(s) to process
         lockup_accounts = self._find_lockup_accounts(account_id)
         if not lockup_accounts:
-            print(f"  No lockup accounts found for {account_id}")
+            logger.info("No lockup accounts found for %s", account_id)
             return 0
 
-        print(f"  Found lockup accounts: {lockup_accounts}")
+        logger.info("Found lockup accounts: %s", lockup_accounts)
 
         total_inserted = 0
         for lockup_account_id in lockup_accounts:
             count = self.fetch_lockup_events(wallet_id, user_id, lockup_account_id)
             total_inserted += count
 
-        print(f"  Total lockup events inserted: {total_inserted}")
+        logger.info("Total lockup events inserted: %d", total_inserted)
         return total_inserted
 
     def fetch_lockup_events(
@@ -144,13 +147,13 @@ class LockupFetcher:
         Returns:
             Number of events inserted
         """
-        print(f"\n  [fetch_lockup_events] {lockup_account_id}")
+        logger.info("[fetch_lockup_events] %s", lockup_account_id)
 
         try:
             from indexers.nearblocks_client import NearBlocksClient
             client = NearBlocksClient()
         except ImportError:
-            print(f"  Warning: NearBlocksClient not available")
+            logger.warning("NearBlocksClient not available")
             return 0
 
         events_inserted = 0
@@ -163,7 +166,7 @@ class LockupFetcher:
             try:
                 data = client.fetch_transactions(lockup_account_id, cursor=cursor, per_page=25)
             except Exception as e:
-                print(f"  Error fetching transactions (page {page}): {e}")
+                logger.error("Error fetching transactions (page %d): %s", page, e)
                 break
 
             txns = data.get("txns", [])
@@ -186,7 +189,7 @@ class LockupFetcher:
             if not cursor:
                 break  # Last page
 
-        print(f"  Inserted {events_inserted} lockup events for {lockup_account_id}")
+        logger.info("Inserted %d lockup events for %s", events_inserted, lockup_account_id)
         return events_inserted
 
     def query_lockup_state(self, lockup_account_id: str) -> dict:
@@ -265,7 +268,7 @@ class LockupFetcher:
                                     if v not in lockup_accounts:
                                         lockup_accounts.append(v)
         except Exception as e:
-            print(f"  Warning: Could not scan transactions for lockup accounts: {e}")
+            logger.warning("Could not scan transactions for lockup accounts: %s", e)
 
         return lockup_accounts
 
@@ -461,7 +464,7 @@ class LockupFetcher:
             return True
 
         except Exception as e:
-            print(f"  Error inserting lockup event: {e}")
+            logger.error("Error inserting lockup event: %s", e)
             conn.rollback()
             return False
         finally:
