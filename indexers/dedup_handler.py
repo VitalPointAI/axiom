@@ -154,6 +154,11 @@ class DedupHandler:
                 window_start = tx_date - timedelta(minutes=TIMESTAMP_WINDOW_MINUTES)
                 window_end = tx_date + timedelta(minutes=TIMESTAMP_WINDOW_MINUTES)
 
+                # Convert datetime window to Unix epoch integers to match
+                # block_timestamp column type (BIGINT, Unix epoch seconds in migration 001)
+                window_start_epoch = int(window_start.timestamp())
+                window_end_epoch = int(window_end.timestamp())
+
                 cur.execute(
                     """
                     SELECT tx_hash, chain, action_type, token_id, amount, block_timestamp
@@ -165,7 +170,7 @@ class DedupHandler:
                       AND action_type = %s
                       AND block_timestamp BETWEEN %s AND %s
                     """,
-                    (user_id, asset, on_chain_direction, window_start, window_end),
+                    (user_id, asset, on_chain_direction, window_start_epoch, window_end_epoch),
                 )
                 candidates = cur.fetchall()
 
