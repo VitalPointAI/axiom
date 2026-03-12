@@ -124,6 +124,17 @@ None - no external service configuration required.
 - Phase 6 (Reporting) can read superficial loss flags (is_superficial_loss, denied_loss_cad) for CRA Schedule 3 output
 - All 182 tests pass (1 skipped)
 
+## Self-Check: PASSED
+
+- engine/superficial.py: FOUND
+- indexers/acb_handler.py: FOUND
+- tests/test_superficial.py: FOUND
+- 04-03-SUMMARY.md: FOUND
+- Commit 59ecf9e (test): FOUND
+- Commit d73143c (feat superficial): FOUND
+- Commit 4d08a2d (feat acb_handler): FOUND
+- All 182 tests pass (1 skipped)
+
 ---
 *Phase: 04-cost-basis-engine*
 *Completed: 2026-03-12*
