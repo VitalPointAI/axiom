@@ -15,8 +15,8 @@ NORMAL_TX = {
     "nonce": "42",
     "blockHash": "0x111aaa",
     "transactionIndex": "3",
-    "from": "0xWALLET000000000000000000000000000000000",
-    "to": "0xCOUNTERPARTY0000000000000000000000000000",
+    "from": "0xCOUNTERPARTY0000000000000000000000000000",
+    "to": "0xWALLET000000000000000000000000000000000",
     "value": "1000000000000000000",  # 1 ETH in wei
     "gas": "21000",
     "gasPrice": "20000000000",  # 20 Gwei
