@@ -362,9 +362,11 @@ class TestNearFetcherSyncWallet:
 
         fetcher.sync_wallet(job)
 
-        # First fetch should use the existing cursor
+        # First fetch should use the existing cursor (passed as keyword arg)
         first_call = mock_client.fetch_transactions.call_args_list[0]
-        assert first_call[0][1] == "EXISTING_CURSOR" or first_call[1].get("cursor") == "EXISTING_CURSOR"
+        positional_cursor = first_call[0][1] if len(first_call[0]) > 1 else None
+        keyword_cursor = first_call[1].get("cursor") if first_call[1] else None
+        assert positional_cursor == "EXISTING_CURSOR" or keyword_cursor == "EXISTING_CURSOR"
 
     @patch("indexers.near_fetcher.NearBlocksClient")
     def test_empty_wallet_no_transactions(self, MockClient):
