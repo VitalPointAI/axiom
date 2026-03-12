@@ -143,7 +143,14 @@ Plans:
 
 ## Phase 4: Cost Basis Engine
 
-**Goal:** Calculate Adjusted Cost Base (ACB) and track capital gains/losses.
+**Goal:** Calculate Adjusted Cost Base (ACB) per Canadian average cost method with Decimal precision, track capital gains/losses on disposals, capture FMV for income events, and detect superficial losses with pro-rated partial rebuy handling.
+
+**Plans:** 3 plans in 3 waves
+
+Plans:
+- [ ] 04-01-PLAN.md — Migration 004 + SQLAlchemy models + PriceService extension (BoC + minute-level) + test scaffolds (Wave 1) [ACB-03]
+- [ ] 04-02-PLAN.md — ACBEngine (Decimal pools, chronological replay, snapshot persistence) + GainsCalculator (capital gains + income ledgers) (Wave 2) [ACB-01, ACB-02, ACB-04]
+- [ ] 04-03-PLAN.md — SuperficialLossDetector (61-day window, pro-rated denial) + ACBHandler job wiring + ClassifierHandler trigger (Wave 3) [ACB-05, ACB-01, ACB-02, ACB-03, ACB-04]
 
 **Requirements:**
 - ACB-01: Calculate ACB using Canadian average cost
@@ -160,9 +167,13 @@ Plans:
 5. [ ] Superficial loss candidates flagged for review
 
 **Deliverables:**
-- `engine/acb.py` — ACB calculator
-- `engine/gains.py` — Capital gains calculator
-- `engine/superficial.py` — Superficial loss detector
+- `db/migrations/versions/004_cost_basis_schema.py` — Cost basis schema (4 tables)
+- `db/models.py` — Extended with ACBSnapshot, CapitalGainsLedger, IncomeLedger, PriceCacheMinute
+- `engine/acb.py` — ACBEngine (Decimal-precise, PostgreSQL-backed)
+- `engine/gains.py` — GainsCalculator (capital gains + income ledger)
+- `engine/superficial.py` — SuperficialLossDetector (61-day window scan)
+- `indexers/acb_handler.py` — Job handler for calculate_acb
+- `indexers/price_service.py` — Extended with minute-level prices + Bank of Canada CAD rates
 
 ---
 
@@ -310,4 +321,4 @@ Phase 2 ──┘                                              │
 - Phase 7 requires Phase 6 (needs complete data pipeline), but UI scaffolding can start in parallel
 
 ---
-*Last updated: 2026-03-12 — Phase 3 planned: 5 plans in 4 waves for transaction classification engine.*
+*Last updated: 2026-03-12 — Phase 4 planned: 3 plans in 3 waves for cost basis engine.*
