@@ -20,6 +20,8 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Plan 01-02: Standalone indexer service + NEAR transaction fetcher ✅ DONE (2026-03-12)
 - Plan 01-03: Multi-source price service + epoch staking rewards + lockup parser ✅ DONE (2026-03-12)
 - Plan 01-04: Integration wiring + web API job queue ✅ DONE (2026-03-12)
+- Plan 01-05: Gap closure: account_id dispatch + staking backfill timestamp ✅ DONE (2026-03-12)
+- Plan 01-06: Gap closure: wallet API handler schema fix ✅ DONE (2026-03-12)
 
 **Phase 7: Web UI** 📋 PLANNED
 - Requirements added (UI-01 through UI-08)
@@ -35,7 +37,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 | Phase | Status | Completion |
 |-------|--------|------------|
-| 1. NEAR Indexer | **Complete** | 100% (4/4 plans) |
+| 1. NEAR Indexer | **Complete** | 100% (6/6 plans) |
 | 2. Multi-Chain + Exchanges | In Progress | 40% |
 | 3. Transaction Classification | Not Started | 0% |
 | 4. Cost Basis Engine | Not Started | 0% |
@@ -49,6 +51,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **01-06 complete** - Wallet API schema fix: GET derives sync_status from indexing_jobs subqueries, POST inserts without sync_status column, removed indexing_progress references
 - 2026-03-12: **01-04 complete** - Integration wiring: StakingFetcher+LockupFetcher registered in IndexerService, wallet API uses job queue (3 jobs per wallet), sync status API reads from indexing_jobs
 - 2026-03-12: **01-03 complete** - PriceService (CoinGecko+CryptoCompare+outlier filtering, 17 tests), StakingFetcher (epoch reward calc), LockupFetcher (lockup event parser)
 - 2026-03-12: **01-02 complete** - Standalone IndexerService + NearFetcher (cursor resume, 20 unit tests, Dockerfile updated to service mode)
@@ -93,6 +96,7 @@ None currently.
 | 2026-03-12 | Dispatch by job_type not chain | Handlers map to operation not blockchain; correct abstraction |
 | 2026-03-12 | Staking sync at 4x tx interval | Staking rewards are epoch-level (~12h), hourly polling is sufficient |
 | 2026-03-12 | EVM spawn removed, job queue deferred | EVM job queue is Phase 2 scope; NEAR pipeline complete without it |
+| 2026-03-12 | Derive wallet sync_status from indexing_jobs via CASE subqueries | wallets table has no sync_status column; status derived live from job states |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 01-near-indexer 01-04-PLAN.md*
+*Last updated: 2026-03-12 — Stopped at: Completed 01-near-indexer 01-06-PLAN.md*
