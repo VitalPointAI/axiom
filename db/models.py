@@ -265,3 +265,193 @@ class LockupEvent(Base):
 
     user = relationship("User")
     wallet = relationship("Wallet", back_populates="lockup_events")
+
+
+class ClassificationRule(Base):
+    """Rule-based classifier definitions using JSONB pattern matching.
+
+    Rules are applied in priority order (higher = first). Each rule maps a
+    chain-specific JSONB pattern to a TaxCategory with a confidence score.
+    The uq_cr_name unique constraint enables idempotent ON CONFLICT (name) DO UPDATE
+    upserts by the rule seeder.
+    """
+
+    __tablename__ = "classification_rules"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_cr_name"),
+        Index("ix_cr_chain", "chain"),
+        Index("ix_cr_is_active", "is_active"),
+        Index("ix_cr_priority", "priority"),
+    )
+
+    id = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name = mapped_column(String(128), nullable=False)
+    chain = mapped_column(String(20), nullable=False)  # 'near', 'evm', 'exchange', 'all'
+    pattern = mapped_column(JSONB, nullable=False)  # e.g. {"method_name": "deposit_and_stake"}
+    category = mapped_column(String(50), nullable=False)  # TaxCategory enum value
+    confidence = mapped_column(Numeric(4, 3), nullable=False)  # 0.000 to 1.000
+    priority = mapped_column(Integer, nullable=False, default=0)  # higher = runs first
+    specialist_confirmed = mapped_column(Boolean, nullable=False, default=False)
+    confirmed_by = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    confirmed_at = mapped_column(DateTime(timezone=True), nullable=True)
+    sample_tx_count = mapped_column(Integer, nullable=True)
+    is_active = mapped_column(Boolean, nullable=False, default=True)
+    created_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    confirmed_by_user = relationship("User", foreign_keys=[confirmed_by])
+
+
+class TransactionClassification(Base):
+    """Per-transaction tax category assignments with multi-leg decomposition support.
+
+    Multi-leg structure: parent row has leg_type='parent', child rows reference parent
+    via parent_classification_id and have leg_type in ('sell_leg', 'buy_leg', 'fee_leg').
+    leg_index orders the child legs within a parent group.
+
+    CLASS-03: staking_event_id links staking reward income to the originating epoch event.
+    CLASS-04: lockup_event_id links vest/unlock income to the lockup contract event.
+    """
+
+    __tablename__ = "transaction_classifications"
+    __table_args__ = (
+        Index("ix_tc_user_id", "user_id"),
+        Index("ix_tc_transaction_id", "transaction_id"),
+        Index("ix_tc_exchange_transaction_id", "exchange_transaction_id"),
+        Index("ix_tc_parent_id", "parent_classification_id"),
+        Index("ix_tc_category", "category"),
+        Index("ix_tc_needs_review", "needs_review"),
+        # Partial unique indexes defined in migration via op.execute() — not redeclared here
+        # to avoid SQLAlchemy attempting to create them again during metadata operations.
+    )
+
+    id = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    transaction_id = mapped_column(Integer, ForeignKey("transactions.id"), nullable=True)
+    exchange_transaction_id = mapped_column(
+        Integer, ForeignKey("exchange_transactions.id"), nullable=True
+    )
+    parent_classification_id = mapped_column(
+        Integer, ForeignKey("transaction_classifications.id"), nullable=True
+    )
+    leg_type = mapped_column(String(20), nullable=False, default="parent")
+    # Values: 'parent', 'sell_leg', 'buy_leg', 'fee_leg'
+    leg_index = mapped_column(Integer, nullable=False, default=0)
+    category = mapped_column(String(50), nullable=False)  # TaxCategory enum value
+    confidence = mapped_column(Numeric(4, 3), nullable=True)  # NULL = rule-based (certain)
+    classification_source = mapped_column(String(20), nullable=False)
+    # Values: 'rule', 'ai', 'manual', 'specialist'
+    rule_id = mapped_column(Integer, ForeignKey("classification_rules.id"), nullable=True)
+    staking_event_id = mapped_column(Integer, ForeignKey("staking_events.id"), nullable=True)
+    lockup_event_id = mapped_column(Integer, ForeignKey("lockup_events.id"), nullable=True)
+    fmv_usd = mapped_column(Numeric(18, 8), nullable=True)
+    fmv_cad = mapped_column(Numeric(18, 8), nullable=True)
+    needs_review = mapped_column(Boolean, nullable=False, default=True)
+    specialist_confirmed = mapped_column(Boolean, nullable=False, default=False)
+    confirmed_by = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    confirmed_at = mapped_column(DateTime(timezone=True), nullable=True)
+    notes = mapped_column(Text, nullable=True)
+    created_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    user = relationship("User", foreign_keys=[user_id])
+    transaction = relationship("Transaction", foreign_keys=[transaction_id])
+    rule = relationship("ClassificationRule", foreign_keys=[rule_id])
+    staking_event = relationship("StakingEvent", foreign_keys=[staking_event_id])
+    lockup_event = relationship("LockupEvent", foreign_keys=[lockup_event_id])
+    confirmed_by_user = relationship("User", foreign_keys=[confirmed_by])
+    parent = relationship(
+        "TransactionClassification",
+        foreign_keys=[parent_classification_id],
+        remote_side="TransactionClassification.id",
+        back_populates="child_legs",
+    )
+    child_legs = relationship(
+        "TransactionClassification",
+        foreign_keys=[parent_classification_id],
+        back_populates="parent",
+    )
+    audit_log = relationship(
+        "ClassificationAuditLog",
+        back_populates="classification",
+        cascade="all, delete-orphan",
+    )
+
+
+class SpamRule(Base):
+    """User-scoped and global spam detection rules.
+
+    user_id=NULL means a global/system rule applied to all users.
+    rule_type determines how 'value' is interpreted:
+      - 'contract_address': exact match on counterparty/token_id
+      - 'dust_threshold': numeric threshold — amounts below this are spam
+      - 'token_symbol': token symbol prefix/exact match
+      - 'pattern': regex or glob pattern on tx fields
+    """
+
+    __tablename__ = "spam_rules"
+    __table_args__ = (
+        Index("ix_sr_user_id", "user_id"),
+        Index("ix_sr_rule_type", "rule_type"),
+    )
+
+    id = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=True)  # NULL = global
+    rule_type = mapped_column(String(50), nullable=False)
+    # Values: 'contract_address', 'dust_threshold', 'token_symbol', 'pattern'
+    value = mapped_column(Text, nullable=False)
+    created_by = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    is_active = mapped_column(Boolean, nullable=False, default=True)
+    created_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    user = relationship("User", foreign_keys=[user_id])
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class ClassificationAuditLog(Base):
+    """Immutable audit trail for all classification changes.
+
+    Never updated — only inserted. Records every transition including initial
+    classification, rule updates, manual overrides, and specialist confirmations.
+    old_category=NULL indicates the first classification (no prior state).
+    """
+
+    __tablename__ = "classification_audit_log"
+    __table_args__ = (
+        Index("ix_cal_classification_id", "classification_id"),
+        Index("ix_cal_created_at", "created_at"),
+    )
+
+    id = mapped_column(Integer, primary_key=True, autoincrement=True)
+    classification_id = mapped_column(
+        Integer, ForeignKey("transaction_classifications.id"), nullable=False
+    )
+    changed_by_user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    # NULL = system-initiated change
+    changed_by_type = mapped_column(String(20), nullable=False)
+    # Values: 'system', 'specialist', 'user'
+    old_category = mapped_column(String(50), nullable=True)  # NULL on first classification
+    new_category = mapped_column(String(50), nullable=False)
+    old_confidence = mapped_column(Numeric(4, 3), nullable=True)
+    new_confidence = mapped_column(Numeric(4, 3), nullable=False)
+    change_reason = mapped_column(String(50), nullable=False)
+    # Values: 'initial', 'rule_update', 'manual_override', 're_import', 'specialist_confirm'
+    rule_id = mapped_column(Integer, ForeignKey("classification_rules.id"), nullable=True)
+    notes = mapped_column(Text, nullable=True)
+    created_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    classification = relationship("TransactionClassification", back_populates="audit_log")
+    changed_by_user = relationship("User", foreign_keys=[changed_by_user_id])
+    rule = relationship("ClassificationRule", foreign_keys=[rule_id])
