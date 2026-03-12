@@ -54,6 +54,12 @@
 - [ ] **UI-07**: Verification dashboard showing reconciliation status and flagged issues
 - [ ] **UI-08**: Multi-user support with isolated data per NEAR account
 
+### CI/CD Deployment
+
+- [ ] **CICD-01**: GitHub Actions workflow for automated deployment on push to main
+- [x] **CICD-02**: Docker Compose orchestration for all services (PostgreSQL, FastAPI backend, Next.js frontend, indexer)
+- [x] **CICD-03**: Server deployment via SSH with zero-downtime strategy
+
 ## v2 Requirements (Deferred)
 
 - [ ] Plaid integration for automated bank data
@@ -107,6 +113,9 @@
 | UI-06 | Phase 7 | Not Started |
 | UI-07 | Phase 7 | Not Started |
 | UI-08 | Phase 7 | Not Started |
+| CICD-01 | Phase 8 | Not Started |
+| CICD-02 | Phase 8 | Complete |
+| CICD-03 | Phase 8 | Complete |
 
 ---
-*Last updated: 2026-02-24 after adding UI phase*
+*Last updated: 2026-03-12 after completing 08-01 CI/CD deployment scripts*

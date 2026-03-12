@@ -237,7 +237,7 @@ Plans:
 **Plans:** 2 plans in 2 waves
 
 Plans:
-- [ ] 08-01-PLAN.md — Production Docker Compose + deployment scripts (Wave 1) [CICD-02, CICD-03]
+- [x] 08-01-PLAN.md — Production Docker Compose + deployment scripts (Wave 1) [CICD-02, CICD-03] ✓ DONE
 - [ ] 08-02-PLAN.md — GitHub Actions deploy workflow + .gitignore hardening (Wave 2) [CICD-01, CICD-02, CICD-03]
 
 **Requirements:**
