@@ -48,15 +48,12 @@ $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod
 echo "==> Running database migrations"
 $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up migrate --exit-code-from migrate"
 
-# Step 4: Rolling restart — restart web first (user-facing), then indexer
-echo "==> Restarting web service"
-$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d --no-deps --build web"
+# Step 4: Restart services
+echo "==> Restarting services"
+$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d --force-recreate --no-deps web indexer"
 
 echo "==> Waiting for web health check (30s)"
 sleep 30
-
-echo "==> Restarting indexer service"
-$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d --no-deps --build indexer"
 
 # Step 5: Run health checks
 echo "==> Running health checks"
