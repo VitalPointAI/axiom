@@ -30,6 +30,8 @@ from indexers.near_fetcher import NearFetcher
 from indexers.staking_fetcher import StakingFetcher
 from indexers.lockup_fetcher import LockupFetcher
 from indexers.price_service import PriceService
+from indexers.evm_fetcher import EVMFetcher
+from indexers.file_handler import FileImportHandler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -61,6 +63,9 @@ class IndexerService:
             "incremental_sync": NearFetcher(self.pool),    # Incremental tx update
             "staking_sync": StakingFetcher(self.pool, self.price_service),
             "lockup_sync": LockupFetcher(self.pool, self.price_service),
+            "evm_full_sync": EVMFetcher(self.pool),        # EVM full transaction history
+            "evm_incremental": EVMFetcher(self.pool),      # EVM incremental tx update
+            "file_import": FileImportHandler(self.pool),   # Exchange CSV file import
         }
         self.running = True
 
@@ -125,6 +130,10 @@ class IndexerService:
                         handler.sync_staking(job)
                     elif job_type == "lockup_sync":
                         handler.sync_lockup(job)
+                    elif job_type in ("evm_full_sync", "evm_incremental"):
+                        handler.sync_wallet(job)
+                    elif job_type == "file_import":
+                        handler.process_file(job)
                     else:
                         raise ValueError(f"Unknown job_type '{job_type}' — no dispatch method")
 
