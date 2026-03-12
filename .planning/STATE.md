@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-12T21:24:14.615Z"
+last_updated: "2026-03-12T21:30:09.731Z"
 progress:
   total_phases: 8
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 25
-  completed_plans: 19
+  completed_plans: 20
 ---
 
 # Project State
@@ -62,7 +62,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 |-------|--------|------------|
 | 1. NEAR Indexer | **Complete** | 100% (6/6 plans) |
 | 2. Multi-Chain + Exchanges | **Complete** | 100% (6/6 plans) |
-| 3. Transaction Classification | In Progress | 4 plans complete (03-01, 03-02, 03-03, 03-04) |
+| 3. Transaction Classification | **Complete** | 100% (5/5 plans) |
 | 4. Cost Basis Engine | Not Started | 0% |
 | 5. Verification | Not Started | 0% |
 | 6. Reporting | Not Started | 0% |
@@ -79,6 +79,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **03-05 complete** - ClassifierHandler job type + AI fallback via Claude API (confidence < 0.70 threshold), rule auto-seeding, full pipeline wired into IndexerService; 151 tests pass. Phase 3 COMPLETE.
 - 2026-03-12: **03-04 complete** - TransactionClassifier rewrite (rule priority matching, WalletGraph/SpamDetector integration, staking/lockup linkage, EVM swap decomposition, audit logging), 15 tests; 151 tests pass
 - 2026-03-12: **03-03 complete** - EVMDecoder (21 DeFi selectors, multi-token grouping), rule seeder (56 rules: 23 NEAR + 23 EVM + 10 exchange), 16 new tests; 136 tests pass
 - 2026-03-12: **03-02 complete** - WalletGraph PostgreSQL rewrite (internal transfer detection, 5%/30-min cross-chain matching, wallet discovery), SpamDetector (multi-signal 0.46/signal, 0.99 for known contracts, global propagation), 13 unit tests; 136 tests pass
@@ -182,6 +183,10 @@ None currently.
 | 2026-03-12 | fee_leg only emitted when tx.fee is truthy | Prevents spurious fee rows; test explicitly passes fee field to get 4-row decomposition |
 | 2026-03-12 | _decompose_swap is pure (no DB calls) | parent_classification_id linking deferred to upsert (DB assigns IDs at write time) |
 | 2026-03-12 | Rules must be pre-sorted by priority DESC before _match_rules | First match wins; loader sorts on SELECT; tests must sort explicitly when combining rule sets |
+| 2026-03-12 | AI_CONFIDENCE_THRESHOLD=0.70 as module constant | Below this triggers AI fallback even for rule matches; importable by routing layer |
+| 2026-03-12 | AI fallback takes higher-confidence result (rule vs AI) | Deterministic rules with confidence >= 0.70 not overridden by uncertain AI responses |
+| 2026-03-12 | classification_source='ai' for AI-classified rows | Distinguishes AI vs rule-matched in audit trail; same pattern as confidence_score NULL for CSV parsers |
+| 2026-03-12 | ClassifierHandler._rules_seeded flag | Prevents repeated COUNT(*) queries across multiple classify_transactions jobs on same handler instance |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 03-transaction-classification 03-04-PLAN.md*
+*Last updated: 2026-03-12 — Stopped at: Completed 03-transaction-classification 03-05-PLAN.md (Phase 3 COMPLETE)*
