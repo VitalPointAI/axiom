@@ -5,7 +5,7 @@
 | # | Phase | Goal | Requirements | Est. Time |
 |---|-------|------|--------------|-----------|
 | 1 | NEAR Indexer | Pull complete NEAR transaction history | DATA-01,02,03,06 | 2 days | 7/7 | Complete   | 2026-03-12 | Pull EVM data and parse exchange CSVs | DATA-04,05 | 2 days |
-| 3 | 1/5 | In Progress|  | 2 days |
+| 3 | 4/5 | In Progress|  | 2 days |
 | 4 | Cost Basis Engine | Calculate ACB and track gains/losses | ACB-01,02,03,04,05 | 2 days |
 | 5 | Verification | Reconcile balances and detect issues | VER-01,02,03,04 | 1 day |
 | 6 | Reporting | Generate tax reports for accountant | RPT-01,02,03,04,05,06 | 2 days |
@@ -106,7 +106,7 @@ Plans:
 
 **Goal:** Build a rule-based + AI-assisted classification engine that classifies all transactions (NEAR, EVM, exchange) by tax treatment, with multi-leg decomposition, internal transfer detection, spam filtering, staking/lockup linkage, and full audit trail.
 
-**Plans:** 1/5 plans executed
+**Plans:** 4/5 plans executed
 
 Plans:
 - [ ] 03-01-PLAN.md — Migration 003 (4 new tables) + SQLAlchemy models + test scaffolds (Wave 1) [CLASS-01, CLASS-02, CLASS-03, CLASS-04, CLASS-05]
