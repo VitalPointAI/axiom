@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-12T18:47:29.858Z"
+last_updated: "2026-03-12T18:54:32.746Z"
 progress:
   total_phases: 8
   completed_phases: 2
   total_plans: 19
-  completed_plans: 11
+  completed_plans: 13
 ---
 
 # Project State
@@ -26,6 +26,8 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Plan 02-01: Alembic migration 002 + ChainFetcher/ExchangeParser/ExchangeConnector ABCs ✅ DONE (2026-03-12)
 - Plan 02-02: EVMFetcher (Etherscan V2 pagination + PostgreSQL upsert, 4 chains) ✅ DONE (2026-03-12)
 - Plan 02-03: Exchange CSV parsers migrated to PostgreSQL (all 5 parsers + 21 unit tests) ✅ DONE (2026-03-12)
+- Plan 02-04: Service wiring + file upload API (EVMFetcher + FileImportHandler wired, POST /api/upload-file) ✅ DONE (2026-03-12)
+- Plan 02-05: AIFileAgent + Claude API + confidence scoring (CONFIDENCE_THRESHOLD=0.8, 17 tests) ✅ DONE (2026-03-12)
 - EVM schema created (`db/schema_evm.sql`)
 - Exchange parser framework built (`indexers/exchange_parsers/`)
 - All 5 exchange parsers (Coinbase, Crypto.com, Wealthsimple, Uphold, Coinsquare) COMPLETE ✅
@@ -57,7 +59,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | Phase | Status | Completion |
 |-------|--------|------------|
 | 1. NEAR Indexer | **Complete** | 100% (6/6 plans) |
-| 2. Multi-Chain + Exchanges | In Progress | 50% (3/6 plans) |
+| 2. Multi-Chain + Exchanges | In Progress | 83% (5/6 plans) |
 | 3. Transaction Classification | Not Started | 0% |
 | 4. Cost Basis Engine | Not Started | 0% |
 | 5. Verification | Not Started | 0% |
@@ -75,6 +77,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **02-04 complete** - Service wiring: EVMFetcher + FileImportHandler registered in IndexerService; FileImportHandler auto-detects exchange format; POST /api/upload-file with SHA-256 dedup, 50MB limit, job queuing
 - 2026-03-12: **02-03 complete** - All 5 exchange CSV parsers (Coinbase, Crypto.com, Wealthsimple, Uphold, Coinsquare) migrated to PostgreSQL; import_to_db uses pool/user_id/ON CONFLICT; 21 unit tests passing
 - 2026-03-12: **02-02 complete** - EVMFetcher: Etherscan V2 pagination (10k/page), 4 chains (ETH/Polygon/Cronos/Optimism), PostgreSQL execute_values upsert, 23 unit tests
 - 2026-03-12: **02-01 complete** - Migration 002 (exchange_transactions, exchange_connections, supported_exchanges seeded, file_imports) + ChainFetcher/ExchangeParser/ExchangeConnector ABCs
@@ -145,6 +148,13 @@ None currently.
 | 2026-03-12 | import_to_db pool.putconn() in finally block | Prevents connection leaks when DB insert raises exception |
 | 2026-03-12 | tx_id generated from tx_date+asset+qty+type when absent | Coinbase/Wealthsimple CSVs have no exchange tx_id; deterministic ID enables ON CONFLICT dedup |
 | 2026-03-12 | raw_data as dict in parse_row, JSON string only at INSERT | Keeps parse_row output JSONB-ready; serialization happens once at persistence boundary |
+| 2026-03-12 | Per-user exchange wallet: exchange_imports_{userId} | wallets.account_id is globally UNIQUE; user-scoped name prevents constraint violation for multi-user |
+| 2026-03-12 | file_imports.id as indexing_jobs.cursor | Cursor (TEXT) stores file_imports.id so FileImportHandler can look up file without extra join |
+| 2026-03-12 | needs_ai vs failed for unknown exchange formats | Unknown formats → needs_ai for AI agent (plan 05); 'failed' would block re-processing |
+| 2026-03-12 | Lazy Anthropic client init via @property | Avoids startup failure if anthropic SDK not installed; client only instantiated when process_file() called |
+| 2026-03-12 | CONFIDENCE_THRESHOLD=0.8 as importable module constant | Smart routing layer can import same threshold; easy to tune without changing agent class |
+| 2026-03-12 | Regex fallback for JSON extraction in AI response | Claude sometimes wraps JSON in markdown code blocks; regex handles without crashing |
+| 2026-03-12 | ai_{file_import_id}_{index} for missing tx_id | Deterministic ID enables ON CONFLICT dedup on re-import without requiring consistent Claude output |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 02-multichain-exchanges 02-03-PLAN.md*
+*Last updated: 2026-03-12 — Stopped at: Completed 02-multichain-exchanges 02-05-PLAN.md*
