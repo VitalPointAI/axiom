@@ -1,0 +1,81 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      rollback_sha:
+        description: "Commit SHA to rollback to (leave empty for normal deploy)"
+        required: false
+        default: ""
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Create .env on server
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+            "cat > ${{ secrets.DEPLOY_PATH }}/.env << 'ENVEOF'
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          DATABASE_URL=postgres://neartax:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/neartax
+          NEARBLOCKS_API_KEY=${{ secrets.NEARBLOCKS_API_KEY }}
+          ALCHEMY_API_KEY=${{ secrets.ALCHEMY_API_KEY }}
+          ETHERSCAN_API_KEY=${{ secrets.ETHERSCAN_API_KEY }}
+          COINGECKO_API_KEY=${{ secrets.COINGECKO_API_KEY }}
+          CRYPTOCOMPARE_API_KEY=${{ secrets.CRYPTOCOMPARE_API_KEY }}
+          FASTNEAR_API_KEY=${{ secrets.FASTNEAR_API_KEY }}
+          JOB_POLL_INTERVAL=5
+          SYNC_INTERVAL_MINUTES=15
+          NODE_ENV=production
+          ENVEOF"
+
+      - name: Deploy
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_SSH_KEY: ~/.ssh/deploy_key
+        run: |
+          ROLLBACK_SHA="${{ github.event.inputs.rollback_sha }}"
+          if [[ -n "$ROLLBACK_SHA" ]]; then
+            bash scripts/deploy.sh --rollback "$ROLLBACK_SHA"
+          else
+            bash scripts/deploy.sh
+          fi
+
+      - name: Health check
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+            "cd ${{ secrets.DEPLOY_PATH }} && bash scripts/healthcheck.sh"
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+            "cd ${{ secrets.DEPLOY_PATH }} && docker compose -f docker-compose.prod.yml logs --tail=50" || true
+
+      - name: Cleanup SSH key
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key
