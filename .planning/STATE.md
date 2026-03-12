@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-12T18:38:59.493Z"
+last_updated: "2026-03-12T18:46:21.806Z"
 progress:
   total_phases: 8
   completed_phases: 2
   total_plans: 19
-  completed_plans: 9
+  completed_plans: 10
 ---
 
 # Project State
@@ -24,6 +24,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 **Phase 2: Multi-Chain + Exchanges** 🔨 IN PROGRESS
 - Plan 02-01: Alembic migration 002 + ChainFetcher/ExchangeParser/ExchangeConnector ABCs ✅ DONE (2026-03-12)
+- Plan 02-02: EVMFetcher (Etherscan V2 pagination + PostgreSQL upsert, 4 chains) ✅ DONE (2026-03-12)
 - EVM schema created (`db/schema_evm.sql`)
 - Exchange parser framework built (`indexers/exchange_parsers/`)
 - Coinbase parser COMPLETE ✅
@@ -56,7 +57,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | Phase | Status | Completion |
 |-------|--------|------------|
 | 1. NEAR Indexer | **Complete** | 100% (6/6 plans) |
-| 2. Multi-Chain + Exchanges | In Progress | 17% (1/6 plans) |
+| 2. Multi-Chain + Exchanges | In Progress | 33% (2/6 plans) |
 | 3. Transaction Classification | Not Started | 0% |
 | 4. Cost Basis Engine | Not Started | 0% |
 | 5. Verification | Not Started | 0% |
@@ -74,6 +75,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **02-02 complete** - EVMFetcher: Etherscan V2 pagination (10k/page), 4 chains (ETH/Polygon/Cronos/Optimism), PostgreSQL execute_values upsert, 23 unit tests
 - 2026-03-12: **02-01 complete** - Migration 002 (exchange_transactions, exchange_connections, supported_exchanges seeded, file_imports) + ChainFetcher/ExchangeParser/ExchangeConnector ABCs
 - 2026-03-12: **08-02 complete** - GitHub Actions deploy workflow (auto-deploy on push to main, manual rollback, .gitignore hardened)
 - 2026-03-12: **08-01 complete** - Production Docker Compose (postgres, migrate, web, indexer) + SSH deploy script with rolling restart + health check script
@@ -136,6 +138,9 @@ None currently.
 | 2026-03-12 | file_imports SHA-256 content hash dedup | Prevents re-importing same file; UNIQUE(user_id, file_hash) enforced at DB level |
 | 2026-03-12 | supported_exchanges VARCHAR slug PK | Human-readable FK in exchange_transactions ('coinbase' vs 42); easier to debug |
 | 2026-03-12 | ExchangeParser and ExchangeConnector as separate ABCs | File parsing and API connectivity are orthogonal; CSV-only exchanges (Wealthsimple) need no Connector |
+| 2026-03-12 | CHAIN_NAME_MAP for bidirectional resolution | Bidirectional mapping between CHAIN_CONFIG keys (ETH/Polygon) and DB values (ethereum/polygon) |
+| 2026-03-12 | ERC20/NFT tx_hash = hash-logIndex | Multiple token transfers share parent tx_hash; logIndex suffix prevents unique constraint violations |
+| 2026-03-12 | fee=None for internal/ERC20/NFT | Gas already counted in the parent normal tx; avoids double-counting fees |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 02-multichain-exchanges 02-01-PLAN.md*
+*Last updated: 2026-03-12 — Stopped at: Completed 02-multichain-exchanges 02-02-PLAN.md*
