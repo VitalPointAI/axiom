@@ -234,11 +234,11 @@ Plans:
 
 **Depends on:** Phase 7 (full stack ready for deployment)
 
-**Plans:** 2 plans in 2 waves
+**Plans:** 2 plans in 2 waves (2/2 COMPLETE)
 
 Plans:
 - [x] 08-01-PLAN.md — Production Docker Compose + deployment scripts (Wave 1) [CICD-02, CICD-03] ✓ DONE
-- [ ] 08-02-PLAN.md — GitHub Actions deploy workflow + .gitignore hardening (Wave 2) [CICD-01, CICD-02, CICD-03]
+- [x] 08-02-PLAN.md — GitHub Actions deploy workflow + .gitignore hardening (Wave 2) [CICD-01, CICD-02, CICD-03] ✓ DONE
 
 **Requirements:**
 - CICD-01: GitHub Actions workflow for automated deployment on push to main
@@ -277,4 +277,4 @@ Phase 2 ──┘                                              │
 - Phase 7 requires Phase 6 (needs complete data pipeline), but UI scaffolding can start in parallel
 
 ---
-*Last updated: 2026-03-12 — Phase 1 NEAR Indexer fully complete: all 6 plans done including gap closure fixes.*
+*Last updated: 2026-03-12 — Phase 8 CI/CD Deployment fully complete: GitHub Actions workflow + Docker Compose + deployment scripts.*

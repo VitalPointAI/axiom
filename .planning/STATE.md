@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-03-12T10:24:00Z"
+last_updated: "2026-03-12T10:28:00Z"
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 12
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # Project State
@@ -36,9 +36,9 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Plan 01-05: Gap closure: account_id dispatch + staking backfill timestamp ✅ DONE (2026-03-12)
 - Plan 01-06: Gap closure: wallet API handler schema fix ✅ DONE (2026-03-12)
 
-**Phase 8: CI/CD Deployment** 🔨 IN PROGRESS
+**Phase 8: CI/CD Deployment** COMPLETE
 - Plan 08-01: Production Docker Compose + deployment scripts ✅ DONE (2026-03-12)
-- Plan 08-02: GitHub Actions deploy workflow + .gitignore hardening -- NEXT
+- Plan 08-02: GitHub Actions deploy workflow + .gitignore hardening ✅ DONE (2026-03-12)
 
 **Phase 7: Web UI** 📋 PLANNED
 - Requirements added (UI-01 through UI-08)
@@ -73,6 +73,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **08-02 complete** - GitHub Actions deploy workflow (auto-deploy on push to main, manual rollback, .gitignore hardened)
 - 2026-03-12: **08-01 complete** - Production Docker Compose (postgres, migrate, web, indexer) + SSH deploy script with rolling restart + health check script
 - 2026-03-12: **01-06 complete** - Wallet API schema fix: GET derives sync_status from indexing_jobs subqueries, POST inserts without sync_status column, removed indexing_progress references
 - 2026-03-12: **01-05 complete** - Gap closure: _claim_next_job() JOINs wallets for account_id, _get_first_stake_timestamp() falls back to transactions table, all print() replaced with logger
@@ -126,6 +127,9 @@ None currently.
 | 2026-03-12 | No Docker registry for deployment | Single-server: build on server is simpler than push/pull through registry |
 | 2026-03-12 | Rolling restart order: web then indexer | User-facing service first, background indexer second; postgres never restarts |
 | 2026-03-12 | Rollback via git checkout SHA | Simpler than image tagging for single-server setup |
+| 2026-03-12 | SSH key temp file with always() cleanup | Prevents key leakage in GitHub Actions runners |
+| 2026-03-12 | .env via SSH heredoc from GitHub Secrets | Secrets never written to repo or runner filesystem |
+| 2026-03-12 | Concurrency group with cancel-in-progress: false | Queues deployments rather than canceling in-flight ones |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 08-cicd-deployment 08-01-PLAN.md*
+*Last updated: 2026-03-12 — Stopped at: Completed 08-cicd-deployment 08-02-PLAN.md (Phase 8 COMPLETE)*
