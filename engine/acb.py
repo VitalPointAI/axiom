@@ -371,6 +371,18 @@ class ACBEngine:
                     stats=stats,
                 )
 
+            # Run superficial loss detection after all disposal rows are written
+            from engine.superficial import SuperficialLossDetector
+            detector = SuperficialLossDetector(conn)
+            superficial_losses = detector.scan_for_user(user_id)
+            if superficial_losses:
+                detector.apply_superficial_losses(user_id, superficial_losses)
+                logger.info(
+                    "Superficial loss pass complete for user_id=%s: %d losses flagged",
+                    user_id, len(superficial_losses),
+                )
+            stats["superficial_losses"] = len(superficial_losses)
+
             conn.commit()
             stats["tokens_processed"] = len(stats["tokens_processed"])
             return stats
