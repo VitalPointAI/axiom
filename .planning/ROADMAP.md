@@ -20,13 +20,15 @@
 
 **Goal:** Pull complete transaction history for all 64 NEAR accounts including staking rewards and lockup vesting.
 
-**Plans:** 4 plans in 3 waves
+**Plans:** 6 plans in 4 waves
 
 Plans:
 - [x] 01-01-PLAN.md — Fresh PostgreSQL schema + Alembic migrations + config cleanup (Wave 1) [DATA-06] ✓ DONE
 - [x] 01-02-PLAN.md — Standalone indexer service + NEAR transaction fetcher (Wave 2) [DATA-01, DATA-06] ✓ DONE
 - [x] 01-03-PLAN.md — Multi-source price service + epoch staking rewards + lockup parser (Wave 2) [DATA-02, DATA-03] ✓ DONE
 - [x] 01-04-PLAN.md — Integration wiring: register all handlers + web API job queue (Wave 3) [DATA-01, DATA-02, DATA-03, DATA-06] ✓ DONE
+- [ ] 01-05-PLAN.md — Gap closure: fix account_id dispatch + staking backfill timestamp fallback (Wave 4) [DATA-01, DATA-02, DATA-03]
+- [ ] 01-06-PLAN.md — Gap closure: fix wallet API handler to use indexing_jobs schema (Wave 4) [DATA-01, DATA-06]
 
 **Requirements:**
 - DATA-01: Pull complete transaction history for any NEAR account
@@ -239,4 +241,4 @@ Phase 2 ──┘                                              │
 - Phase 7 requires Phase 6 (needs complete data pipeline), but UI scaffolding can start in parallel
 
 ---
-*Last updated: 2026-03-12 — 01-04 complete (integration wiring: all fetchers registered, wallet API uses job queue, sync status reads indexing_jobs). Phase 1 NEAR Indexer COMPLETE.*
+*Last updated: 2026-03-11 — Gap closure plans 01-05 and 01-06 created to fix account_id dispatch, staking backfill timestamp, and wallet API schema references.*
