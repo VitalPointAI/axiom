@@ -11,8 +11,11 @@
 | 5 | Verification | Reconcile balances and detect issues | VER-01,02,03,04 | 1 day |
 | 6 | Reporting | Generate tax reports for accountant | RPT-01,02,03,04,05,06 | 2 days |
 | 7 | Web UI | User-friendly interface with NEAR wallet auth | UI-01,02,03,04,05,06,07,08 | 3 days |
+| 8 | CI/CD Deployment | GitHub Actions CI/CD to deploy dockerized components on push | CICD-01,02,03 | 1 day |
 
-**Total estimate:** 14 days
+
+
+**Total estimate:** 15 days
 
 ---
 
@@ -222,6 +225,39 @@ Plans:
 - near-phantom-auth for authentication
 - Tailwind CSS + shadcn/ui components
 - SQLite → PostgreSQL migration for multi-user
+
+---
+
+## Phase 8: CI/CD Deployment
+
+**Goal:** Set up GitHub Actions CI/CD pipeline to automatically deploy all dockerized components (database, frontend, backend, indexer) on push to main branch to existing server.
+
+**Depends on:** Phase 7 (full stack ready for deployment)
+
+**Plans:** 2 plans in 2 waves
+
+Plans:
+- [ ] 08-01-PLAN.md — Production Docker Compose + deployment scripts (Wave 1) [CICD-02, CICD-03]
+- [ ] 08-02-PLAN.md — GitHub Actions deploy workflow + .gitignore hardening (Wave 2) [CICD-01, CICD-02, CICD-03]
+
+**Requirements:**
+- CICD-01: GitHub Actions workflow for automated deployment on push to main
+- CICD-02: Docker Compose orchestration for all services (PostgreSQL, FastAPI backend, Next.js frontend, indexer)
+- CICD-03: Server deployment via SSH with zero-downtime strategy
+
+**Success Criteria:**
+1. [ ] Push to main triggers automated build and deploy
+2. [ ] All Docker containers build successfully in CI
+3. [ ] Deployment to existing server completes without manual intervention
+4. [ ] Health checks verify all services are running post-deploy
+5. [ ] Rollback mechanism available if deployment fails
+6. [ ] Environment secrets managed securely via GitHub Secrets
+
+**Deliverables:**
+- `.github/workflows/deploy.yml` — GitHub Actions deployment workflow
+- `docker-compose.prod.yml` — Production Docker Compose configuration
+- `scripts/deploy.sh` — SSH deployment with rolling restart
+- `scripts/healthcheck.sh` — Post-deploy health verification
 
 ---
 
