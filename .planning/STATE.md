@@ -15,12 +15,11 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Coinbase parser COMPLETE ✅
 - Remaining parsers: Crypto.com, Wealthsimple, Uphold, Coinsquare
 
-**Phase 1: NEAR Indexer** ✅ COMPLETE
-- All 3 plans executed successfully
-- Database + rate-limited API client working
-- Resumable indexer tested (aaron.near: 225/5145)
-- Staking: 19,716 NEAR staked, ~748 NEAR rewards
-- Lockup: vesting complete, 52 historical txs
+**Phase 1: NEAR Indexer** 🔨 IN PROGRESS
+- Plan 01-01: PostgreSQL schema + Alembic + config cleanup ✅ DONE (2026-03-12)
+- Plan 01-02: Standalone indexer service + NEAR transaction fetcher (next)
+- Plan 01-03: Multi-source price service + epoch staking rewards + lockup parser
+- Plan 01-04: Integration wiring + web API job queue
 
 **Phase 7: Web UI** 📋 PLANNED
 - Requirements added (UI-01 through UI-08)
@@ -36,7 +35,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 | Phase | Status | Completion |
 |-------|--------|------------|
-| 1. NEAR Indexer | **COMPLETE** | 100% |
+| 1. NEAR Indexer | **In Progress** | 25% (1/4 plans) |
 | 2. Multi-Chain + Exchanges | In Progress | 40% |
 | 3. Transaction Classification | Not Started | 0% |
 | 4. Cost Basis Engine | Not Started | 0% |
@@ -50,6 +49,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **01-01 complete** - PostgreSQL schema (8 tables), Alembic framework, indexers/db.py, config.py cleaned (no SQLite)
 - 2026-03-11: **Phase 1 context gathered** - Major scope expansion: multi-user, multi-chain-ready architecture, standalone indexer service, PostgreSQL-only, epoch-level staking, multi-source price service
 - 2026-02-24: **Phase 7 (Web UI) added** - NEAR wallet auth + portfolio UI
 - 2026-02-23: Phase 2 started - EVM schema + exchange parser framework
@@ -76,6 +76,10 @@ None currently.
 | 2026-02-23 | FastNear RPC | Default NEAR RPC rate-limited |
 | 2026-02-23 | NearBlocks with 1.5s delay | Free tier rate limits after ~6 rapid requests |
 | 2026-02-23 | Resumable indexer | 23,679 txs for main account = 15-30 min, needs interruption handling |
+| 2026-03-12 | JSONB for raw_data | Enables indexed queries on tx data vs TEXT |
+| 2026-03-12 | NUMERIC(40,0) for yoctoNEAR | Prevents floating point precision loss |
+| 2026-03-12 | No DATABASE_URL fallback | Explicit failure prevents silent misconfiguration |
+| 2026-03-12 | Alembic for schema | Versioned migrations via op.create_table(), not raw SQL files |
 
 ---
-*Last updated: 2026-02-24*
+*Last updated: 2026-03-12 — Stopped at: Completed 01-near-indexer 01-01-PLAN.md*
