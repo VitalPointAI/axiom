@@ -145,10 +145,10 @@ Plans:
 
 **Goal:** Calculate Adjusted Cost Base (ACB) per Canadian average cost method with Decimal precision, track capital gains/losses on disposals, capture FMV for income events, and detect superficial losses with pro-rated partial rebuy handling.
 
-**Plans:** 3 plans in 3 waves
+**Plans:** 3 plans in 3 waves (1/3 complete)
 
 Plans:
-- [ ] 04-01-PLAN.md — Migration 004 + SQLAlchemy models + PriceService extension (BoC + minute-level) + test scaffolds (Wave 1) [ACB-03]
+- [x] 04-01-PLAN.md — Migration 004 + SQLAlchemy models + PriceService extension (BoC + minute-level) + test scaffolds (Wave 1) [ACB-03] ✓ DONE
 - [ ] 04-02-PLAN.md — ACBEngine (Decimal pools, chronological replay, snapshot persistence) + GainsCalculator (capital gains + income ledgers) (Wave 2) [ACB-01, ACB-02, ACB-04]
 - [ ] 04-03-PLAN.md — SuperficialLossDetector (61-day window, pro-rated denial) + ACBHandler job wiring + ClassifierHandler trigger (Wave 3) [ACB-05, ACB-01, ACB-02, ACB-03, ACB-04]
 
@@ -321,4 +321,4 @@ Phase 2 ──┘                                              │
 - Phase 7 requires Phase 6 (needs complete data pipeline), but UI scaffolding can start in parallel
 
 ---
-*Last updated: 2026-03-12 — Phase 4 planned: 3 plans in 3 waves for cost basis engine.*
+*Last updated: 2026-03-12 — Phase 4 started: 04-01 complete (schema + price infrastructure). 04-02 (ACBEngine) is next.*

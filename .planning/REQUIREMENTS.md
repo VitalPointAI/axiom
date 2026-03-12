@@ -23,7 +23,7 @@
 
 - [ ] **ACB-01**: System calculates Adjusted Cost Base (ACB) using Canadian average cost method
 - [ ] **ACB-02**: System tracks ACB per token across all wallets (pooled, not per-wallet)
-- [ ] **ACB-03**: System fetches historical FMV prices for income events (staking, vesting)
+- [x] **ACB-03**: System fetches historical FMV prices for income events (staking, vesting)
 - [ ] **ACB-04**: System adjusts cost basis for fees paid
 - [ ] **ACB-05**: System handles superficial loss rules (30-day rule) — flag for manual review
 
@@ -92,7 +92,7 @@
 | CLASS-05 | Phase 3 | Not Started |
 | ACB-01 | Phase 4 | Not Started |
 | ACB-02 | Phase 4 | Not Started |
-| ACB-03 | Phase 4 | Not Started |
+| ACB-03 | Phase 4 | Complete (04-01) |
 | ACB-04 | Phase 4 | Not Started |
 | ACB-05 | Phase 4 | Not Started |
 | VER-01 | Phase 5 | Not Started |

@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-12T21:36:05.591Z"
+last_updated: "2026-03-12T23:27:00.000Z"
 progress:
   total_phases: 8
   completed_phases: 4
   total_plans: 25
-  completed_plans: 20
+  completed_plans: 21
 ---
 
 # Project State
@@ -63,7 +63,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | 1. NEAR Indexer | **Complete** | 100% (6/6 plans) |
 | 2. Multi-Chain + Exchanges | **Complete** | 100% (6/6 plans) |
 | 3. Transaction Classification | **Complete** | 100% (5/5 plans) |
-| 4. Cost Basis Engine | Not Started | 0% |
+| 4. Cost Basis Engine | In Progress | 33% (1/3 plans) |
 | 5. Verification | Not Started | 0% |
 | 6. Reporting | Not Started | 0% |
 | 7. Web UI | **PLANNED** | 0% |
@@ -79,6 +79,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **04-01 complete** - Migration 004 (acb_snapshots, capital_gains_ledger, income_ledger, price_cache_minute), 4 SQLAlchemy models, PriceService extended with get_price_at_timestamp() (CoinGecko market_chart/range, minute cache), get_boc_cad_rate() (BoC Valet API, 5-day weekend fallback), get_price_cad_at_timestamp(); test scaffolds for ACBPool, ACBEngine, SuperficialLoss; 176 tests pass.
 - 2026-03-12: **03-05 complete** - ClassifierHandler job type + AI fallback via Claude API (confidence < 0.70 threshold), rule auto-seeding, full pipeline wired into IndexerService; 151 tests pass. Phase 3 COMPLETE.
 - 2026-03-12: **03-04 complete** - TransactionClassifier rewrite (rule priority matching, WalletGraph/SpamDetector integration, staking/lockup linkage, EVM swap decomposition, audit logging), 15 tests; 151 tests pass
 - 2026-03-12: **03-03 complete** - EVMDecoder (21 DeFi selectors, multi-token grouping), rule seeder (56 rules: 23 NEAR + 23 EVM + 10 exchange), 16 new tests; 136 tests pass
@@ -187,6 +188,13 @@ None currently.
 | 2026-03-12 | AI fallback takes higher-confidence result (rule vs AI) | Deterministic rules with confidence >= 0.70 not overridden by uncertain AI responses |
 | 2026-03-12 | classification_source='ai' for AI-classified rows | Distinguishes AI vs rule-matched in audit trail; same pattern as confidence_score NULL for CSV parsers |
 | 2026-03-12 | ClassifierHandler._rules_seeded flag | Prevents repeated COUNT(*) queries across multiple classify_transactions jobs on same handler instance |
+| 2026-03-12 | price_cache_minute as separate table from daily price_cache | Different granularity (unix_ts BigInteger vs Date), different retention, different cardinality |
+| 2026-03-12 | INSERT ON CONFLICT DO NOTHING for minute cache | Simpler than DO UPDATE; concurrent requests silently skip without overwrite |
+| 2026-03-12 | is_estimated=True when CoinGecko gap >15 min (900s) | Tax-safe: flags prices needing review without being overly aggressive on low-tick markets |
+| 2026-03-12 | BoC Valet API for CAD rates in get_boc_cad_rate() | Authoritative Canadian source for tax purposes; replaces CryptoCompare approximation |
+| 2026-03-12 | 5-day lookback for BoC weekend/holiday gaps | Covers long weekends without excessive API calls |
+| 2026-03-12 | STABLECOIN_MAP shortcut for tether/usd-coin/dai | Always 1:1 USD; avoids unnecessary API calls |
+| 2026-03-12 | acb_added_cad = fmv_cad in IncomeLedger | Income FMV at receipt becomes cost basis for newly acquired units (Canadian ACB rule) |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 03-transaction-classification 03-05-PLAN.md (Phase 3 COMPLETE)*
+*Last updated: 2026-03-12 — Stopped at: Completed 04-cost-basis-engine 04-01-PLAN.md*
