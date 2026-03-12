@@ -32,6 +32,9 @@ from indexers.lockup_fetcher import LockupFetcher
 from indexers.price_service import PriceService
 from indexers.evm_fetcher import EVMFetcher
 from indexers.file_handler import FileImportHandler
+from indexers.xrp_fetcher import XRPFetcher
+from indexers.akash_fetcher import AkashFetcher
+from indexers.dedup_handler import DedupHandler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,6 +69,12 @@ class IndexerService:
             "evm_full_sync": EVMFetcher(self.pool),        # EVM full transaction history
             "evm_incremental": EVMFetcher(self.pool),      # EVM incremental tx update
             "file_import": FileImportHandler(self.pool),   # Exchange CSV file import
+            # Phase 2 additions
+            "xrp_full_sync": XRPFetcher(self.pool),        # XRP Ledger full sync
+            "xrp_incremental": XRPFetcher(self.pool),      # XRP Ledger incremental
+            "akash_full_sync": AkashFetcher(self.pool),    # Akash Network full sync
+            "akash_incremental": AkashFetcher(self.pool),  # Akash Network incremental
+            "dedup_scan": DedupHandler(self.pool),         # Cross-source deduplication
         }
         self.running = True
 
@@ -134,6 +143,12 @@ class IndexerService:
                         handler.sync_wallet(job)
                     elif job_type == "file_import":
                         handler.process_file(job)
+                    elif job_type in ("xrp_full_sync", "xrp_incremental"):
+                        handler.sync_wallet(job)
+                    elif job_type in ("akash_full_sync", "akash_incremental"):
+                        handler.sync_wallet(job)
+                    elif job_type == "dedup_scan":
+                        handler.run_scan(job)
                     else:
                         raise ValueError(f"Unknown job_type '{job_type}' — no dispatch method")
 

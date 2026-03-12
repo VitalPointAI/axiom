@@ -12,6 +12,7 @@ from indexers.exchange_parsers.coinbase import CoinbaseParser
 from indexers.exchange_parsers.crypto_com import CryptoComParser
 from indexers.exchange_parsers.wealthsimple import WealthsimpleParser
 from indexers.exchange_parsers.generic import GenericParser
+from indexers.ai_file_agent import AIFileAgent
 
 logger = logging.getLogger(__name__)
 
@@ -117,25 +118,41 @@ class FileImportHandler:
                         exc,
                     )
 
-            # 5. No parser matched — route to AI agent
+            # 5. No parser matched — route to AIFileAgent for AI extraction
             if matched_parser is None:
                 logger.info(
-                    "No parser matched file_import_id=%s (%s) — marking needs_ai",
+                    "No parser matched file_import_id=%s (%s) — routing to AIFileAgent",
                     fi_id,
                     filename,
                 )
-                cur.execute(
-                    """
-                    UPDATE file_imports
-                    SET status = 'needs_ai',
-                        error_message = 'Unknown exchange format — route to AI agent',
-                        updated_at = NOW()
-                    WHERE id = %s
-                    """,
-                    (fi_id,),
-                )
-                conn.commit()
                 cur.close()
+                # Release connection back to pool before calling AI agent
+                # (AI agent manages its own connections; avoids pool exhaustion)
+                self.pool.putconn(conn)
+                conn = None
+
+                try:
+                    ai_result = AIFileAgent(self.pool).process_file(fi_id, user_id)
+                except Exception as ai_exc:
+                    logger.error(
+                        "AIFileAgent failed for file_import_id=%s: %s",
+                        fi_id, ai_exc, exc_info=True,
+                    )
+                    # Re-acquire connection to set failed status
+                    conn = self.pool.getconn()
+                    self._set_failed(fi_id, f"AI agent error: {ai_exc}", conn)
+                    self.pool.putconn(conn)
+                    conn = None
+                else:
+                    logger.info(
+                        "AIFileAgent complete for file_import_id=%s: "
+                        "imported=%s flagged=%s exchange=%s",
+                        fi_id,
+                        ai_result.get("imported", 0),
+                        ai_result.get("flagged", 0),
+                        ai_result.get("exchange_detected"),
+                    )
+                # AI agent has already updated file_imports status; nothing more to do
                 return
 
             logger.info(
@@ -200,21 +217,25 @@ class FileImportHandler:
             )
 
         except Exception as exc:
-            conn.rollback()
+            if conn is not None:
+                conn.rollback()
             logger.error(
                 "FileImportHandler unhandled error for file_import_id=%s: %s",
                 file_import_id,
                 exc,
                 exc_info=True,
             )
-            # Attempt to mark failed in a fresh connection to avoid leaving status as 'processing'
+            # Attempt to mark failed; use existing conn or acquire a fresh one
             try:
+                if conn is None:
+                    conn = self.pool.getconn()
                 self._set_failed(file_import_id, str(exc), conn)
             except Exception:
                 pass
             raise
         finally:
-            self.pool.putconn(conn)
+            if conn is not None:
+                self.pool.putconn(conn)
 
     # ------------------------------------------------------------------
     # Helpers
