@@ -63,15 +63,16 @@ Plans:
 
 **Goal:** Pull EVM chain data, import exchange transaction history via CSV and AI-powered file ingestion, and register chain plugins for all wallet inventory chains (ETH, Polygon, Optimism, Cronos, XRP, Akash).
 
-**Plans:** 6/6 plans complete
+**Plans:** 7 plans (6 complete + 1 gap closure)
 
 Plans:
-- [ ] 02-01-PLAN.md — Alembic migration 002 + chain/exchange plugin ABCs (Wave 1) [DATA-04, DATA-05]
-- [ ] 02-02-PLAN.md — EVMFetcher with Etherscan V2 pagination + PostgreSQL upsert (Wave 2) [DATA-04]
-- [ ] 02-03-PLAN.md — Exchange parser PostgreSQL migration + unit tests (Wave 2) [DATA-05]
-- [ ] 02-04-PLAN.md — Service wiring: EVM + file import handlers + upload API (Wave 3) [DATA-04, DATA-05]
-- [ ] 02-05-PLAN.md — AI-powered file ingestion agent via Claude API (Wave 3) [DATA-05]
-- [ ] 02-06-PLAN.md — Cross-source dedup + XRP/Akash stubs + final integration (Wave 4) [DATA-04, DATA-05]
+- [x] 02-01-PLAN.md — Alembic migration 002 + chain/exchange plugin ABCs (Wave 1) [DATA-04, DATA-05] ✓ DONE
+- [x] 02-02-PLAN.md — EVMFetcher with Etherscan V2 pagination + PostgreSQL upsert (Wave 2) [DATA-04] ✓ DONE
+- [x] 02-03-PLAN.md — Exchange parser PostgreSQL migration + unit tests (Wave 2) [DATA-05] ✓ DONE
+- [x] 02-04-PLAN.md — Service wiring: EVM + file import handlers + upload API (Wave 3) [DATA-04, DATA-05] ✓ DONE
+- [x] 02-05-PLAN.md — AI-powered file ingestion agent via Claude API (Wave 3) [DATA-05] ✓ DONE
+- [x] 02-06-PLAN.md — Cross-source dedup + XRP/Akash stubs + final integration (Wave 4) [DATA-04, DATA-05] ✓ DONE
+- [ ] 02-07-PLAN.md — Gap closure: migration 002b updated_at + dedup epoch fix + upload ON CONFLICT fix (Wave 5) [DATA-04, DATA-05]
 
 **Requirements:**
 - DATA-04: Pull EVM transaction history
@@ -88,6 +89,7 @@ Plans:
 
 **Deliverables:**
 - `db/migrations/versions/002_multichain_exchanges.py` — Phase 2 schema migration
+- `db/migrations/versions/002b_add_updated_at.py` — Gap closure: add updated_at columns
 - `indexers/chain_plugin.py` — ChainFetcher ABC
 - `indexers/exchange_plugin.py` — ExchangeParser + ExchangeConnector ABCs
 - `indexers/evm_fetcher.py` — Etherscan V2 fetcher with pagination
@@ -294,4 +296,4 @@ Phase 2 ──┘                                              │
 - Phase 7 requires Phase 6 (needs complete data pipeline), but UI scaffolding can start in parallel
 
 ---
-*Last updated: 2026-03-12 — Phase 2 planned: 6 plans in 4 waves for multi-chain EVM + exchange parsers + AI file ingestion.*
+*Last updated: 2026-03-12 — Phase 2 gap closure: 1 plan to fix updated_at columns, dedup epoch type mismatch, upload ON CONFLICT.*
