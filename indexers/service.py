@@ -35,6 +35,7 @@ from indexers.file_handler import FileImportHandler
 from indexers.xrp_fetcher import XRPFetcher
 from indexers.akash_fetcher import AkashFetcher
 from indexers.dedup_handler import DedupHandler
+from indexers.classifier_handler import ClassifierHandler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,6 +76,7 @@ class IndexerService:
             "akash_full_sync": AkashFetcher(self.pool),    # Akash Network full sync
             "akash_incremental": AkashFetcher(self.pool),  # Akash Network incremental
             "dedup_scan": DedupHandler(self.pool),         # Cross-source deduplication
+            "classify_transactions": ClassifierHandler(self.pool, self.price_service),  # Transaction classification
         }
         self.running = True
 
@@ -149,6 +151,8 @@ class IndexerService:
                         handler.sync_wallet(job)
                     elif job_type == "dedup_scan":
                         handler.run_scan(job)
+                    elif job_type == "classify_transactions":
+                        handler.run_classify(job)
                     else:
                         raise ValueError(f"Unknown job_type '{job_type}' — no dispatch method")
 
