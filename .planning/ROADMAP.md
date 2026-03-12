@@ -4,7 +4,7 @@
 
 | # | Phase | Goal | Requirements | Est. Time |
 |---|-------|------|--------------|-----------|
-| 1 | NEAR Indexer | Pull complete NEAR transaction history | DATA-01,02,03,06 | 2 days | 5/6 | In Progress|  | Pull EVM data and parse exchange CSVs | DATA-04,05 | 2 days |
+| 1 | NEAR Indexer | Pull complete NEAR transaction history | DATA-01,02,03,06 | 2 days | 6/6 | Complete   | 2026-03-12 | Pull EVM data and parse exchange CSVs | DATA-04,05 | 2 days |
 | 3 | Transaction Classification | Classify all transactions by tax type | CLASS-01,02,03,04,05 | 2 days |
 | 4 | Cost Basis Engine | Calculate ACB and track gains/losses | ACB-01,02,03,04,05 | 2 days |
 | 5 | Verification | Reconcile balances and detect issues | VER-01,02,03,04 | 1 day |
@@ -63,7 +63,7 @@ Plans:
 
 **Goal:** Pull EVM chain data, import exchange transaction history via CSV and AI-powered file ingestion, and register chain plugins for all wallet inventory chains (ETH, Polygon, Optimism, Cronos, XRP, Akash).
 
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 
 Plans:
 - [ ] 02-01-PLAN.md — Alembic migration 002 + chain/exchange plugin ABCs (Wave 1) [DATA-04, DATA-05]

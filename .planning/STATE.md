@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-12T18:54:32.746Z"
+last_updated: "2026-03-12T19:05:59.509Z"
 progress:
   total_phases: 8
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 19
-  completed_plans: 13
+  completed_plans: 14
 ---
 
 # Project State
@@ -22,12 +22,13 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 ## Current Phase
 
-**Phase 2: Multi-Chain + Exchanges** 🔨 IN PROGRESS
+**Phase 2: Multi-Chain + Exchanges** COMPLETE ✅
 - Plan 02-01: Alembic migration 002 + ChainFetcher/ExchangeParser/ExchangeConnector ABCs ✅ DONE (2026-03-12)
 - Plan 02-02: EVMFetcher (Etherscan V2 pagination + PostgreSQL upsert, 4 chains) ✅ DONE (2026-03-12)
 - Plan 02-03: Exchange CSV parsers migrated to PostgreSQL (all 5 parsers + 21 unit tests) ✅ DONE (2026-03-12)
 - Plan 02-04: Service wiring + file upload API (EVMFetcher + FileImportHandler wired, POST /api/upload-file) ✅ DONE (2026-03-12)
 - Plan 02-05: AIFileAgent + Claude API + confidence scoring (CONFIDENCE_THRESHOLD=0.8, 17 tests) ✅ DONE (2026-03-12)
+- Plan 02-06: DedupHandler + XRP/Akash stubs + AI fallback + all 8 job types in service.py ✅ DONE (2026-03-12)
 - EVM schema created (`db/schema_evm.sql`)
 - Exchange parser framework built (`indexers/exchange_parsers/`)
 - All 5 exchange parsers (Coinbase, Crypto.com, Wealthsimple, Uphold, Coinsquare) COMPLETE ✅
@@ -59,7 +60,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | Phase | Status | Completion |
 |-------|--------|------------|
 | 1. NEAR Indexer | **Complete** | 100% (6/6 plans) |
-| 2. Multi-Chain + Exchanges | In Progress | 83% (5/6 plans) |
+| 2. Multi-Chain + Exchanges | **Complete** | 100% (6/6 plans) |
 | 3. Transaction Classification | Not Started | 0% |
 | 4. Cost Basis Engine | Not Started | 0% |
 | 5. Verification | Not Started | 0% |
@@ -77,6 +78,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-12: **02-06 complete** - DedupHandler (1% tolerance + 10-min window + direction alignment), XRPFetcher + AkashFetcher stubs, AI fallback in FileImportHandler, all 8 Phase 2 job types in service.py; 10 unit tests
 - 2026-03-12: **02-05 complete** - AIFileAgent: Claude claude-sonnet-4-20250514 extracts transactions from any CSV/XLSX/PDF; CONFIDENCE_THRESHOLD=0.8; needs_review flag; 17 unit tests (all mocked, zero real API calls)
 - 2026-03-12: **02-04 complete** - Service wiring: EVMFetcher + FileImportHandler registered in IndexerService; FileImportHandler auto-detects exchange format; POST /api/upload-file with SHA-256 dedup, 50MB limit, job queuing
 - 2026-03-12: **02-03 complete** - All 5 exchange CSV parsers (Coinbase, Crypto.com, Wealthsimple, Uphold, Coinsquare) migrated to PostgreSQL; import_to_db uses pool/user_id/ON CONFLICT; 21 unit tests passing
@@ -156,6 +158,11 @@ None currently.
 | 2026-03-12 | CONFIDENCE_THRESHOLD=0.8 as importable module constant | Smart routing layer can import same threshold; easy to tune without changing agent class |
 | 2026-03-12 | Regex fallback for JSON extraction in AI response | Claude sometimes wraps JSON in markdown code blocks; regex handles without crashing |
 | 2026-03-12 | ai_{file_import_id}_{index} for missing tx_id | Deterministic ID enables ON CONFLICT dedup on re-import without requiring consistent Claude output |
+| 2026-03-12 | DedupHandler uses needs_review+notes for flagging | Avoids ALTER TABLE; leverages existing columns from migration 002 |
+| 2026-03-12 | 1% amount tolerance for cross-source dedup | Covers exchange rounding vs exact on-chain wei/drops values |
+| 2026-03-12 | 10-minute timestamp window for cross-source dedup | Covers network propagation latency + exchange recording delay |
+| 2026-03-12 | Sweat wallets handled by NearFetcher | Sweat is NEAR-based; no separate fetcher needed |
+| 2026-03-12 | Release conn before AIFileAgent call in FileImportHandler | AIFileAgent manages its own connections; releasing first prevents pool exhaustion |
 
 ---
-*Last updated: 2026-03-12 — Stopped at: Completed 02-multichain-exchanges 02-05-PLAN.md*
+*Last updated: 2026-03-12 — Stopped at: Completed 02-multichain-exchanges 02-06-PLAN.md*
