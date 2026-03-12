@@ -27,6 +27,9 @@ sys.path.insert(0, PROJECT_ROOT)
 from config import JOB_POLL_INTERVAL, SYNC_INTERVAL_MINUTES
 from indexers.db import get_pool, close_pool
 from indexers.near_fetcher import NearFetcher
+from indexers.staking_fetcher import StakingFetcher
+from indexers.lockup_fetcher import LockupFetcher
+from indexers.price_service import PriceService
 
 logging.basicConfig(
     level=logging.INFO,
@@ -51,8 +54,13 @@ class IndexerService:
 
     def __init__(self):
         self.pool = get_pool(min_conn=2, max_conn=5)
+        self.price_service = PriceService(self.pool)
         self.handlers = {
-            "near": NearFetcher(self.pool),
+            # job_type -> handler mapping
+            "full_sync": NearFetcher(self.pool),           # Full transaction history
+            "incremental_sync": NearFetcher(self.pool),    # Incremental tx update
+            "staking_sync": StakingFetcher(self.pool, self.price_service),
+            "lockup_sync": LockupFetcher(self.pool, self.price_service),
         }
         self.running = True
 
@@ -76,7 +84,7 @@ class IndexerService:
         Args:
             once: If True, process at most one job then exit. Useful for testing.
         """
-        logger.info("Indexer service starting. handlers=%s poll_interval=%ss", list(self.handlers.keys()), JOB_POLL_INTERVAL)
+        logger.info("Indexer service starting. job_types=%s poll_interval=%ss", list(self.handlers.keys()), JOB_POLL_INTERVAL)
 
         try:
             while self.running:
@@ -106,11 +114,19 @@ class IndexerService:
                 )
 
                 try:
-                    handler = self.handlers.get(chain)
+                    handler = self.handlers.get(job_type)
                     if handler is None:
-                        raise ValueError(f"No handler registered for chain '{chain}'")
+                        raise ValueError(f"No handler registered for job_type '{job_type}'")
 
-                    handler.sync_wallet(job)
+                    # Dispatch to the correct method based on job_type
+                    if job_type in ("full_sync", "incremental_sync"):
+                        handler.sync_wallet(job)
+                    elif job_type == "staking_sync":
+                        handler.sync_staking(job)
+                    elif job_type == "lockup_sync":
+                        handler.sync_lockup(job)
+                    else:
+                        raise ValueError(f"Unknown job_type '{job_type}' — no dispatch method")
 
                     # Success — mark job as completed
                     self._mark_completed(job_id)
@@ -268,18 +284,24 @@ class IndexerService:
 
     def check_incremental_syncs(self) -> None:
         """
-        Create incremental_sync jobs for wallets whose last sync has expired.
+        Create incremental_sync jobs for wallets whose last sync has expired, and
+        periodic staking_sync jobs for NEAR wallets every STAKING_SYNC_INTERVAL_MINUTES.
 
         Runs after each poll interval when the queue is empty. Queries wallets
         that have at least one completed full_sync job and whose last completed
         sync was more than SYNC_INTERVAL_MINUTES ago. Does not create a new job
         if one is already queued or running for that wallet.
+
+        Staking sync runs on a separate (longer) schedule: hourly by default.
         """
+        # Staking runs 4x less often than transaction incremental syncs (e.g. hourly vs 15-min)
+        STAKING_SYNC_INTERVAL_MINUTES = SYNC_INTERVAL_MINUTES * 4
+
         conn = self.pool.getconn()
         try:
             cur = conn.cursor()
 
-            # Find wallets needing incremental sync
+            # Find wallets needing incremental transaction sync
             cur.execute(
                 """
                 SELECT w.id AS wallet_id, w.user_id, w.chain,
@@ -294,6 +316,7 @@ class IndexerService:
                    AND NOT EXISTS (
                        SELECT 1 FROM indexing_jobs pending
                        WHERE pending.wallet_id = w.id
+                         AND pending.job_type IN ('incremental_sync', 'full_sync')
                          AND pending.status IN ('queued', 'running', 'retrying')
                    )
                 """,
@@ -313,6 +336,43 @@ class IndexerService:
                     VALUES (%s, %s, 'incremental_sync', %s, 'queued', 0, %s)
                     """,
                     (user_id, wallet_id, chain, last_cursor),
+                )
+
+            # Find NEAR wallets needing periodic staking sync (hourly)
+            cur.execute(
+                """
+                SELECT w.id AS wallet_id, w.user_id, w.chain,
+                       MAX(j.completed_at) AS last_staking_sync
+                FROM wallets w
+                JOIN indexing_jobs j ON j.wallet_id = w.id
+                WHERE j.status = 'completed'
+                  AND j.job_type IN ('full_sync', 'staking_sync')
+                  AND w.chain = 'near'
+                GROUP BY w.id, w.user_id, w.chain
+                HAVING MAX(j.completed_at) < NOW() - INTERVAL '%s minutes'
+                   AND NOT EXISTS (
+                       SELECT 1 FROM indexing_jobs pending
+                       WHERE pending.wallet_id = w.id
+                         AND pending.job_type = 'staking_sync'
+                         AND pending.status IN ('queued', 'running', 'retrying')
+                   )
+                """,
+                (STAKING_SYNC_INTERVAL_MINUTES,),
+            )
+            staking_wallets = cur.fetchall()
+
+            for wallet_id, user_id, chain, last_staking_sync in staking_wallets:
+                logger.info(
+                    "Scheduling periodic staking sync for wallet_id=%s (last: %s)",
+                    wallet_id, last_staking_sync,
+                )
+                cur.execute(
+                    """
+                    INSERT INTO indexing_jobs
+                        (user_id, wallet_id, job_type, chain, status, priority)
+                    VALUES (%s, %s, 'staking_sync', 'near', 'queued', 2)
+                    """,
+                    (user_id, wallet_id),
                 )
 
             conn.commit()
