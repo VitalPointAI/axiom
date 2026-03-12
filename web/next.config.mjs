@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: "standalone",
   reactStrictMode: false,
   transpilePackages: ['@aurora-is-near/intents-swap-widget'],
   // Force cache busting for the auth fix
