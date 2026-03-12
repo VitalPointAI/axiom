@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
     await db.run(
       `INSERT INTO wallets (user_id, account_id, chain)
        VALUES ($1, $2, 'exchange')
-       ON CONFLICT (account_id) DO NOTHING`,
+       ON CONFLICT (user_id, account_id, chain) DO NOTHING`,
       [userId, exchangeAccountId]
     );
 
