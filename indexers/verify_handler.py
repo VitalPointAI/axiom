@@ -3,14 +3,13 @@
 Registered in IndexerService as 'verify_balances'.
 Triggered after calculate_acb completes (queued by ACBHandler).
 
-Orchestrates three verification modules:
+Orchestrates four verification modules:
   1. verify/reconcile.py -- balance reconciliation
   2. verify/duplicates.py -- duplicate detection
   3. verify/gaps.py -- missing transaction finder
+  4. verify/report.py -- discrepancy report generation
 """
 import logging
-
-from verify.reconcile import BalanceReconciler
 
 logger = logging.getLogger(__name__)
 
@@ -34,43 +33,80 @@ class VerifyHandler:
         Called by IndexerService when job_type == 'verify_balances'.
 
         Steps:
-          1. Run balance reconciliation for all user wallets
-          2. Run duplicate detection scan
-          3. Run gap detection
-          4. Update account_verification_status rollup
+          1. Balance reconciliation (all chains)
+          2. Duplicate detection (multi-signal scoring)
+          3. Gap detection (NEAR archival RPC)
+          4. Account verification status rollup
+          5. Discrepancy report generation
+
+        Uses lazy imports to avoid circular imports and to ensure the handler
+        skeleton works even before all modules are implemented (same pattern
+        as ACBHandler which lazy-imports ACBEngine).
 
         Args:
             job: Job dict from indexing_jobs row. Must contain 'user_id'.
         """
+        from verify.reconcile import BalanceReconciler
+        from verify.duplicates import DuplicateDetector
+        from verify.gaps import GapDetector
+        from verify.report import DiscrepancyReporter
+
         user_id = job["user_id"]
         logger.info("Starting verification for user_id=%s", user_id)
 
         # Step 1: Balance reconciliation
-        try:
-            reconciler = BalanceReconciler(self.pool)
-            recon_stats = reconciler.reconcile_user(user_id)
-            logger.info(
-                "Step 1: Balance reconciliation for user_id=%s: %s",
-                user_id,
-                recon_stats,
-            )
-        except Exception as exc:
-            logger.error(
-                "Step 1: Balance reconciliation failed for user_id=%s: %s",
-                user_id,
-                exc,
-            )
+        reconciler = BalanceReconciler(self.pool)
+        reconcile_stats = reconciler.reconcile_user(user_id)
+        logger.info(
+            "Reconciliation complete for user_id=%s: %d wallets checked, "
+            "%d within tolerance, %d flagged, %d errors",
+            user_id,
+            reconcile_stats.get("wallets_checked", 0),
+            reconcile_stats.get("within_tolerance", 0),
+            reconcile_stats.get("flagged", 0),
+            reconcile_stats.get("errors", 0),
+        )
 
         # Step 2: Duplicate detection
-        logger.info("Step 2: Duplicate detection for user_id=%s (not yet implemented)", user_id)
+        detector = DuplicateDetector(self.pool)
+        dedup_stats = detector.scan_user(user_id)
+        logger.info(
+            "Duplicate scan complete for user_id=%s: %d hash dupes merged, "
+            "%d bridge flagged, %d exchange flagged/merged",
+            user_id,
+            dedup_stats.get("hash_dupes_merged", 0),
+            dedup_stats.get("bridge_flagged", 0),
+            dedup_stats.get("exchange_flagged", 0) + dedup_stats.get("exchange_merged", 0),
+        )
 
-        # Step 3: Gap detection
-        logger.info("Step 3: Gap detection for user_id=%s (not yet implemented)", user_id)
+        # Step 3: Gap detection (NEAR only)
+        gap_detector = GapDetector(self.pool)
+        gap_stats = gap_detector.detect_gaps(user_id)
+        logger.info(
+            "Gap detection complete for user_id=%s: %d wallets scanned, "
+            "%d gaps found, %d re-index jobs queued",
+            user_id,
+            gap_stats.get("wallets_scanned", 0),
+            gap_stats.get("gaps_found", 0),
+            gap_stats.get("reindex_jobs_queued", 0),
+        )
 
         # Step 4: Update account verification status rollup
         self._update_account_status(user_id)
 
-        logger.info("Verification complete for user_id=%s", user_id)
+        # Step 5: Generate discrepancy report
+        reporter = DiscrepancyReporter(self.pool)
+        report_path = reporter.generate_report(user_id)
+        logger.info("Discrepancy report written to %s", report_path)
+
+        logger.info(
+            "Verification complete for user_id=%s: "
+            "reconciled=%d, dupes=%d, gaps=%d",
+            user_id,
+            reconcile_stats.get("wallets_checked", 0),
+            dedup_stats.get("hash_dupes_merged", 0) + dedup_stats.get("exchange_merged", 0),
+            gap_stats.get("gaps_found", 0),
+        )
 
     def _update_account_status(self, user_id: int) -> None:
         """Update account_verification_status for all user wallets.
