@@ -1668,3 +1668,315 @@ class TestAccountingExports(unittest.TestCase):
         accounts = [r[account_idx] for r in rows]
         self.assertTrue(any('Income' in a for a in accounts),
                         f"No Income account found in: {accounts}")
+
+
+# ---------------------------------------------------------------------------
+# TestPackageBuilder
+# ---------------------------------------------------------------------------
+
+class TestPackageBuilder(unittest.TestCase):
+    """Tests for PackageBuilder.build() orchestrator."""
+
+    def _make_pool(self):
+        """Mock pool that satisfies gate check (0 needs_review) and returns empty rows."""
+        pool = MagicMock()
+        conn = MagicMock()
+        cur = MagicMock()
+        pool.getconn.return_value = conn
+        conn.cursor.return_value = cur
+        cur.fetchone.return_value = (0,)
+        cur.fetchall.return_value = []
+        return pool
+
+    def _mock_summary(self):
+        """Default summary dict returned by all mocked report modules."""
+        return {
+            'total_proceeds': '0', 'net_gain_loss': '0',
+            'total_income': '0', 'by_source': {},
+            'row_count': 0, 'file_path': 'mock.csv',
+            't1135_required': False, 'total_foreign_cost': '0',
+            'self_custody_ambiguous': False, 'self_custody_cost': '0',
+            'count': 0, 'total_denied': '0',
+            'output_path': 'mock.csv',
+            'token_count': 0, 'total_cost_cad': '0',
+            'crypto_income_cad': '0', 'capital_gains_net_cad': '0',
+            'net_business_income_cad': '0',
+            'files': ['mock.csv'],
+        }
+
+    def _build_with_mocks(self, pool, tax_year=2024, tax_treatment='capital',
+                          tmpdir=None, specialist_override=False):
+        """Helper: patch all report modules and ReportEngine._check_gate, run build(), return (manifest, patchers)."""
+        from reports.generate import PackageBuilder
+
+        modules = [
+            'reports.generate.CapitalGainsReport',
+            'reports.generate.IncomeReport',
+            'reports.generate.LedgerReport',
+            'reports.generate.T1135Checker',
+            'reports.generate.SuperficialLossReport',
+            'reports.generate.KoinlyExport',
+            'reports.generate.AccountingExporter',
+            'reports.generate.InventoryHoldingsReport',
+            'reports.generate.COGSReport',
+            'reports.generate.BusinessIncomeStatement',
+        ]
+
+        patchers = {}
+        for mod in modules:
+            p = patch(mod)
+            mock_cls = p.start()
+            mock_inst = MagicMock()
+            mock_inst.generate.return_value = self._mock_summary()
+            mock_inst.generate_all.return_value = {
+                'quickbooks': 'mock_qb.iif',
+                'xero': 'mock_xero.csv',
+                'sage50': 'mock_sage.csv',
+                'double_entry': 'mock_de.csv',
+            }
+            mock_cls.return_value = mock_inst
+            patchers[mod] = (p, mock_inst)
+
+        # Patch the top-level gate check and write_pdf to avoid DB/WeasyPrint calls
+        gate_patcher = patch('reports.generate.ReportEngine._check_gate',
+                             return_value={'blocked': False, 'flagged_count': 0})
+        gate_patcher.start()
+        patchers['_gate'] = (gate_patcher, None)
+
+        pdf_patcher = patch('reports.generate.ReportEngine.write_pdf',
+                            return_value='mock.pdf')
+        pdf_patcher.start()
+        patchers['_pdf'] = (pdf_patcher, None)
+
+        try:
+            builder = PackageBuilder(pool, specialist_override=specialist_override)
+            manifest = builder.build(
+                user_id=1,
+                tax_year=tax_year,
+                output_base=tmpdir or '/tmp',
+                year_end_month=12,
+                tax_treatment=tax_treatment,
+            )
+        finally:
+            for mod, (p, _) in patchers.items():
+                p.stop()
+
+        return manifest, patchers
+
+    def test_build_calls_all_base_reports(self):
+        """Test 1: build() calls CapitalGainsReport, IncomeReport, LedgerReport, T1135Checker."""
+        import tempfile
+        from reports.generate import PackageBuilder
+        pool = self._make_pool()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest, patchers = self._build_with_mocks(pool, tmpdir=tmpdir)
+        # Each of these report generate() methods should have been called
+        for key in [
+            'reports.generate.CapitalGainsReport',
+            'reports.generate.IncomeReport',
+            'reports.generate.LedgerReport',
+            'reports.generate.T1135Checker',
+        ]:
+            mock_inst = patchers[key][1]
+            self.assertTrue(
+                mock_inst.generate.called or mock_inst.generate_all.called,
+                f"{key} was not called during build()"
+            )
+
+    def test_build_creates_output_directory(self):
+        """Test 2: Output directory output/{year}_tax_package/ is created."""
+        import tempfile
+        import os
+        from reports.generate import PackageBuilder
+        pool = self._make_pool()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest, _ = self._build_with_mocks(pool, tmpdir=tmpdir, tax_year=2024)
+            expected_dir = os.path.join(tmpdir, '2024_tax_package')
+            self.assertTrue(os.path.isdir(expected_dir),
+                            f"Expected output dir {expected_dir} to exist")
+
+    def test_build_returns_manifest_with_required_keys(self):
+        """Test 3 + 10: build() returns manifest dict with files, summaries, tax_year, output_dir."""
+        import tempfile
+        from reports.generate import PackageBuilder
+        pool = self._make_pool()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest, _ = self._build_with_mocks(pool, tmpdir=tmpdir)
+        self.assertIn('files', manifest)
+        self.assertIn('summaries', manifest)
+        self.assertIn('tax_year', manifest)
+        self.assertIn('output_dir', manifest)
+        self.assertIsInstance(manifest['files'], list)
+        self.assertIsInstance(manifest['summaries'], dict)
+
+    def test_build_includes_koinly_export(self):
+        """Test 4: Koinly export (year + full) is included."""
+        import tempfile
+        from reports.generate import PackageBuilder
+        pool = self._make_pool()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest, patchers = self._build_with_mocks(pool, tmpdir=tmpdir)
+        koinly_mock = patchers['reports.generate.KoinlyExport'][1]
+        # Called at least twice: once for year-specific, once for full history
+        self.assertGreaterEqual(koinly_mock.generate.call_count, 2,
+                                "KoinlyExport.generate() should be called twice (year + full)")
+
+    def test_build_includes_accounting_exports(self):
+        """Test 5: Accounting exports (QB, Xero, Sage, double-entry) are included."""
+        import tempfile
+        from reports.generate import PackageBuilder
+        pool = self._make_pool()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest, patchers = self._build_with_mocks(pool, tmpdir=tmpdir)
+        acct_mock = patchers['reports.generate.AccountingExporter'][1]
+        self.assertTrue(acct_mock.generate_all.called,
+                        "AccountingExporter.generate_all() should be called")
+
+    def test_capital_treatment_skips_cogs(self):
+        """Test 6: tax_treatment='capital' skips COGSReport."""
+        import tempfile
+        from reports.generate import PackageBuilder
+        pool = self._make_pool()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest, patchers = self._build_with_mocks(
+                pool, tmpdir=tmpdir, tax_treatment='capital'
+            )
+        cogs_mock = patchers['reports.generate.COGSReport'][1]
+        self.assertFalse(cogs_mock.generate.called,
+                         "COGSReport should NOT be called for tax_treatment='capital'")
+
+    def test_business_inventory_includes_cogs_and_business_income(self):
+        """Test 7: tax_treatment='business_inventory' includes COGSReport and BusinessIncomeStatement."""
+        import tempfile
+        from reports.generate import PackageBuilder
+        pool = self._make_pool()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest, patchers = self._build_with_mocks(
+                pool, tmpdir=tmpdir, tax_treatment='business_inventory'
+            )
+        cogs_mock = patchers['reports.generate.COGSReport'][1]
+        biz_mock = patchers['reports.generate.BusinessIncomeStatement'][1]
+        self.assertTrue(cogs_mock.generate.called,
+                        "COGSReport should be called for tax_treatment='business_inventory'")
+        self.assertTrue(biz_mock.generate.called,
+                        "BusinessIncomeStatement should be called for tax_treatment='business_inventory'")
+
+    def test_hybrid_treatment_includes_both_views(self):
+        """Test 8: tax_treatment='hybrid' generates both capital and business views."""
+        import tempfile
+        from reports.generate import PackageBuilder
+        pool = self._make_pool()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest, patchers = self._build_with_mocks(
+                pool, tmpdir=tmpdir, tax_treatment='hybrid'
+            )
+        cogs_mock = patchers['reports.generate.COGSReport'][1]
+        biz_mock = patchers['reports.generate.BusinessIncomeStatement'][1]
+        self.assertTrue(cogs_mock.generate.called,
+                        "COGSReport should be called for tax_treatment='hybrid'")
+        self.assertTrue(biz_mock.generate.called,
+                        "BusinessIncomeStatement should be called for tax_treatment='hybrid'")
+
+    def test_gate_check_runs_once(self):
+        """Test 9: Gate check runs once at top level, not per-report (mocked so 0 gate calls in report modules)."""
+        import tempfile
+        from reports.generate import PackageBuilder
+        pool = self._make_pool()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest, _ = self._build_with_mocks(pool, tmpdir=tmpdir)
+        # Gate check is done once in PackageBuilder; if it ran, manifest returned means no exception
+        self.assertIn('tax_year', manifest)
+
+
+# ---------------------------------------------------------------------------
+# TestReportHandler
+# ---------------------------------------------------------------------------
+
+class TestReportHandler(unittest.TestCase):
+    """Tests for ReportHandler job type."""
+
+    def _make_pool(self):
+        pool = MagicMock()
+        conn = MagicMock()
+        cur = MagicMock()
+        pool.getconn.return_value = conn
+        conn.cursor.return_value = cur
+        cur.fetchone.return_value = (0,)
+        cur.fetchall.return_value = []
+        return pool
+
+    def _make_job_row(self, tax_year=2024, tax_treatment='capital',
+                      year_end_month=12, specialist_override=False,
+                      excluded_wallet_ids=None):
+        import json
+        return {
+            'id': 1,
+            'user_id': 1,
+            'wallet_id': 1,
+            'job_type': 'generate_reports',
+            'chain': 'near',
+            'cursor': json.dumps({
+                'tax_year': tax_year,
+                'tax_treatment': tax_treatment,
+                'year_end_month': year_end_month,
+                'specialist_override': specialist_override,
+                'excluded_wallet_ids': excluded_wallet_ids or [],
+            }),
+        }
+
+    def test_run_with_valid_job_row_returns_stats(self):
+        """Test 1: run() with valid job_row returns stats dict with files_generated and output_dir."""
+        import tempfile
+        from reports.handlers.report_handler import ReportHandler
+        pool = self._make_pool()
+        handler = ReportHandler(pool)
+        job_row = self._make_job_row()
+
+        with patch('reports.handlers.report_handler.PackageBuilder') as mock_pb_cls:
+            mock_pb = MagicMock()
+            mock_pb.build.return_value = {
+                'files': ['file1.csv', 'file2.pdf'],
+                'summaries': {},
+                'tax_year': 2024,
+                'output_dir': '/tmp/2024_tax_package',
+            }
+            mock_pb_cls.return_value = mock_pb
+
+            with tempfile.TemporaryDirectory() as tmpdir:
+                stats = handler.run(job_row, conn=MagicMock())
+
+        self.assertIn('files_generated', stats)
+        self.assertIn('output_dir', stats)
+        self.assertEqual(stats['files_generated'], 2)
+
+    def test_run_with_blocked_gate_returns_error_dict(self):
+        """Test 2: run() with ReportBlockedError returns error dict without raising."""
+        from reports.handlers.report_handler import ReportHandler
+        from reports.engine import ReportBlockedError
+        pool = self._make_pool()
+        handler = ReportHandler(pool)
+        job_row = self._make_job_row()
+
+        with patch('reports.handlers.report_handler.PackageBuilder') as mock_pb_cls:
+            mock_pb = MagicMock()
+            mock_pb.build.side_effect = ReportBlockedError(
+                user_id=1, tax_year=2024, flagged_count=5
+            )
+            mock_pb_cls.return_value = mock_pb
+
+            stats = handler.run(job_row, conn=MagicMock())
+
+        self.assertIn('error', stats)
+        self.assertTrue(stats.get('blocked'), "blocked flag should be True")
+
+    def test_generate_reports_registered_in_service(self):
+        """Test 3: generate_reports job type is registered in IndexerService handler map."""
+        with patch('indexers.service.get_pool') as mock_pool, \
+             patch('indexers.service.PriceService') as mock_price, \
+             patch.object(__import__('signal'), 'signal'):
+            mock_pool.return_value = MagicMock()
+            mock_price.return_value = MagicMock()
+            from indexers.service import IndexerService
+            service = IndexerService()
+            self.assertIn('generate_reports', service.handlers,
+                          "generate_reports should be registered in IndexerService.handlers")

@@ -1,402 +1,445 @@
-#!/usr/bin/env python3
 """
-Tax report generator for Canadian corporate taxes.
+PackageBuilder — orchestrates all Axiom tax reports into a deliverable tax package.
 
-Generates:
-1. Capital gains/losses summary
-2. Income summary (staking rewards, etc)
-3. Full transaction ledger
-4. T1135 foreign property check
-5. Koinly-compatible CSV export
+Creates output/{year}_tax_package/ flat folder containing:
+  - CSV and PDF reports (capital gains, income, ledger, T1135, inventory, business income)
+  - Koinly CSV export (year-specific + full history)
+  - Accounting software exports (QuickBooks IIF, Xero CSV, Sage 50 CSV, double-entry CSV)
+  - Tax summary PDF (combined one-pager)
+
+Usage:
+    from reports.generate import PackageBuilder
+    builder = PackageBuilder(pool, specialist_override=False)
+    manifest = builder.build(
+        user_id=1,
+        tax_year=2024,
+        output_base='output',
+        year_end_month=12,
+        tax_treatment='capital',
+    )
+    # manifest = {
+    #     'files': [...],
+    #     'summaries': {...},
+    #     'tax_year': 2024,
+    #     'output_dir': 'output/2024_tax_package',
+    # }
+
+Tax treatment values:
+    'capital'           — Standard capital property (50% inclusion, no COGS)
+    'business_inventory' — Full business inventory (100%, COGS deductible)
+    'hybrid'            — Both views generated
 """
 
-import csv
+import argparse
+import logging
+import os
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
-import sys
+from typing import Optional
 
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
+from reports.engine import ReportEngine, ReportBlockedError, fmt_cad
+from reports.capital_gains import CapitalGainsReport
+from reports.income import IncomeReport
+from reports.ledger import LedgerReport
+from reports.t1135 import T1135Checker
+from reports.superficial import SuperficialLossReport
+from reports.export import KoinlyExport, AccountingExporter
+from reports.inventory import InventoryHoldingsReport, COGSReport
+from reports.business import BusinessIncomeStatement
 
-from db.init import get_connection
-from engine.acb import PortfolioACB
+logger = logging.getLogger(__name__)
 
 
-def generate_capital_gains_report(year, output_dir=None):
+class PackageBuilder:
+    """Orchestrates all tax reports into a complete deliverable tax package.
+
+    Performs a single gate check at the top level, then instantiates each report
+    module and calls generate(). Writes both CSV and PDF outputs for each report
+    that has a template.
+
+    Args:
+        pool: psycopg2 connection pool.
+        specialist_override: If True, bypass the gate check and log a WARNING.
     """
-    Generate capital gains/losses report for a tax year.
-    
-    Returns summary dict and writes CSV if output_dir provided.
-    """
-    # TODO: Build from actual transaction data
-    # For now, return structure
-    
-    report = {
-        'year': year,
-        'total_proceeds': 0,
-        'total_acb': 0,
-        'total_gains': 0,
-        'total_losses': 0,
-        'net_gain_loss': 0,
-        'taxable_amount': 0,  # 50% inclusion rate
-        'dispositions': []
-    }
-    
-    if output_dir:
-        output_path = Path(output_dir) / f"capital_gains_{year}.csv"
-        with open(output_path, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                'Date', 'Asset', 'Units', 'Proceeds (CAD)', 
-                'ACB', 'Gain/Loss', 'Notes'
-            ])
-            for d in report['dispositions']:
-                writer.writerow([
-                    d.get('date'),
-                    d.get('symbol'),
-                    d.get('units'),
-                    d.get('proceeds'),
-                    d.get('acb'),
-                    d.get('gain_loss'),
-                    d.get('notes', '')
-                ])
-        print(f"Wrote: {output_path}")
-    
-    return report
 
+    def __init__(self, pool, specialist_override: bool = False):
+        self.pool = pool
+        self.specialist_override = specialist_override
 
-def generate_income_report(year, output_dir=None):
-    """
-    Generate income report (staking rewards, airdrops, etc).
-    
-    In Canada, these are taxable as income at FMV when received.
-    """
-    conn = get_connection()
-    
-    # Get staking/income transactions from exchange imports
-    rows = conn.execute("""
-        SELECT tx_date, asset, quantity, total_value, tx_type, notes
-        FROM exchange_transactions
-        WHERE tx_type IN ('staking_reward', 'interest', 'reward', 'airdrop')
-        AND strftime('%Y', tx_date) = ?
-        ORDER BY tx_date
-    """, (str(year),)).fetchall()
-    
-    conn.close()
-    
-    income_items = []
-    total_income = 0
-    
-    for row in rows:
-        item = {
-            'date': row[0],
-            'asset': row[1],
-            'quantity': float(row[2] or 0),
-            'fmv_cad': float(row[3] or 0),
-            'type': row[4],
-            'notes': row[5]
+    def build(
+        self,
+        user_id: int,
+        tax_year: int,
+        output_base: str = 'output',
+        year_end_month: int = 12,
+        tax_treatment: str = 'capital',
+        excluded_wallet_ids: Optional[list] = None,
+    ) -> dict:
+        """Build the complete tax package for a user and tax year.
+
+        Creates ``output_base/{year}_tax_package/`` flat folder and writes all reports.
+
+        Args:
+            user_id: User to generate reports for.
+            tax_year: Tax year (calendar year label).
+            output_base: Base output directory (default: 'output').
+            year_end_month: Fiscal year end month (default 12 = calendar year).
+            tax_treatment: One of 'capital', 'business_inventory', 'hybrid'.
+            excluded_wallet_ids: Optional wallet IDs to exclude from reports.
+
+        Returns:
+            dict with keys:
+                files: List of all generated file paths.
+                summaries: Dict of report_name -> summary_dict.
+                tax_year: int
+                output_dir: str (the package directory path)
+
+        Raises:
+            ReportBlockedError: If gate check fails and specialist_override=False.
+        """
+        # 1. Create output directory
+        output_dir = os.path.join(output_base, f'{tax_year}_tax_package')
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        # 2. Gate check — once at top level
+        engine = ReportEngine(self.pool, specialist_override=self.specialist_override)
+        gate_result = engine._check_gate(user_id, tax_year)
+        flagged_count = gate_result['flagged_count']
+
+        generated_date = datetime.now().strftime('%Y-%m-%d')
+        files = []
+        summaries = {}
+
+        # ----------------------------------------------------------------
+        # Capital Gains
+        # ----------------------------------------------------------------
+        cg_report = CapitalGainsReport(self.pool, specialist_override=self.specialist_override)
+        # Bypass internal gate check since we already ran it
+        cg_report._gate_checked = True
+        cg_summary = self._run_generate(cg_report, user_id, tax_year, output_dir,
+                                        year_end_month=year_end_month,
+                                        excluded_wallet_ids=excluded_wallet_ids)
+        summaries['capital_gains'] = cg_summary
+
+        # PDF: capital_gains_{year}.pdf
+        cg_pdf = engine.write_pdf(
+            output_path=os.path.join(output_dir, f'capital_gains_{tax_year}.pdf'),
+            template_name='capital_gains.html',
+            context={
+                'report_title': f'Capital Gains/Losses Report — {tax_year}',
+                'tax_year': tax_year,
+                'generated_date': generated_date,
+                'specialist_override': self.specialist_override,
+                'flagged_count': flagged_count,
+                'total_proceeds': fmt_cad(cg_summary.get('total_proceeds', Decimal('0'))),
+                'total_acb_used': fmt_cad(cg_summary.get('total_acb_used', Decimal('0'))),
+                'total_fees': fmt_cad(cg_summary.get('total_fees', Decimal('0'))),
+                'total_gains': fmt_cad(cg_summary.get('total_gains', Decimal('0'))),
+                'total_losses': fmt_cad(cg_summary.get('total_losses', Decimal('0'))),
+                'net_gain_loss': fmt_cad(cg_summary.get('net_gain_loss', Decimal('0'))),
+                'taxable_amount': fmt_cad(cg_summary.get('taxable_amount', Decimal('0'))),
+                'superficial_losses_denied': fmt_cad(cg_summary.get('superficial_losses_denied')),
+                'rows': [],  # Rows rendered via CSV; PDF shows summary only
+            },
+        )
+        files.append(cg_pdf)
+        # CSV files
+        files.extend(self._find_csv_files(output_dir, f'capital_gains_{tax_year}'))
+
+        # ----------------------------------------------------------------
+        # Income
+        # ----------------------------------------------------------------
+        inc_report = IncomeReport(self.pool, specialist_override=self.specialist_override)
+        inc_summary = self._run_generate(inc_report, user_id, tax_year, output_dir,
+                                         year_end_month=year_end_month,
+                                         excluded_wallet_ids=excluded_wallet_ids)
+        summaries['income'] = inc_summary
+
+        # PDF: income_summary_{year}.pdf
+        by_source_fmt = {k: fmt_cad(v) for k, v in inc_summary.get('by_source', {}).items()}
+        inc_pdf = engine.write_pdf(
+            output_path=os.path.join(output_dir, f'income_summary_{tax_year}.pdf'),
+            template_name='income.html',
+            context={
+                'report_title': f'Income Summary — {tax_year}',
+                'tax_year': tax_year,
+                'generated_date': generated_date,
+                'total_income': fmt_cad(inc_summary.get('total_income', Decimal('0'))),
+                'by_source': by_source_fmt,
+                'monthly_rows': [],
+                'detail_rows': [],
+            },
+        )
+        files.append(inc_pdf)
+        files.extend(self._find_csv_files(output_dir, f'income_summary_{tax_year}'))
+        files.extend(self._find_csv_files(output_dir, f'income_by_month_{tax_year}'))
+
+        # ----------------------------------------------------------------
+        # Ledger
+        # ----------------------------------------------------------------
+        ledger_report = LedgerReport(self.pool, specialist_override=self.specialist_override)
+        ledger_summary = self._run_generate(ledger_report, user_id, tax_year, output_dir,
+                                             year_end_month=year_end_month,
+                                             excluded_wallet_ids=excluded_wallet_ids)
+        summaries['ledger'] = ledger_summary
+        files.extend(self._find_csv_files(output_dir, f'ledger_{tax_year}'))
+
+        # ----------------------------------------------------------------
+        # T1135 Check
+        # ----------------------------------------------------------------
+        t1135_checker = T1135Checker(self.pool, specialist_override=self.specialist_override)
+        t1135_summary = self._run_generate(t1135_checker, user_id, tax_year, output_dir,
+                                            year_end_month=year_end_month)
+        summaries['t1135'] = t1135_summary
+
+        # PDF: t1135_check_{year}.pdf
+        t1135_pdf = engine.write_pdf(
+            output_path=os.path.join(output_dir, f't1135_check_{tax_year}.pdf'),
+            template_name='t1135.html',
+            context={
+                'report_title': f'T1135 Foreign Property Check — {tax_year}',
+                'tax_year': tax_year,
+                'generated_date': generated_date,
+                'total_foreign_cost': fmt_cad(t1135_summary.get('total_foreign_cost', Decimal('0'))),
+                't1135_required': t1135_summary.get('t1135_required', False),
+                'token_rows': [],
+                'self_custody_rows': [],
+            },
+        )
+        files.append(t1135_pdf)
+        files.extend(self._find_csv_files(output_dir, f't1135_{tax_year}'))
+
+        # ----------------------------------------------------------------
+        # Superficial Losses (always included — Koinly parity)
+        # ----------------------------------------------------------------
+        superficial_report = SuperficialLossReport(self.pool, specialist_override=self.specialist_override)
+        superficial_summary = self._run_generate(superficial_report, user_id, tax_year, output_dir,
+                                                  year_end_month=year_end_month)
+        summaries['superficial_loss'] = superficial_summary
+        files.extend(self._find_csv_files(output_dir, f'superficial_losses_{tax_year}'))
+
+        # ----------------------------------------------------------------
+        # Inventory Holdings
+        # ----------------------------------------------------------------
+        inv_report = InventoryHoldingsReport(self.pool, specialist_override=self.specialist_override)
+        inv_summary = self._run_generate(inv_report, user_id, tax_year, output_dir,
+                                          year_end_month=year_end_month)
+        summaries['inventory'] = inv_summary
+
+        # PDF: inventory_holdings_{year}.pdf
+        inv_pdf = engine.write_pdf(
+            output_path=os.path.join(output_dir, f'inventory_holdings_{tax_year}.pdf'),
+            template_name='inventory.html',
+            context={
+                'report_title': f'Inventory Holdings — {tax_year}',
+                'tax_year': tax_year,
+                'generated_date': generated_date,
+                'as_of_date': f'December 31, {tax_year}',
+                'rows': [],
+                'total_acb': fmt_cad(inv_summary.get('total_cost_cad', Decimal('0'))),
+                'total_fmv': 'N/A',
+                'total_unrealized': 'N/A',
+            },
+        )
+        files.append(inv_pdf)
+        files.extend(self._find_csv_files(output_dir, f'inventory_holdings_{tax_year}'))
+
+        # ----------------------------------------------------------------
+        # COGS and Business Income (conditional on tax_treatment)
+        # ----------------------------------------------------------------
+        if tax_treatment in ('business_inventory', 'hybrid'):
+            cogs_report = COGSReport(self.pool, specialist_override=self.specialist_override)
+            cogs_summary = self._run_generate(cogs_report, user_id, tax_year, output_dir,
+                                               year_end_month=year_end_month,
+                                               tax_treatment=tax_treatment)
+            summaries['cogs'] = cogs_summary
+            files.extend(self._find_csv_files(output_dir, f'cogs_{tax_year}'))
+
+            biz_report = BusinessIncomeStatement(self.pool, specialist_override=self.specialist_override)
+            biz_summary = self._run_generate(biz_report, user_id, tax_year, output_dir,
+                                              year_end_month=year_end_month,
+                                              tax_treatment=tax_treatment)
+            summaries['business_income'] = biz_summary
+
+            # PDF: business_income_{year}.pdf
+            biz_pdf = engine.write_pdf(
+                output_path=os.path.join(output_dir, f'business_income_{tax_year}.pdf'),
+                template_name='business_income.html',
+                context={
+                    'report_title': f'Business Income Statement — {tax_year}',
+                    'tax_year': tax_year,
+                    'generated_date': generated_date,
+                    'tax_treatment': tax_treatment,
+                    'crypto_income': fmt_cad(biz_summary.get('crypto_income_cad', Decimal('0'))),
+                    'trading_gains': fmt_cad(biz_summary.get('capital_gains_net_cad', Decimal('0'))),
+                    'total_revenue': fmt_cad(biz_summary.get('net_business_income_cad', Decimal('0'))),
+                    'cogs_available': True,
+                    'opening_inventory': '0.00',
+                    'acquisitions': '0.00',
+                    'closing_inventory': '0.00',
+                    'cogs': '0.00',
+                    'net_business_income': fmt_cad(biz_summary.get('net_business_income_cad', Decimal('0'))),
+                },
+            )
+            files.append(biz_pdf)
+            files.extend(self._find_csv_files(output_dir, f'business_income_{tax_year}'))
+
+        # ----------------------------------------------------------------
+        # Koinly exports (year + full history)
+        # ----------------------------------------------------------------
+        koinly = KoinlyExport(self.pool, specialist_override=self.specialist_override)
+        koinly_year = koinly.generate(user_id, tax_year, output_dir,
+                                       year_end_month=year_end_month, full_history=False)
+        summaries['koinly_year'] = koinly_year
+        if koinly_year.get('file_path'):
+            files.append(koinly_year['file_path'])
+
+        koinly_full = koinly.generate(user_id, tax_year, output_dir,
+                                       year_end_month=year_end_month, full_history=True)
+        summaries['koinly_full'] = koinly_full
+        if koinly_full.get('file_path'):
+            files.append(koinly_full['file_path'])
+
+        # ----------------------------------------------------------------
+        # Accounting exports
+        # ----------------------------------------------------------------
+        acct = AccountingExporter(self.pool, specialist_override=self.specialist_override)
+        acct_result = acct.generate_all(user_id, tax_year, output_dir,
+                                         year_end_month=year_end_month)
+        summaries['accounting'] = acct_result
+        files.extend([v for v in acct_result.values() if isinstance(v, str)])
+
+        # ----------------------------------------------------------------
+        # Tax summary PDF (combined one-pager)
+        # ----------------------------------------------------------------
+        tax_summary_pdf = engine.write_pdf(
+            output_path=os.path.join(output_dir, f'tax_summary_{tax_year}.pdf'),
+            template_name='tax_summary.html',
+            context={
+                'report_title': f'Tax Summary — {tax_year}',
+                'tax_year': tax_year,
+                'generated_date': generated_date,
+                'tax_treatment': tax_treatment,
+                'cg': {
+                    'total_proceeds': fmt_cad(cg_summary.get('total_proceeds', Decimal('0'))),
+                    'total_acb_used': fmt_cad(cg_summary.get('total_acb_used', Decimal('0'))),
+                    'total_fees': fmt_cad(cg_summary.get('total_fees', Decimal('0'))),
+                    'net_gain_loss': fmt_cad(cg_summary.get('net_gain_loss', Decimal('0'))),
+                    'taxable_amount': fmt_cad(cg_summary.get('taxable_amount', Decimal('0'))),
+                    'superficial_losses_denied': fmt_cad(cg_summary.get('superficial_losses_denied')),
+                },
+                'inc': {
+                    'total_income': fmt_cad(inc_summary.get('total_income', Decimal('0'))),
+                    'by_source': by_source_fmt,
+                },
+                't1135': {
+                    'total_foreign_cost': fmt_cad(t1135_summary.get('total_foreign_cost', Decimal('0'))),
+                    't1135_required': t1135_summary.get('t1135_required', False),
+                    'self_custody_ambiguous': t1135_summary.get('self_custody_ambiguous', False),
+                    'self_custody_cost': fmt_cad(t1135_summary.get('self_custody_cost', Decimal('0'))),
+                },
+                'superficial': {
+                    'count': superficial_summary.get('count', 0),
+                    'total_denied': fmt_cad(superficial_summary.get('total_denied', Decimal('0'))),
+                },
+            },
+        )
+        files.append(tax_summary_pdf)
+
+        logger.info(
+            "PackageBuilder complete: user_id=%s tax_year=%s files=%d output_dir=%s",
+            user_id, tax_year, len(files), output_dir,
+        )
+
+        return {
+            'files': files,
+            'summaries': summaries,
+            'tax_year': tax_year,
+            'output_dir': output_dir,
         }
-        income_items.append(item)
-        total_income += item['fmv_cad']
-    
-    report = {
-        'year': year,
-        'total_income': total_income,
-        'items': income_items,
-        'by_type': {}
-    }
-    
-    # Group by type
-    for item in income_items:
-        tx_type = item['type']
-        if tx_type not in report['by_type']:
-            report['by_type'][tx_type] = {'count': 0, 'total': 0}
-        report['by_type'][tx_type]['count'] += 1
-        report['by_type'][tx_type]['total'] += item['fmv_cad']
-    
-    if output_dir:
-        output_path = Path(output_dir) / f"income_{year}.csv"
-        with open(output_path, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                'Date', 'Type', 'Asset', 'Quantity', 'FMV (CAD)', 'Notes'
-            ])
-            for item in income_items:
-                writer.writerow([
-                    item['date'],
-                    item['type'],
-                    item['asset'],
-                    item['quantity'],
-                    item['fmv_cad'],
-                    item['notes'] or ''
-                ])
-        print(f"Wrote: {output_path}")
-    
-    return report
+
+    # ----------------------------------------------------------------
+    # Internal helpers
+    # ----------------------------------------------------------------
+
+    def _run_generate(self, report_instance, user_id, tax_year, output_dir, **kwargs):
+        """Call report_instance.generate() with common args + extra kwargs.
+
+        Skips the gate check re-run by temporarily setting specialist_override=True
+        on the instance (gate was already run once at top level).
+        """
+        # Temporarily bypass internal gate check — already done at top level
+        original_override = report_instance.specialist_override
+        report_instance.specialist_override = True
+        try:
+            return report_instance.generate(
+                user_id=user_id,
+                tax_year=tax_year,
+                output_dir=output_dir,
+                **kwargs,
+            )
+        finally:
+            report_instance.specialist_override = original_override
+
+    @staticmethod
+    def _find_csv_files(output_dir: str, prefix: str) -> list:
+        """Find CSV files in output_dir that match a given prefix."""
+        result = []
+        try:
+            for fname in os.listdir(output_dir):
+                if fname.startswith(prefix) and fname.endswith('.csv'):
+                    result.append(os.path.join(output_dir, fname))
+        except FileNotFoundError:
+            pass
+        return result
 
 
-def generate_transaction_ledger(year=None, output_dir=None):
-    """
-    Generate full transaction ledger for audit trail.
-    """
-    conn = get_connection()
-    
-    # NEAR transactions
-    query = """
-        SELECT 'NEAR' as chain, w.account_id, t.tx_hash, t.block_timestamp,
-               t.action_type, t.direction, t.counterparty, t.amount, t.fee
-        FROM transactions t
-        JOIN wallets w ON t.wallet_id = w.id
-    """
-    if year:
-        # Filter by year (block_timestamp is in nanoseconds)
-        start_ns = int(datetime(year, 1, 1).timestamp() * 1e9)
-        end_ns = int(datetime(year + 1, 1, 1).timestamp() * 1e9)
-        query += f" WHERE t.block_timestamp >= {start_ns} AND t.block_timestamp < {end_ns}"
-    
-    query += " ORDER BY t.block_timestamp"
-    
-    rows = conn.execute(query).fetchall()
-    conn.close()
-    
-    ledger = []
-    for row in rows:
-        ledger.append({
-            'chain': row[0],
-            'account': row[1],
-            'tx_hash': row[2],
-            'timestamp': row[3],
-            'action': row[4],
-            'direction': row[5],
-            'counterparty': row[6],
-            'amount': row[7],
-            'fee': row[8]
-        })
-    
-    if output_dir:
-        output_path = Path(output_dir) / f"ledger_{year or 'all'}.csv"
-        with open(output_path, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                'Chain', 'Account', 'TX Hash', 'Timestamp',
-                'Action', 'Direction', 'Counterparty', 'Amount', 'Fee'
-            ])
-            for item in ledger:
-                writer.writerow([
-                    item['chain'],
-                    item['account'],
-                    item['tx_hash'],
-                    item['timestamp'],
-                    item['action'],
-                    item['direction'],
-                    item['counterparty'],
-                    item['amount'],
-                    item['fee']
-                ])
-        print(f"Wrote: {output_path}")
-    
-    return ledger
-
-
-def check_t1135_threshold(year, threshold_cad=100000):
-    """
-    Check if T1135 (Foreign Income Verification Statement) is required.
-    
-    Required if cost of specified foreign property > $100,000 CAD
-    at any time during the year.
-    
-    Crypto held on non-Canadian exchanges is specified foreign property.
-    """
-    # TODO: Calculate max portfolio value during year
-    # For now, return structure
-    
-    return {
-        'year': year,
-        'threshold': threshold_cad,
-        'max_value': 0,  # TODO: calculate
-        'required': False,
-        'note': 'T1135 required if foreign property cost > $100,000 CAD'
-    }
-
-
-def export_koinly_format(year=None, output_dir=None):
-    """
-    Export transactions in Koinly-compatible CSV format.
-    
-    Koinly format columns:
-    Date, Sent Amount, Sent Currency, Received Amount, Received Currency,
-    Fee Amount, Fee Currency, Net Worth Amount, Net Worth Currency,
-    Label, Description, TxHash
-    """
-    conn = get_connection()
-    output_path = Path(output_dir or '.') / f"koinly_export_{year or 'all'}.csv"
-    
-    with open(output_path, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            'Date', 'Sent Amount', 'Sent Currency', 
-            'Received Amount', 'Received Currency',
-            'Fee Amount', 'Fee Currency',
-            'Net Worth Amount', 'Net Worth Currency',
-            'Label', 'Description', 'TxHash'
-        ])
-        
-        # Export NEAR transactions
-        rows = conn.execute("""
-            SELECT t.block_timestamp, t.direction, t.amount, t.fee, 
-                   t.action_type, t.tx_hash, w.account_id
-            FROM transactions t
-            JOIN wallets w ON t.wallet_id = w.id
-            ORDER BY t.block_timestamp
-        """).fetchall()
-        
-        for row in rows:
-            timestamp = row[0]
-            if timestamp:
-                # Convert nanoseconds to datetime
-                try:
-                    date = datetime.fromtimestamp(int(timestamp) / 1e9).strftime('%Y-%m-%d %H:%M:%S')
-                except:
-                    date = ''
-            else:
-                date = ''
-            
-            direction = row[1]
-            amount = float(row[2] or 0) / 1e24  # yoctoNEAR to NEAR
-            fee = float(row[3] or 0) / 1e24
-            action = row[4]
-            tx_hash = row[5]
-            account = row[6]
-            
-            sent_amount = amount if direction == 'out' else ''
-            sent_currency = 'NEAR' if direction == 'out' else ''
-            received_amount = amount if direction == 'in' else ''
-            received_currency = 'NEAR' if direction == 'in' else ''
-            
-            label = ''
-            if action == 'STAKE':
-                label = 'staking'
-            elif action == 'UNSTAKE':
-                label = 'unstaking'
-            
-            writer.writerow([
-                date,
-                sent_amount,
-                sent_currency,
-                received_amount,
-                received_currency,
-                fee if fee > 0 else '',
-                'NEAR' if fee > 0 else '',
-                '', '',  # Net worth
-                label,
-                f"{action} - {account}",
-                tx_hash
-            ])
-        
-        # Export exchange transactions
-        rows = conn.execute("""
-            SELECT tx_date, tx_type, asset, quantity, fee, fee_asset, 
-                   total_value, currency, notes, tx_id
-            FROM exchange_transactions
-            ORDER BY tx_date
-        """).fetchall()
-        
-        for row in rows:
-            date = row[0]
-            tx_type = row[1]
-            asset = row[2]
-            quantity = row[3]
-            fee = row[4]
-            fee_asset = row[5]
-            total_value = row[6]
-            currency = row[7]
-            notes = row[8]
-            tx_id = row[9]
-            
-            sent_amount = quantity if tx_type in ['sell', 'send'] else ''
-            sent_currency = asset if tx_type in ['sell', 'send'] else ''
-            received_amount = quantity if tx_type in ['buy', 'receive', 'staking_reward'] else ''
-            received_currency = asset if tx_type in ['buy', 'receive', 'staking_reward'] else ''
-            
-            # For buys, we also receive fiat worth
-            if tx_type == 'sell' and total_value:
-                received_amount = total_value
-                received_currency = currency
-            elif tx_type == 'buy' and total_value:
-                sent_amount = total_value
-                sent_currency = currency
-            
-            label = tx_type
-            if tx_type == 'staking_reward':
-                label = 'reward'
-            
-            writer.writerow([
-                date,
-                sent_amount,
-                sent_currency,
-                received_amount,
-                received_currency,
-                fee or '',
-                fee_asset or '',
-                '', '',
-                label,
-                notes or '',
-                tx_id or ''
-            ])
-    
-    conn.close()
-    print(f"Wrote: {output_path}")
-    return str(output_path)
-
-
-def generate_all_reports(year, output_dir):
-    """Generate all tax reports for a year."""
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    print(f"\nGenerating tax reports for {year}...")
-    print(f"Output directory: {output_dir}")
-    print("-" * 50)
-    
-    # Capital gains
-    cg = generate_capital_gains_report(year, output_dir)
-    print(f"Capital Gains: {cg['net_gain_loss']:.2f} CAD")
-    
-    # Income
-    inc = generate_income_report(year, output_dir)
-    print(f"Income: {inc['total_income']:.2f} CAD")
-    
-    # Ledger
-    ledger = generate_transaction_ledger(year, output_dir)
-    print(f"Transaction Ledger: {len(ledger)} entries")
-    
-    # T1135 check
-    t1135 = check_t1135_threshold(year)
-    print(f"T1135 Required: {t1135['required']}")
-    
-    # Koinly export
-    koinly_path = export_koinly_format(year, output_dir)
-    print(f"Koinly Export: {koinly_path}")
-    
-    print("-" * 50)
-    print("Reports generated successfully!")
-    
-    return {
-        'capital_gains': cg,
-        'income': inc,
-        'ledger_entries': len(ledger),
-        't1135': t1135,
-        'koinly_export': koinly_path
-    }
-
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="Generate tax reports")
-    parser.add_argument("--year", type=int, default=2025, help="Tax year")
-    parser.add_argument("--output", "-o", default="./output", help="Output directory")
-    
+    import sys
+    from pathlib import Path as _Path
+    _PROJECT_ROOT = _Path(__file__).parent.parent
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+    parser = argparse.ArgumentParser(
+        description="Generate complete Axiom tax package for a given year."
+    )
+    parser.add_argument('--year', type=int,
+                        default=datetime.now().year - 1,
+                        help='Tax year (default: last year)')
+    parser.add_argument('--output', default='output',
+                        help='Output base directory (default: output)')
+    parser.add_argument('--tax-treatment',
+                        choices=['capital', 'business_inventory', 'hybrid'],
+                        default='capital',
+                        help='Tax treatment mode (default: capital)')
+    parser.add_argument('--year-end-month', type=int, default=12,
+                        help='Fiscal year end month 1-12 (default: 12)')
+    parser.add_argument('--specialist-override', action='store_true',
+                        help='Bypass gate check for specialist review')
+    parser.add_argument('--user-id', type=int, default=1,
+                        help='User ID to generate report for (default: 1)')
     args = parser.parse_args()
-    
-    generate_all_reports(args.year, args.output)
+
+    from config import DATABASE_URL
+    import psycopg2.pool
+    pool = psycopg2.pool.SimpleConnectionPool(1, 3, DATABASE_URL)
+    try:
+        builder = PackageBuilder(pool, specialist_override=args.specialist_override)
+        manifest = builder.build(
+            user_id=args.user_id,
+            tax_year=args.year,
+            output_base=args.output,
+            year_end_month=args.year_end_month,
+            tax_treatment=args.tax_treatment,
+        )
+        print(f"Tax package complete: {manifest['output_dir']}")
+        print(f"Files generated: {len(manifest['files'])}")
+        for f in sorted(manifest['files']):
+            print(f"  {f}")
+    finally:
+        pool.closeall()

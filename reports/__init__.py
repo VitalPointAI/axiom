@@ -9,6 +9,7 @@ from reports.engine import (
 from reports.ledger import LedgerReport
 from reports.t1135 import T1135Checker
 from reports.superficial import SuperficialLossReport
+from reports.generate import PackageBuilder
 
 __all__ = [
     "ReportEngine",
@@ -19,4 +20,5 @@ __all__ = [
     "LedgerReport",
     "T1135Checker",
     "SuperficialLossReport",
+    "PackageBuilder",
 ]
