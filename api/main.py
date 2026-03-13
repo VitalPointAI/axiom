@@ -22,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import indexers.db as _db
 from api.auth import router as auth_router
 from api.routers import (
+    exchanges_router,
     jobs_router,
     portfolio_router,
     reports_router,
@@ -85,6 +86,7 @@ def create_app() -> FastAPI:
     application.include_router(transactions_router)
     application.include_router(portfolio_router)
     application.include_router(reports_router)
+    application.include_router(exchanges_router)
     application.include_router(verification_router)
     application.include_router(jobs_router)
 
