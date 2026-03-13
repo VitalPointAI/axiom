@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-03-13T22:16:04Z"
+last_updated: "2026-03-13T22:28:00Z"
 progress:
   total_phases: 8
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 37
-  completed_plans: 38
+  completed_plans: 39
 ---
 
 # Project State
@@ -60,14 +60,14 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Plan 08-01: Production Docker Compose + deployment scripts ✅ DONE (2026-03-12)
 - Plan 08-02: GitHub Actions deploy workflow + .gitignore hardening ✅ DONE (2026-03-12)
 
-**Phase 7: Web UI** 🔄 IN PROGRESS
+**Phase 7: Web UI** COMPLETE ✅
 - Plan 07-01: FastAPI foundation (migration 006 + app + auth deps + test infra) ✅ DONE (2026-03-13)
 - Plan 07-02: WebAuthn passkey + OAuth + magic link auth system ✅ DONE (2026-03-13)
 - Plan 07-03: Wallet CRUD + portfolio summary + job status endpoints ✅ DONE (2026-03-13)
 - Plan 07-04: Transaction ledger + classification editing + review queue ✅ DONE (2026-03-13)
 - Plan 07-05: Reports + verification API (generate/preview/download + verification dashboard) ✅ DONE (2026-03-13)
 - Plan 07-06: Frontend FastAPI rewiring (apiClient + auth page + pipeline progress bar + all dashboard pages) ✅ DONE (2026-03-13)
-- Plan 07-07: (remaining)
+- Plan 07-07: Docker deployment + Next.js API route removal (4-service Docker stack, api/Dockerfile, 75 routes deleted) ✅ DONE (2026-03-13)
 
 **Needs from Aaron:**
 1. Exchange CSV files (Crypto.com, Wealthsimple, Uphold, Coinsquare, Coinbase)
@@ -84,7 +84,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | 4. Cost Basis Engine | **Complete** | 100% (3/3 plans) |
 | 5. Verification | **Complete** | 100% (4/4 plans) |
 | 6. Reporting | **Complete** | 100% (5/5 plans) |
-| 7. Web UI | **In Progress** | 86% (6/7 plans) |
+| 7. Web UI | **Complete** | 100% (7/7 plans) |
 
 ## Accumulated Context
 
@@ -97,6 +97,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-13: **07-07 complete** - Docker deployment finalized: api/Dockerfile (python:3.11-slim, project root context, 2 uvicorn workers), docker-compose.prod.yml updated to 4 services (postgres/migrate/web/api/indexer), rolling restart api->web->indexer, healthcheck.sh adds FastAPI /health, 75 Next.js API routes deleted, web/lib DB files deleted, middleware simplified.
 - 2026-03-13: **07-06 complete** - Frontend FastAPI rewiring: apiClient (credentials:include), auth-provider (GET /auth/session), auth page (SimpleWebAuthn + OAuth + magic link to FastAPI), 4-stage pipeline progress bar, portfolio/wallets/transactions/reports all wired to FastAPI.
 - 2026-03-13: **07-05 complete** - Report generation via job queue, 6 inline previews (LIMIT 50), FileResponse downloads with path-traversal guard, SHA-256 exchange CSV import, verification dashboard (summary+issues+resolve+resync+needs-review-count); 28 tests pass.
 - 2026-03-13: **07-04 complete** - Transaction ledger router + classification editing + review queue; transaction filtering, needs_review updates, reclassification endpoints; tests pass.
@@ -308,4 +309,9 @@ None currently.
 | 2026-03-13 | NEAR wallet creation queues full_sync+staking_sync+lockup_sync; EVM queues evm_full_sync | Separate job types per chain; classify_transactions auto-chains from ClassifierHandler (no explicit job needed) |
 | 2026-03-13 | portfolio/summary uses ROW_NUMBER OVER (PARTITION BY token_symbol ORDER BY as_of_date DESC) | Window function gives latest snapshot per token in one query without subquery per token |
 
-*Last updated: 2026-03-13 — Stopped at: Completed 07-web-ui 07-06-PLAN.md.*
+| 2026-03-13 | api Dockerfile uses project root build context | Same pattern as indexers/Dockerfile; allows `from db.models import ...` and `from engine.acb import ...` without path manipulation |
+| 2026-03-13 | web depends_on api with service_healthy condition | Ensures FastAPI is up and passing /health before Next.js starts; prevents 502s on cold start |
+| 2026-03-13 | Rolling restart order: api -> web -> indexer | Backend ready before frontend serves requests; indexer is background worker and can start last |
+| 2026-03-13 | DATABASE_URL removed from web service env | Next.js no longer has any direct DB access; all data flows through FastAPI API |
+
+*Last updated: 2026-03-13 — Stopped at: Completed 07-web-ui 07-07-PLAN.md (checkpoint:human-verify pending).*

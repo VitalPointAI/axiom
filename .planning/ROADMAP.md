@@ -273,7 +273,7 @@ Plans:
 - [x] 07-04-PLAN.md — Transaction ledger + classification editing + review queue + batch recalc (Wave 3) [UI-04, UI-05] ✅ DONE (2026-03-13)
 - [x] 07-05-PLAN.md — Report generation/preview/download + verification dashboard (Wave 3) [UI-06, UI-07] ✅ DONE (2026-03-13)
 - [x] 07-06-PLAN.md — Frontend rewiring: API client + auth-provider + dashboard pages + progress bar (Wave 4) [UI-01, UI-02, UI-03, UI-04, UI-05, UI-06, UI-07] ✓ DONE
-- [ ] 07-07-PLAN.md — Docker integration + deploy workflow update + old API route cleanup + e2e verify (Wave 5) [UI-01, UI-02, UI-03, UI-04, UI-05, UI-06, UI-07, UI-08]
+- [x] 07-07-PLAN.md — Docker integration + deploy workflow update + old API route cleanup + e2e verify (Wave 5) [UI-01, UI-02, UI-03, UI-04, UI-05, UI-06, UI-07, UI-08] ✅ DONE (2026-03-13)
 
 **Requirements:**
 - UI-01: Web UI with user authentication via near-phantom-auth (passkey + email + Google OAuth)
@@ -361,4 +361,4 @@ Phase 2 ──┘                                              │
 - Phase 7 requires Phase 6 (needs complete data pipeline), but UI scaffolding can start in parallel
 
 ---
-*Last updated: 2026-03-13 — Phase 7 PLANNED: 7 plans in 5 waves. FastAPI backend + auth migration + wallet/transaction/report/verification APIs + frontend rewiring + Docker integration.*
+*Last updated: 2026-03-13 — Phase 7 COMPLETE: 7/7 plans. FastAPI Docker container added, 75 Next.js API routes removed, 4-service production stack ready.*
