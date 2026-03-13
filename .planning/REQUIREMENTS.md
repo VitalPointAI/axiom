@@ -36,8 +36,8 @@
 
 ### Reporting
 
-- [ ] **RPT-01**: System generates capital gains/losses summary for tax year (2025)
-- [ ] **RPT-02**: System generates income summary (staking rewards, airdrops) by month
+- [x] **RPT-01**: System generates capital gains/losses summary for tax year (2025)
+- [x] **RPT-02**: System generates income summary (staking rewards, airdrops) by month
 - [ ] **RPT-03**: System generates full transaction ledger with classifications
 - [ ] **RPT-04**: System checks T1135 threshold (foreign property > $100K CAD)
 - [ ] **RPT-05**: System exports accountant-ready CSV package
@@ -99,8 +99,8 @@
 | VER-02 | Phase 5 | Complete (05-01) |
 | VER-03 | Phase 5 | Complete |
 | VER-04 | Phase 5 | Complete (05-04) |
-| RPT-01 | Phase 6 | Not Started |
-| RPT-02 | Phase 6 | Not Started |
+| RPT-01 | Phase 6 | Complete (06-01) |
+| RPT-02 | Phase 6 | Complete (06-01) |
 | RPT-03 | Phase 6 | Not Started |
 | RPT-04 | Phase 6 | Not Started |
 | RPT-05 | Phase 6 | Not Started |

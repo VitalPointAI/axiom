@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-13T12:00:00.000Z"
+last_updated: "2026-03-13T19:03:00.000Z"
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 28
-  completed_plans: 27
+  completed_plans: 28
 ---
 
 # Project State
@@ -21,6 +21,13 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 **Current focus:** Phase 1 - NEAR Indexer
 
 ## Current Phase
+
+**Phase 6: Reporting** IN PROGRESS
+- Plan 06-01: ReportEngine base class + CapitalGainsReport + IncomeReport ✅ DONE (2026-03-13)
+- Plan 06-02: LedgerReport + T1135Checker + SuperficialLossReport (Wave 2) - PENDING
+- Plan 06-03: KoinlyExport + accounting software exports - PENDING
+- Plan 06-04: Inventory Holdings + COGS + Business Income Statement + FIFO engine - PENDING
+- Plan 06-05: PDF templates + PackageBuilder + ReportHandler job wiring - PENDING
 
 **Phase 5: Verification** COMPLETE ✅
 - Plan 05-01: Migration 005 + SQLAlchemy models + VerifyHandler skeleton + service/ACB wiring + config tolerances ✅ DONE (2026-03-13)
@@ -72,7 +79,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | 3. Transaction Classification | **Complete** | 100% (5/5 plans) |
 | 4. Cost Basis Engine | **Complete** | 100% (3/3 plans) |
 | 5. Verification | **Complete** | 100% (4/4 plans) |
-| 6. Reporting | Not Started | 0% |
+| 6. Reporting | In Progress | 20% (1/5 plans) |
 | 7. Web UI | **PLANNED** | 0% |
 
 ## Accumulated Context
@@ -86,6 +93,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-13: **06-01 complete** - ReportEngine (needs_review gate check + specialist override), CapitalGainsReport (chronological + grouped-by-token CSVs, 50% inclusion), IncomeReport (detail + monthly CSVs), 25 tests; reports/ removed from .gitignore
 - 2026-03-13: **05-04 complete** - GapDetector (monthly balance checkpoints vs archival NEAR RPC relative deltas, targeted re-index queuing), DiscrepancyReporter (DISCREPANCIES.md generation), VerifyHandler fully wired with all 4 modules. Phase 5 COMPLETE.
 - 2026-03-13: **05-03 complete** - DuplicateDetector with 3-scan pipeline (hash dedup score=1.0, bridge heuristic score=0.60, exchange re-scan multi-signal 0.85/0.80/0.60), balance-aware auto-merge, verification_results audit trail; 885 lines
 - 2026-03-13: **05-02 complete** - BalanceReconciler rewrite (1002 lines): NEAR decomposed balance (liquid+locked+staked via RPC), EVM Etherscan V2 native balance, dual cross-check (ACBPool vs raw replay), 4-category auto-diagnosis (missing_staking_rewards, uncounted_fees, unindexed_period, classification_error), exchange manual balance path, verification_results upsert
@@ -227,6 +235,10 @@ None currently.
 | 2026-03-13 | Gap diagnosis confidence 0.60 | Archival liquid balance is an approximation; lower confidence triggers specialist review |
 | 2026-03-13 | Lazy imports in VerifyHandler.run_verify() | Matches ACBHandler pattern; avoids circular imports; handler skeleton works before all modules exist |
 | 2026-03-13 | DISCREPANCIES.md grouped by diagnosis_category | Clear specialist review: reconciliation issues, duplicate merges, gap detections in separate sections |
+| 2026-03-13 | reports/ removed from .gitignore | Reports package is source code (engine.py, capital_gains.py, income.py), not test output |
+| 2026-03-13 | Gate check queries both CGL and ACB for needs_review | Both tables can have unresolved items that block report accuracy |
+| 2026-03-13 | taxable_amount = net_gain_loss * Decimal('0.50') | Canadian 50% capital gains inclusion rate for 2024 tax year |
+| 2026-03-13 | Monthly income summary uses DB GROUP BY DATE_TRUNC | Aggregation at DB level is more efficient than Python-side; query pattern from RESEARCH.md |
 | 2026-03-13 | NearBlocks kitwallet as optional staking fallback | Catches pre-indexing validators not in staking_events table; try/except so API key not required |
 | 2026-03-13 | Auto-diagnosis priority order with confidence > 0.5 threshold | First matching heuristic wins; prevents multiple conflicting diagnoses per discrepancy |
 | 2026-03-12 | scan_for_user() and apply_superficial_losses() as separate methods | Allows dry-run inspection before persistence; specialist can review scan output before applying |
@@ -236,4 +248,4 @@ None currently.
 | 2026-03-12 | stats['superficial_losses'] added to ACBEngine return | ACBHandler log includes count for observability; consistent with other stats keys |
 
 ---
-*Last updated: 2026-03-13 — Stopped at: Completed 05-verification 05-04-PLAN.md. Phase 5 COMPLETE.*
+*Last updated: 2026-03-13 — Stopped at: Completed 06-reporting 06-01-PLAN.md.*
