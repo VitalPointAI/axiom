@@ -1,537 +1,310 @@
 # Codebase Structure
 
-**Analysis Date:** 2026-03-11
+**Analysis Date:** 2026-03-13
 
 ## Directory Layout
 
 ```
-Axiom/
-├── config.py                    # Global Python config (DB path, API keys, rate limits)
-├── docker-compose.yml           # Container orchestration (PostgreSQL, web, indexers)
-├── 01_create_table.sql          # Root-level schema creation script
-├── wallets.json                 # Wallet address configuration
-├── neartax.db                   # Legacy SQLite database file (10MB)
-├── *.py (30+ files)             # Ad-hoc analysis/debug/fix scripts (root clutter)
-├── *.sql (2 files)              # Ad-hoc SQL scripts
-│
-├── db/                          # Database schema and initialization
+axiom/
+├── api/                          # FastAPI backend
 │   ├── __init__.py
-│   ├── init.py                  # DB initialization logic
-│   ├── schema.sql               # Core NEAR transaction schema (PostgreSQL)
-│   ├── schema_evm.sql           # EVM chain schema
-│   ├── schema_exchanges.sql     # Exchange import schema
-│   ├── schema_users.sql         # User/auth schema
-│   └── seed_wallets.py          # Wallet seeding script
-│
-├── engine/                      # Core business logic (Python)
-│   ├── __init__.py
-│   ├── acb.py                   # Adjusted Cost Base calculator
-│   ├── classifier.py            # Transaction classification engine
-│   ├── prices.py                # Price resolution logic
-│   └── wallet_graph.py          # Wallet relationship graph
-│
-├── indexers/                    # Blockchain & exchange data ingestion (Python)
-│   ├── __init__.py
-│   ├── Dockerfile               # Indexer container build
-│   ├── requirements.txt         # Python dependencies for indexers
-│   ├── crontab                  # Scheduled indexer jobs
-│   ├── near_indexer.py          # NEAR Protocol indexer (RPC-based)
-│   ├── near_indexer_nearblocks.py  # NEAR via NearBlocks API
-│   ├── neardata_indexer.py      # NEAR via neardata service (largest: 34KB)
-│   ├── neardata_fast.py         # Fast NEAR indexing variant
-│   ├── evm_indexer.py           # EVM chain indexer (Etherscan)
-│   ├── evm_indexer_alchemy.py   # EVM via Alchemy API
-│   ├── ft_indexer.py            # Fungible token indexer (SQLite)
-│   ├── ft_indexer_pg.py         # Fungible token indexer (PostgreSQL)
-│   ├── xrp_indexer.py           # XRP Ledger indexer
-│   ├── akash_indexer.py         # Akash Network indexer
-│   ├── cryptoorg_indexer.py     # Crypto.org chain indexer
-│   ├── coinbase_indexer.py      # Coinbase exchange indexer
-│   ├── coinbase_pro_indexer.py  # Coinbase Pro indexer
-│   ├── cryptocom_indexer.py     # Crypto.com exchange indexer
-│   ├── staking_indexer.py       # Staking data indexer
-│   ├── epoch_rewards_indexer.py # NEAR epoch rewards (largest indexer: 27KB)
-│   ├── hybrid_indexer.py        # Combined indexing strategy
-│   ├── price_service.py         # Price fetching service
-│   ├── price_fetcher.py         # Price API client
-│   ├── nearblocks_client.py     # NearBlocks API wrapper
-│   ├── burrow_tracker.py        # Burrow DeFi tracking
-│   ├── burrow_history_parser.py # Burrow transaction parsing
-│   ├── lockup_parser.py         # NEAR lockup contract parser
-│   ├── mpdao_tracker.py         # Meta Pool DAO tracker
-│   ├── sweat_jars_tracker.py    # Sweat Economy tracker
-│   ├── balance_snapshot.py      # Balance snapshot utility
-│   ├── rewards_calculator.py    # Staking rewards calculation
-│   ├── staking_rewards.py       # Staking rewards data
-│   ├── staking_rewards_history.py # Historical staking rewards
-│   ├── backfill_*.py (8 files)  # Various historical data backfill scripts
-│   ├── sync-staking-pg.py       # PostgreSQL staking sync
-│   ├── exchange_connectors/     # Exchange API connectors
+│   ├── main.py                   # App factory, router mounting, lifespan
+│   ├── dependencies.py           # Database pool, auth, dependency injection
+│   ├── auth/                     # Auth endpoints (login, logout, passkey)
+│   ├── routers/                  # API endpoint handlers
 │   │   ├── __init__.py
-│   │   ├── coinbase.py          # Coinbase API connector
-│   │   ├── cryptocom.py         # Crypto.com API connector
-│   │   └── kraken.py            # Kraken API connector
-│   └── exchange_parsers/        # CSV/file import parsers
-│       ├── __init__.py
-│       ├── base.py              # Base parser class
-│       ├── coinbase.py          # Coinbase CSV parser
-│       ├── crypto_com.py        # Crypto.com CSV parser
-│       ├── generic.py           # Generic CSV parser
-│       └── wealthsimple.py      # Wealthsimple CSV parser
-│
-├── tax/                         # Tax calculation and reporting (Python)
+│   │   ├── wallets.py            # Wallet CRUD + sync status
+│   │   ├── transactions.py       # Transaction search, classification override
+│   │   ├── portfolio.py          # Balance, holdings, allocation
+│   │   ├── reports.py            # Report generation, preview, download
+│   │   ├── jobs.py               # Job queue status polling
+│   │   ├── verification.py       # Balance reconciliation
+│   │   └── exchanges.py          # Exchange import endpoints
+│   └── schemas/                  # Pydantic request/response models
+├── engine/                       # Tax calculation logic
 │   ├── __init__.py
-│   ├── acb_calculator.py        # ACB tax lot tracking
-│   ├── categories.py            # Transaction tax categories
-│   ├── cost_basis.py            # Cost basis computation
-│   ├── currency.py              # Currency conversion (CAD focus)
-│   ├── price_warnings.py        # Missing/suspicious price alerts
-│   └── reports.py               # Tax report generation
-│
-├── defi/                        # DeFi protocol parsers (Python)
+│   ├── classifier.py             # Transaction classification engine (1200+ lines)
+│   ├── acb.py                    # ACB cost basis calculation (1000+ lines)
+│   ├── gains.py                  # Capital gains ledger records
+│   ├── fifo.py                   # FIFO method (alternative to ACB)
+│   ├── superficial.py            # Superficial loss rule detection
+│   ├── spam_detector.py          # Spam transaction filtering
+│   ├── wallet_graph.py           # Internal transfer detection
+│   ├── evm_decoder.py            # EVM contract call decoding
+│   ├── rule_seeder.py            # Classification rule initialization
+│   └── prices.py                 # Price fetching (legacy, see price_service)
+├── indexers/                     # Blockchain data fetching + job queue
 │   ├── __init__.py
-│   ├── burrow_parser.py         # Burrow lending protocol
-│   ├── meta_pool_parser.py      # Meta Pool liquid staking
-│   └── ref_finance_parser.py    # Ref Finance DEX
-│
-├── verify/                      # Balance reconciliation (Python)
+│   ├── db.py                     # PostgreSQL connection pool, cursor context
+│   ├── service.py                # Main job queue processor (400+ lines)
+│   ├── near_fetcher.py           # NEAR transaction fetcher via NearBlocks
+│   ├── evm_fetcher.py            # EVM transaction fetcher via Etherscan/Alchemy
+│   ├── staking_fetcher.py        # NEAR staking rewards fetcher
+│   ├── lockup_fetcher.py         # NEAR lockup events fetcher
+│   ├── price_service.py          # Price data aggregation (800+ lines)
+│   ├── price_fetcher.py          # Individual price fetch utility
+│   ├── xrp_fetcher.py            # XRP transaction fetcher
+│   ├── akash_fetcher.py          # Akash network fetcher
+│   ├── nearblocks_client.py      # NearBlocks API rate-limited client
+│   ├── classifier_handler.py     # Job handler: run TransactionClassifier
+│   ├── acb_handler.py            # Job handler: run ACBEngine
+│   ├── dedup_handler.py          # Job handler: remove duplicate transactions
+│   ├── file_handler.py           # Job handler: parse exchange CSV imports
+│   ├── verify_handler.py         # Job handler: reconcile wallet balances
+│   ├── exchange_connectors/      # Per-exchange integrations (Coinbase, Crypto.com, etc.)
+│   ├── exchange_parsers/         # Parser implementations
+│   ├── ai_file_agent.py          # AI-assisted file classification
+│   └── [legacy backfill scripts]
+├── reports/                      # Tax report generation
 │   ├── __init__.py
-│   └── reconcile.py             # Balance verification logic
-│
-├── reports/                     # Report generation (Python)
+│   ├── handlers/
+│   │   ├── __init__.py
+│   │   └── report_handler.py     # Main report coordinator
+│   ├── templates/                # Report template rendering
+│   └── [report type modules in indexers/]
+├── tax/                          # Tax category definitions
 │   ├── __init__.py
-│   └── generate.py              # Report output generator
-│
-├── scripts/                     # Operational scripts (Python + JS)
-│   ├── package.json             # JS dependencies for scripts
-│   ├── verify-all.cjs           # JS verification script
-│   ├── backfill_*.py (5 files)  # Price/data backfill scripts
-│   ├── index_*.py (3 files)     # Indexing orchestration
-│   ├── import_*.py (2 files)    # Data import utilities
-│   ├── fetch_prices.py          # Price fetching
-│   ├── coingecko_prices.py      # CoinGecko price source
-│   ├── categorize_transactions.py # Transaction categorization
-│   ├── detect_uncategorized.py  # Find uncategorized txs
-│   ├── check_balances.py        # Balance checking
-│   ├── parse_all_defi.py        # DeFi parsing orchestrator
-│   ├── scan_near_accounts.py    # NEAR account scanner
-│   └── slow_sync_all.py         # Throttled full sync
-│
-├── docs/                        # Documentation
-│   ├── INDEXER_RULES.md         # Indexer classification rules
-│   ├── INDEXER_RULES.pdf        # PDF version of rules
-│   └── EXCHANGE_IMPORT_DESIGN.md # Exchange import design doc
-│
-├── output/                      # Generated output files (gitignored)
-│
-├── web/                         # Next.js web application (TypeScript)
-│   ├── package.json             # Web app dependencies
-│   ├── package-lock.json        # Locked dependencies
-│   ├── tsconfig.json            # TypeScript configuration
-│   ├── next.config.mjs          # Next.js config (active)
-│   ├── next.config.ts           # Next.js config (alternate)
-│   ├── tailwind.config.ts       # Tailwind CSS configuration
-│   ├── postcss.config.mjs       # PostCSS configuration
-│   ├── eslint.config.mjs        # ESLint configuration
-│   ├── middleware.ts            # Next.js middleware (auth, routing)
-│   ├── Dockerfile               # Web app container build
-│   ├── *.cjs / *.js (40+ files) # Ad-hoc debug/analysis scripts (web root clutter)
-│   │
-│   ├── app/                     # Next.js App Router pages
-│   │   ├── layout.tsx           # Root layout
-│   │   ├── page.tsx             # Landing page
-│   │   ├── globals.css          # Global styles
-│   │   ├── favicon.ico
-│   │   │
-│   │   ├── auth/
-│   │   │   └── page.tsx         # Login/registration page
-│   │   │
-│   │   ├── accountant/
-│   │   │   └── accept/
-│   │   │       └── page.tsx     # Accountant invitation acceptance
-│   │   │
-│   │   ├── dashboard/           # Protected dashboard pages
-│   │   │   ├── layout.tsx       # Dashboard layout (sidebar)
-│   │   │   ├── page.tsx         # Dashboard home (portfolio overview)
-│   │   │   ├── admin/page.tsx   # Admin panel
-│   │   │   ├── assets/page.tsx  # Asset holdings view
-│   │   │   ├── defi/page.tsx    # DeFi positions
-│   │   │   ├── exchanges/page.tsx # Exchange connections
-│   │   │   ├── import/page.tsx  # CSV/PDF import
-│   │   │   ├── prices/page.tsx  # Price management
-│   │   │   ├── reports/page.tsx # Tax reports
-│   │   │   ├── settings/page.tsx # User settings
-│   │   │   ├── staking/page.tsx # Staking overview
-│   │   │   ├── swap/page.tsx    # Token swap
-│   │   │   ├── transactions/page.tsx # Transaction list
-│   │   │   └── wallets/page.tsx # Wallet management
-│   │   │
-│   │   └── api/                 # API routes (Next.js Route Handlers)
-│   │       ├── health/route.ts
-│   │       ├── acb/route.ts            # Adjusted cost base calc
-│   │       ├── accountant/             # Accountant multi-client features
-│   │       │   ├── accept/route.ts
-│   │       │   ├── access/route.ts
-│   │       │   ├── invite/route.ts
-│   │       │   └── switch/route.ts
-│   │       ├── admin/                  # Admin endpoints
-│   │       │   ├── stats/route.ts
-│   │       │   └── sync/route.ts
-│   │       ├── assets/                 # Asset management
-│   │       │   ├── route.ts
-│   │       │   └── spam/route.ts
-│   │       ├── auth/                   # NextAuth session endpoints
-│   │       │   ├── session/route.ts
-│   │       │   ├── signin/route.ts
-│   │       │   └── signout/route.ts
-│   │       ├── defi/                   # DeFi data
-│   │       │   ├── route.ts
-│   │       │   ├── positions/route.ts
-│   │       │   ├── summary/route.ts
-│   │       │   └── sync/route.ts
-│   │       ├── exchange-rates/route.ts # Fiat exchange rates
-│   │       ├── exchanges/              # Exchange connections
-│   │       │   ├── route.ts
-│   │       │   └── [exchange]/sync/route.ts
-│   │       ├── import/pdf/route.ts     # PDF import
-│   │       ├── indexers/status/route.ts # Indexer health
-│   │       ├── phantom-auth/          # Passkey (WebAuthn) authentication
-│   │       │   ├── login/start/route.ts
-│   │       │   ├── login/finish/route.ts
-│   │       │   ├── logout/route.ts
-│   │       │   ├── register/start/route.ts
-│   │       │   ├── register/finish/route.ts
-│   │       │   ├── session/route.ts
-│   │       │   ├── username/check/route.ts
-│   │       │   └── oauth/              # OAuth providers
-│   │       │       ├── callback/route.ts
-│   │       │       ├── providers/route.ts
-│   │       │       └── start/route.ts
-│   │       ├── portfolio/              # Portfolio data
-│   │       │   ├── route.ts
-│   │       │   ├── history/route.ts
-│   │       │   ├── live/route.ts
-│   │       │   └── summary/route.ts
-│   │       ├── price/route.ts          # Single price lookup
-│   │       ├── price-warnings/route.ts # Price anomalies
-│   │       ├── prices/manual/route.ts  # Manual price entry
-│   │       ├── reports/                # Tax report generation
-│   │       │   ├── export/route.ts
-│   │       │   ├── income/route.ts
-│   │       │   ├── inventory/route.ts
-│   │       │   ├── schedule3/route.ts
-│   │       │   ├── summary/route.ts
-│   │       │   └── t1135/route.ts
-│   │       ├── spam/route.ts           # Spam token management
-│   │       ├── staking/                # Staking data
-│   │       │   ├── route.ts
-│   │       │   ├── multichain/route.ts
-│   │       │   ├── rewards/route.ts
-│   │       │   └── transactions/route.ts
-│   │       ├── sync/                   # Sync orchestration
-│   │       │   ├── control/route.ts
-│   │       │   ├── run/route.ts
-│   │       │   └── status/route.ts
-│   │       ├── tally/route.ts          # Balance tally
-│   │       ├── transactions/route.ts   # Transaction CRUD
-│   │       ├── user/preferences/route.ts # User prefs
-│   │       ├── validators/route.ts     # Validator data
-│   │       └── wallets/                # Wallet management
-│   │           ├── route.ts
-│   │           ├── verify/route.ts
-│   │           └── [id]/
-│   │               ├── route.ts
-│   │               ├── backfill/route.ts
-│   │               └── sync/route.ts
-│   │
-│   ├── components/              # React components
-│   │   ├── SwapWidget.tsx       # Token swap widget
-│   │   ├── accountant-settings.tsx # Accountant management UI
-│   │   ├── auth-provider.tsx    # Auth context provider
-│   │   ├── client-switcher.tsx  # Accountant client switching
-│   │   ├── holdings-chart.tsx   # Asset holdings visualization
-│   │   ├── indexer-status.tsx   # Indexer status display
-│   │   ├── login-buttons.tsx    # Auth login buttons
-│   │   ├── multichain-staking.tsx # Multi-chain staking view
-│   │   ├── portfolio-chart.tsx  # Portfolio value chart
-│   │   ├── portfolio-summary.tsx # Portfolio overview (largest: 19KB)
-│   │   ├── sidebar.tsx          # Navigation sidebar
-│   │   ├── sign-in-button.tsx   # Sign-in CTA
-│   │   ├── staking-positions.tsx # Staking position cards
-│   │   ├── staking-rewards-table.tsx # Rewards data table
-│   │   ├── sync-status.tsx      # Sync progress indicator
-│   │   ├── tally.tsx            # Balance tally display
-│   │   ├── validator-tracking.tsx # Validator monitoring (24KB)
-│   │   ├── wallet-verification.tsx # Wallet verification flow
-│   │   └── ui/                  # Reusable UI primitives (shadcn/ui)
-│   │       ├── badge.tsx
-│   │       ├── button.tsx
-│   │       ├── card.tsx
-│   │       ├── input.tsx
-│   │       └── label.tsx
-│   │
-│   ├── contexts/                # React context providers
-│   │   └── currency-context.tsx # Currency selection context
-│   │
-│   ├── lib/                     # Shared utilities (TypeScript)
-│   │   ├── db.ts                # PostgreSQL connection pool (pg)
-│   │   ├── auth.ts              # Auth helpers (passkey + session)
-│   │   ├── auth-db.ts           # Auth database operations
-│   │   ├── passkey-challenges.ts # WebAuthn challenge storage
-│   │   ├── email.ts             # Email sending (Resend)
-│   │   ├── near-rpc.ts          # NEAR RPC client
-│   │   ├── prices.ts            # Price utility functions
-│   │   ├── token-prices.ts      # Token price resolution
-│   │   ├── balance-utils.ts     # Balance calculation helpers
-│   │   ├── utils.ts             # General utilities (cn helper)
-│   │   └── db-sqlite.bak        # Legacy SQLite DB module (backup)
-│   │
-│   ├── public/                  # Static assets
-│   │   └── *.svg                # Icons (file, globe, next, vercel, window)
-│   │
-│   └── scripts/                 # Web-specific scripts
-│       └── epoch-indexer.js     # Epoch indexing from web context
-│
-└── .planning/                   # GSD planning documents
-    ├── codebase/                # Codebase analysis docs
-    └── phases/                  # Implementation phase plans
-        ├── 01-near-indexer/
-        ├── 02-multichain-exchanges/
-        └── 07-web-ui/
+│   ├── categories.py             # TaxCategory enum, classification results
+│   └── [currency, cost basis, acb_calculator, reports modules]
+├── db/                           # Database initialization
+│   ├── __init__.py
+│   ├── migrations/               # Schema migration SQL files
+│   └── 01_create_table.sql       # Initial schema (referenced in docs)
+├── web/                          # Next.js frontend
+│   ├── app/                      # Next.js App Router
+│   │   ├── layout.tsx            # Root layout with auth check
+│   │   ├── page.tsx              # Landing page
+│   │   ├── auth/                 # Auth flow
+│   │   │   └── page.tsx
+│   │   ├── dashboard/            # Protected dashboard
+│   │   │   ├── layout.tsx        # Sidebar, sync status, navigation
+│   │   │   ├── page.tsx          # Dashboard home
+│   │   │   ├── transactions/
+│   │   │   ├── assets/
+│   │   │   ├── portfolio/
+│   │   │   ├── staking/
+│   │   │   ├── reports/
+│   │   │   ├── exchanges/
+│   │   │   ├── settings/
+│   │   │   ├── admin/
+│   │   │   └── defi/
+│   │   └── accountant/           # Accountant features
+│   │       └── accept/page.tsx   # Accept access grants
+│   ├── components/               # React components (auth-provider, sidebar, etc.)
+│   ├── contexts/                 # React context providers (auth state)
+│   ├── lib/                      # Utility functions
+│   │   ├── api.ts                # Centralized API client
+│   │   ├── utils.ts              # Common utilities
+│   │   ├── balance-utils.ts
+│   │   ├── token-prices.ts
+│   │   └── [other utilities]
+│   ├── public/                   # Static assets
+│   ├── middleware.ts             # Next.js middleware (auth redirect, security headers)
+│   ├── next.config.mjs           # Next.js config
+│   ├── tsconfig.json
+│   ├── tailwind.config.ts
+│   ├── package.json
+│   └── Dockerfile                # Frontend container config
+├── scripts/                      # Development/admin scripts
+├── verify/                       # Data verification utilities
+├── output/                       # Generated report outputs (user/{id}/{year}/)
+├── defi/                         # DeFi protocol integrations (burrow, ref, etc.)
+├── docs/                         # Documentation
+├── tests/                        # Python pytest test suite
+│   ├── test_*.py                 # Test files
+│   └── fixtures/                 # Test data
+├── config.py                     # Global configuration (ENV vars, API keys, tolerances)
+├── .env.example                  # Environment variables template
+├── .planning/                    # GSD planning artifacts
+│   └── codebase/                 # Architecture docs (this output)
+└── [standalone analysis scripts] # Full analysis, balance checks, etc.
 ```
 
 ## Directory Purposes
 
-**`db/`:**
-- Purpose: Database schema definitions and initialization
-- Contains: SQL schema files split by domain, Python init script
-- Key files: `db/schema.sql` (core NEAR schema), `db/schema_evm.sql` (EVM schema), `db/schema_users.sql` (auth schema), `db/init.py` (DB setup)
+**`api/`**
+- Purpose: FastAPI REST backend serving the Next.js frontend
+- Contains: Main app factory, route handlers for all endpoints, dependency injection
+- Key files: `api/main.py` (app factory), `api/dependencies.py` (auth, DB), `api/routers/` (endpoints)
 
-**`engine/`:**
-- Purpose: Core business logic for transaction processing and tax calculation
-- Contains: Transaction classifier, ACB calculator, price resolver, wallet graph
-- Key files: `engine/classifier.py` (tx type classification), `engine/acb.py` (adjusted cost base), `engine/prices.py` (price resolution)
+**`engine/`**
+- Purpose: Core tax calculation logic
+- Contains: TransactionClassifier, ACBEngine, GainsCalculator, supporting utilities
+- Key files: `engine/classifier.py` (1200+ lines), `engine/acb.py` (1000+ lines), `engine/gains.py`
 
-**`indexers/`:**
-- Purpose: All blockchain and exchange data ingestion code
-- Contains: Chain-specific indexers, exchange connectors/parsers, price services, backfill utilities
-- Key files: `indexers/neardata_indexer.py` (primary NEAR indexer), `indexers/evm_indexer_alchemy.py` (EVM indexer), `indexers/hybrid_indexer.py` (combined strategy)
-- Subdirectories: `exchange_connectors/` (API clients), `exchange_parsers/` (CSV import parsers)
+**`indexers/`**
+- Purpose: Blockchain data fetching, job queue processing, external API integration
+- Contains: Chain-specific fetchers (near_fetcher, evm_fetcher, etc.), price service, file import handlers
+- Key files: `indexers/service.py` (job processor), chain fetchers, `indexers/db.py` (pool management)
 
-**`tax/`:**
-- Purpose: Canadian tax calculation logic (ACB method, Schedule 3, T1135)
-- Contains: Cost basis tracking, tax categorization, report generation, currency conversion
-- Key files: `tax/acb_calculator.py`, `tax/categories.py`, `tax/reports.py`, `tax/currency.py`
+**`reports/`**
+- Purpose: Tax report generation and export
+- Contains: Report handler coordinator, template rendering, Koinly/CRA format exporters
+- Key files: `reports/handlers/report_handler.py`, template modules in `indexers/`
 
-**`defi/`:**
-- Purpose: DeFi protocol-specific transaction parsers
-- Contains: Parsers for Burrow, Meta Pool, Ref Finance
-- Key files: `defi/ref_finance_parser.py`, `defi/burrow_parser.py`, `defi/meta_pool_parser.py`
+**`tax/`**
+- Purpose: Tax category definitions and currency handling
+- Contains: TaxCategory enum, classification result models, currency converters
+- Key files: `tax/categories.py`
 
-**`verify/`:**
-- Purpose: Balance reconciliation and verification
-- Contains: Single reconciliation module
-- Key files: `verify/reconcile.py`
+**`web/`**
+- Purpose: Next.js frontend user interface
+- Contains: App Router pages, React components, API client, auth context
+- Key files: `web/middleware.ts` (auth redirect), `web/app/layout.tsx` (root), `web/lib/api.ts` (API client)
 
-**`reports/`:**
-- Purpose: Report output generation
-- Contains: Report formatting and file generation
-- Key files: `reports/generate.py`
+**`db/`**
+- Purpose: Database schema and migrations
+- Contains: SQL schema definition, migration scripts
+- Key files: `db/migrations/`, referenced schema docs
 
-**`scripts/`:**
-- Purpose: Operational and maintenance scripts (batch operations)
-- Contains: Price backfill, indexing orchestration, data import utilities
-- Key files: `scripts/index_all.py`, `scripts/backfill_prices.py`, `scripts/verify-all.cjs`
+**`tests/`**
+- Purpose: Python pytest test suite
+- Contains: Unit tests for indexers, engine, API routes
+- Key files: `tests/test_*.py`, `tests/fixtures/`
 
-**`docs/`:**
-- Purpose: Project documentation
-- Contains: Indexer classification rules, exchange import design
-- Key files: `docs/INDEXER_RULES.md` (comprehensive tx classification rules)
+**`scripts/`**
+- Purpose: Admin and development utilities
+- Contains: Data import scripts, debugging tools, analysis utilities
+- Generated or manual maintenance scripts
 
-**`web/`:**
-- Purpose: Next.js web application (dashboard, API, auth)
-- Contains: App Router pages, API routes, React components, shared lib
-- Key files: `web/middleware.ts` (auth middleware), `web/app/layout.tsx` (root layout)
-
-**`web/app/api/`:**
-- Purpose: REST API endpoints via Next.js Route Handlers
-- Contains: All backend API logic organized by domain
-- Pattern: Each endpoint is a `route.ts` file exporting HTTP method handlers (GET, POST, PUT, DELETE)
-
-**`web/components/`:**
-- Purpose: React UI components (feature-level and primitives)
-- Contains: Feature components (flat structure) + `ui/` subdirectory for shadcn primitives
-- Key files: `web/components/portfolio-summary.tsx`, `web/components/sidebar.tsx`
-
-**`web/lib/`:**
-- Purpose: Shared server-side utilities for the web app
-- Contains: Database connection, auth helpers, price utilities, RPC clients
-- Key files: `web/lib/db.ts` (PostgreSQL pool), `web/lib/auth.ts` (session/passkey auth)
-
-**`web/contexts/`:**
-- Purpose: React context providers for client-side state
-- Contains: Currency selection context
-- Key files: `web/contexts/currency-context.tsx`
+**`output/`**
+- Purpose: Generated tax report files
+- Structure: `output/{user_id}/{tax_year}/` containing T1135, Schedule 3, Koinly CSV, etc.
+- Generated: Yes (created at runtime)
+- Committed: No (.gitignore'd)
 
 ## Key File Locations
 
 **Entry Points:**
-- `web/app/layout.tsx`: Root layout for web application
-- `web/app/page.tsx`: Landing page
-- `web/middleware.ts`: Request middleware (auth checks, route protection)
-- `config.py`: Python backend configuration (DB path, API keys, rate limits)
+- `api/main.py`: FastAPI app factory; run with `uvicorn api.main:app`
+- `indexers/service.py`: Job queue processor; run with `python -m indexers.service`
+- `web/app/layout.tsx`: Next.js root layout; run with `npm run dev`
+- `web/middleware.ts`: Session validation and auth redirect
 
 **Configuration:**
-- `web/package.json`: Web app dependencies
-- `web/tsconfig.json`: TypeScript config
-- `web/tailwind.config.ts`: Tailwind CSS theme
-- `web/next.config.mjs`: Next.js settings
-- `web/eslint.config.mjs`: Linting rules
-- `docker-compose.yml`: Container orchestration
-- `indexers/requirements.txt`: Python indexer dependencies
-- `indexers/crontab`: Scheduled job definitions
-- `.env.example`: Environment variable template (never read .env)
+- `config.py`: Global ENV var loading, database URL, API keys, rate limits, tolerances
+- `.env`: Environment variables (not committed)
+- `.env.example`: Template for required ENV vars
 
-**Database:**
-- `db/schema.sql`: Core NEAR transaction tables
-- `db/schema_evm.sql`: EVM chain tables
-- `db/schema_exchanges.sql`: Exchange data tables
-- `db/schema_users.sql`: User authentication tables
-- `db/init.py`: Database initialization
-- `01_create_table.sql`: Root-level schema script (may be legacy)
-- `web/lib/db.ts`: PostgreSQL connection pool for web app
-
-**Core Business Logic (Python):**
-- `engine/classifier.py`: Transaction type classification
-- `engine/acb.py`: Adjusted cost base calculation
-- `engine/prices.py`: Price resolution
-- `tax/acb_calculator.py`: Tax lot tracking
-- `tax/categories.py`: Tax category definitions
-- `tax/reports.py`: Tax report generation
-
-**Authentication:**
-- `web/lib/auth.ts`: Auth utilities (passkey + OAuth session management)
-- `web/lib/auth-db.ts`: Auth database operations (user lookup, credential storage)
-- `web/lib/passkey-challenges.ts`: WebAuthn challenge management
-- `web/app/api/phantom-auth/`: Full passkey auth flow (register, login, OAuth)
-- `web/app/api/auth/`: Session management endpoints
-- `web/components/auth-provider.tsx`: Client-side auth context
+**Core Logic:**
+- `engine/classifier.py`: Transaction classification (1200 lines)
+- `engine/acb.py`: Cost basis calculation (1000 lines)
+- `indexers/service.py`: Job queue processor (400 lines)
+- `api/main.py`: API app factory (100 lines)
+- `api/dependencies.py`: Auth, DB injection (200 lines)
 
 **Testing:**
-- No formal test suite detected. Ad-hoc test/verification scripts exist at root level (`test_trace.py`, `test_trace_tx.py`) and in `web/` (`test-verify.js`, `test-portfolio-api.js`).
+- `tests/test_classifier.py`: Classifier tests
+- `tests/test_acb.py`: ACB tests
+- `tests/test_api_*.py`: Route tests
+- `tests/fixtures/`: Test data and factories
 
 ## Naming Conventions
 
-**Files (Python backend):**
-- snake_case for modules: `near_indexer.py`, `acb_calculator.py`, `wallet_graph.py`
-- Hyphenated for scripts: `check-cdao-balance.py`, `find-missing-txs.py`
-- Mixed conventions in root (both snake_case and hyphenated coexist)
-
-**Files (TypeScript/web):**
-- kebab-case for components: `portfolio-summary.tsx`, `sync-status.tsx`
-- kebab-case for lib modules: `auth-db.ts`, `balance-utils.ts`, `token-prices.ts`
-- PascalCase exception: `SwapWidget.tsx` (inconsistent with other components)
-- API routes always: `route.ts`
+**Files:**
+- `snake_case.py` for Python modules
+- `camelCase.ts(x)` for TypeScript/React files
+- `UPPERCASE.md` for documentation
+- `test_*.py` for Python tests
+- `*.spec.ts` or `*.test.ts` for TypeScript tests
 
 **Directories:**
-- snake_case for Python packages: `exchange_connectors/`, `exchange_parsers/`
-- kebab-case for API routes: `phantom-auth/`, `exchange-rates/`
-- lowercase for web dirs: `components/`, `lib/`, `contexts/`
-- Dynamic routes use brackets: `[exchange]/`, `[id]/`
+- `snake_case/` for Python packages (indexers/, engine/, etc.)
+- `camelCase/` for React component groups (components/, contexts/, etc.)
+- `[feature]/` for grouped functionality (auth/, dashboard/, routers/)
 
-**UI Primitives:**
-- Lowercase kebab-case in `web/components/ui/`: `button.tsx`, `card.tsx`, `badge.tsx`
+**Classes:**
+- `PascalCase` for Python classes (TransactionClassifier, ACBEngine, WalletGraph)
+- `PascalCase` for React components (Sidebar, SyncStatus, ClientSwitcher)
+
+**Functions/Variables:**
+- `snake_case()` for Python functions (get_pool, classify_transactions)
+- `camelCase()` for JavaScript/TypeScript functions (useAuth, fetchWallets)
+
+**Constants:**
+- `UPPER_SNAKE_CASE` for Python constants (REVIEW_THRESHOLD, NEAR_DIVISOR)
+- `UPPER_SNAKE_CASE` for TypeScript constants (API_URL, RATE_LIMIT_DELAY)
 
 ## Where to Add New Code
 
-**New Blockchain Indexer:**
-- Implementation: `indexers/{chain_name}_indexer.py`
-- Follow pattern of `indexers/evm_indexer.py` or `indexers/xrp_indexer.py`
-- Add schema if needed: `db/schema_{chain}.sql`
+**New Feature (e.g., new tax report format):**
+- Primary code: `indexers/` (if data fetch) or `reports/handlers/` (if generation)
+- Tests: `tests/test_new_feature.py`
+- Configuration: Add to `config.py` if new ENV vars needed
+- Database: Add migration SQL to `db/migrations/` if schema changes needed
 
-**New Exchange Connector (API-based):**
-- API client: `indexers/exchange_connectors/{exchange}.py`
-- Follow pattern of `indexers/exchange_connectors/coinbase.py`
+**New Chain Integration (e.g., Solana support):**
+- Fetcher: `indexers/solana_fetcher.py` (follows pattern from near_fetcher.py)
+- Handler: `indexers/solana_handler.py` in service.py dispatch
+- Decoder: `engine/solana_decoder.py` if needed for contract calls
+- Database: Add chain enum value and columns if needed
 
-**New Exchange Parser (CSV import):**
-- Parser: `indexers/exchange_parsers/{exchange}.py`
-- Extend base class from `indexers/exchange_parsers/base.py`
-- Register in `indexers/exchange_parsers/__init__.py`
+**New Component (e.g., Solana holdings display):**
+- Component: `web/components/solana-holdings.tsx`
+- Page: `web/app/dashboard/solana/page.tsx`
+- API: New endpoint in `api/routers/[feature].py`
+- Tests: `tests/test_api_solana.py`
 
-**New DeFi Protocol Parser:**
-- Parser: `defi/{protocol}_parser.py`
-- Follow pattern of `defi/ref_finance_parser.py`
-- Register in `defi/__init__.py`
+**API Endpoint:**
+- Router: `api/routers/[feature].py` (create or add to existing)
+- Import: Register in `api/routers/__init__.py`
+- Mount: Add to `api/main.py` in `include_router()` calls
+- Schemas: Define request/response models in `api/schemas/` Pydantic classes
+- Tests: `tests/test_api_[feature].py`
 
-**New API Endpoint:**
-- Route file: `web/app/api/{domain}/{action}/route.ts`
-- Export named functions: `GET`, `POST`, `PUT`, `DELETE`
-- Use `web/lib/auth.ts` for session validation
-- Use `web/lib/db.ts` for database queries
+**New Job Type:**
+- Handler: `indexers/[name]_handler.py` with async handler function
+- Import: Add to `indexers/service.py` imports and job dispatch match/case
+- Database: Add job_type enum value if needed
+- Tests: `tests/test_indexers.py` or feature test file
 
-**New Dashboard Page:**
-- Page: `web/app/dashboard/{feature}/page.tsx`
-- Automatically gets dashboard layout with sidebar
-- Add navigation link in `web/components/sidebar.tsx`
+**Utilities:**
+- Python: `engine/` (core logic) or `indexers/` (data utilities)
+- TypeScript: `web/lib/` (shared) or `web/components/` (component-specific)
 
-**New React Component:**
-- Feature component: `web/components/{feature-name}.tsx` (kebab-case)
-- UI primitive: `web/components/ui/{element}.tsx` (shadcn/ui pattern)
-
-**New React Context:**
-- Provider: `web/contexts/{name}-context.tsx`
-
-**New Shared Web Utility:**
-- Server-side: `web/lib/{name}.ts`
-- Keep client utilities in components or contexts
-
-**New Tax Report Type:**
-- Logic: `tax/reports.py` (add method)
-- API endpoint: `web/app/api/reports/{report-type}/route.ts`
-- UI: `web/app/dashboard/reports/page.tsx` (add section)
-
-**New Database Table:**
-- Schema: `db/schema_{domain}.sql` or add to existing schema file
-- Run via `db/init.py` initialization
+**Shared Utilities:**
+- Python: Create module in `engine/` or appropriate package
+- TypeScript: Create module in `web/lib/` with clear naming
 
 ## Special Directories
 
 **`output/`:**
-- Purpose: Generated CSV/report output files
-- Generated: Yes
-- Committed: No (gitignored)
+- Purpose: Generated tax report files per user/year
+- Generated: Yes (created by report_handler at runtime)
+- Committed: No (.gitignored)
+- Structure: `output/{user_id}/{tax_year}/{filename}`
+- Cleanup: Manual or via admin endpoint
 
-**`reports/` (root):**
-- Purpose: Generated tax report files
-- Generated: Yes
-- Committed: No (gitignored)
+**`.planning/`:**
+- Purpose: GSD orchestrator planning artifacts
+- Generated: Yes (by /gsd:map-codebase and /gsd:plan-phase)
+- Committed: Yes (tracked in version control)
+- Structure: Contains STACK.md, ARCHITECTURE.md, phase plans, etc.
+
+**`db/migrations/`:**
+- Purpose: PostgreSQL schema evolution
+- Generated: Manual (developer creates migrations)
+- Committed: Yes
+- Structure: Numbered SQL files (01_create_table.sql, 02_add_column.sql)
+
+**`tests/fixtures/`:**
+- Purpose: Test data, mock responses, factory utilities
+- Generated: Manual (created by test authors)
+- Committed: Yes
+- Structure: Fixture modules with reusable test objects
+
+**`web/node_modules/`:**
+- Purpose: npm dependencies
+- Generated: Yes (by npm install)
+- Committed: No (.gitignored)
+- Lockfile: `web/package-lock.json` (committed)
 
 **`__pycache__/`:**
 - Purpose: Python bytecode cache
-- Generated: Yes
-- Committed: No (gitignored)
-
-**`web/.next/`:**
-- Purpose: Next.js build output
-- Generated: Yes
-- Committed: No (gitignored)
-
-**`.planning/`:**
-- Purpose: GSD planning documents and phase plans
-- Generated: By tooling
-- Committed: Yes
-
-**Root-level ad-hoc scripts (30+ .py files):**
-- Purpose: One-off analysis, debugging, and fix scripts
-- These are NOT part of the application architecture
-- They are investigation/maintenance tools that accumulated over time
-- Should ideally be moved to a `scripts/adhoc/` directory
-
-**Web root ad-hoc scripts (40+ .cjs/.js files):**
-- Purpose: One-off debugging and analysis scripts for web/DB
-- Same situation as root scripts -- accumulated investigation tools
-- Should ideally be moved to `web/scripts/` or cleaned up
+- Generated: Yes (by Python runtime)
+- Committed: No (.gitignored)
+- Cleanup: Automatic on new runs
 
 ---
 
-*Structure analysis: 2026-03-11*
+*Structure analysis: 2026-03-13*

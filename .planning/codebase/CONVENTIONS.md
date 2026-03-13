@@ -1,239 +1,238 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-03-11
-
-## Languages
-
-This is a dual-language codebase:
-- **Python** (backend): indexers, tax engine, database scripts, CLI tools
-- **TypeScript** (web frontend + API): Next.js app with React components and API routes
-
-Conventions differ by language context. Follow the patterns for the language you are writing.
+**Analysis Date:** 2026-03-13
 
 ## Naming Patterns
 
-**Python Files:**
-- Use `snake_case.py` for all files: `near_indexer.py`, `cost_basis.py`, `price_fetcher.py`
-- Prefix test/debug scripts with `test_`, `check_`, `verify_`, or `fix_`: `test_trace.py`, `check_weth.py`
+**Files:**
+- Modules: `snake_case.py` (e.g., `classifier.py`, `acb.py`, `wallet_graph.py`)
+- API routers: `snake_case.py` in `api/routers/` (e.g., `wallets.py`, `transactions.py`)
+- Schemas: `snake_case.py` in `api/schemas/` (e.g., `auth.py`, `wallets.py`)
+- Indexers: `snake_case.py` with descriptive names (e.g., `near_fetcher.py`, `evm_indexer.py`)
+- Test files: `test_*.py` (e.g., `test_acb.py`, `test_classifier.py`)
+- Exchange parsers: `snake_case.py` in `indexers/exchange_parsers/` (e.g., `coinbase.py`, `crypto_com.py`)
 
-**TypeScript Files:**
-- Use `kebab-case.tsx`/`.ts` for all files: `auth-provider.tsx`, `balance-utils.ts`, `currency-context.tsx`
-- Exception: `SwapWidget.tsx` uses PascalCase (inconsistency - prefer kebab-case for new files)
-- Next.js conventions: `route.ts` for API routes, `page.tsx` for pages, `layout.tsx` for layouts
+**Functions:**
+- Public functions: `snake_case()` (e.g., `get_connection()`, `create_app()`, `resolve_token_symbol()`)
+- Private functions: `_snake_case()` with leading underscore (e.g., `_make_pool()`, `_is_near_chain()`, `_compute_stage()`)
+- Helper functions in tests: `_make_*()` pattern (e.g., `_make_pool()`, `_make_classifier()`, `_make_ledger_row()`)
+- Route handlers: `snake_case()` (e.g., `test_health_endpoint()`, `test_acquire()`)
 
-**Python Functions/Variables:**
-- Use `snake_case` for functions and variables: `get_wallet_id()`, `total_fetched`, `acb_per_unit`
-- Use `UPPER_SNAKE_CASE` for module-level constants: `RATE_LIMIT_DELAY`, `COIN_IDS`, `PROJECT_ROOT`
+**Variables:**
+- Constants: `UPPER_SNAKE_CASE` (e.g., `NEAR_TIMESTAMP_DIVISOR`, `AI_CONFIDENCE_THRESHOLD`, `REVIEW_THRESHOLD`)
+- Class attributes: `snake_case` (e.g., `pool`, `price_service`, `wallet_graph`)
+- Loop/iteration variables: `snake_case` (e.g., `row`, `conn`, `cur`, `rule`)
+- Database results: descriptive names (e.g., `mock_user`, `mock_pool`, `mock_cursor`)
 
-**Python Classes:**
-- Use `PascalCase`: `ACBTracker`, `NearBlocksClient`, `EVMIndexer`, `PriceFetcher`
-
-**TypeScript Functions/Variables:**
-- Use `camelCase` for functions and variables: `getAuthenticatedUser()`, `formatCurrency()`, `walletIds`
-- Use `camelCase` for API route handler functions: `GET()`, `POST()` (Next.js convention)
-
-**TypeScript Types/Interfaces:**
-- Use `PascalCase` with `interface` keyword: `AuthUser`, `WalletData`, `PortfolioData`
-- Prefer `interface` over `type` for object shapes
-- Inline type assertions with `as` are used frequently: `as any[]`, `as { user_id: number }`
-
-**React Components:**
-- Use `PascalCase` function names: `PortfolioSummary()`, `Sidebar()`, `AuthProvider()`
-- Named exports for components: `export function Sidebar()`
-- Default exports for page components: `export default function WalletsPage()`
+**Types/Classes:**
+- Classes: `PascalCase` (e.g., `TransactionClassifier`, `ACBPool`, `ACBEngine`, `WalletGraph`, `SpamDetector`)
+- Pydantic models: `PascalCase` (e.g., `WalletCreate`, `WalletResponse`, `SyncStatusResponse`, `RegisterStartRequest`)
+- Enums/constants: `UPPER_SNAKE_CASE`
+- Exception classes: `PascalCase` ending in `Error` or `Exception` (e.g., `ReportBlockedError`)
 
 ## Code Style
 
 **Formatting:**
-- No Prettier config detected. No `.prettierrc` file exists.
-- TypeScript: 2-space indentation (Next.js default)
-- Python: 4-space indentation (PEP 8 default)
-- ESLint configured via `web/eslint.config.mjs` using `eslint-config-next` (core-web-vitals + typescript rules)
+- Python style follows PEP 8 conventions
+- No explicit formatter config detected; code appears manually formatted
+- Indentation: 4 spaces
+- Line length: appears to favor readability over strict limits; some lines exceed 100 chars
 
 **Linting:**
-- TypeScript: ESLint with `eslint-config-next/core-web-vitals` and `eslint-config-next/typescript`
-- Python: No linting tool configured (no flake8, pylint, ruff, or mypy config files)
-- Run lint: `cd web && npm run lint`
+- No `.eslintrc`, `.pylintrc`, or `tox.ini` detected
+- No enforced linting configuration; style is maintained through convention
 
-**TypeScript Strictness:**
-- `"strict": true` in `web/tsconfig.json`
-- Target: `ES2017`, Module: `esnext`, Module resolution: `bundler`
+**Docstring Format:**
+- Module-level docstrings: triple-quoted at top, describing module purpose and key classes/functions
+- Function docstrings: triple-quoted, describe purpose, arguments, return value, and exceptions
+- Class docstrings: triple-quoted, describe the class purpose and key attributes
+- Example from `api/main.py`:
+  ```python
+  """Axiom FastAPI application factory.
+
+  Creates and configures the FastAPI app with:
+    - CORS middleware (origins from ALLOWED_ORIGINS env var)
+    - Startup/shutdown lifespan events for DB pool management
+  """
+  ```
 
 ## Import Organization
 
-**Python:**
-1. Standard library imports (`os`, `sys`, `time`, `json`, `sqlite3`)
-2. Third-party imports (`requests`, `jwt`)
-3. Project root path manipulation (always appears before local imports):
-   ```python
-   PROJECT_ROOT = Path(__file__).parent.parent
-   sys.path.insert(0, str(PROJECT_ROOT))
-   ```
-4. Local project imports (`from db.init import get_connection`, `from config import ...`)
-
-**TypeScript (Next.js):**
-1. Next.js framework imports (`next/server`, `next/headers`, `next/navigation`)
-2. React imports (`react`)
-3. Third-party library imports (`lucide-react`, `recharts`)
-4. Local imports using `@/` path alias (`@/lib/db`, `@/lib/auth`, `@/components/...`)
+**Order (as observed):**
+1. Standard library imports (e.g., `json`, `sys`, `os`, `csv`, `tempfile`, `logging`)
+2. Third-party imports (e.g., `psycopg2`, `fastapi`, `pydantic`, `pytest`)
+3. Local application imports (e.g., `from api.main import`, `from engine.classifier import`)
 
 **Path Aliases:**
-- `@/*` maps to `web/*` (configured in `web/tsconfig.json`)
-- Use `@/lib/db` not `../../lib/db`
+- Absolute imports used throughout: `from api.dependencies import get_current_user`
+- No `@` path alias prefixes observed; imports use relative project paths
+- Some indexers use `sys.path.insert(0, ...)` for adding parent directory when needed
+
+**Example from `tests/test_acb.py`:**
+```python
+import sys
+import os
+from decimal import Decimal
+from unittest.mock import MagicMock, patch, call
+import pytest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+```
 
 ## Error Handling
 
-**Python - Indexers/Scripts:**
-- Use try/except with `print()` error messages (no logging framework)
-- Retry with exponential backoff for HTTP requests (see `indexers/nearblocks_client.py`)
-- Pattern: catch specific HTTP errors (429 rate limit), re-raise others
-- Example from `indexers/nearblocks_client.py`:
-  ```python
-  try:
-      response = requests.get(url, timeout=30)
-      if response.status_code == 429:
-          if retries < MAX_RETRIES:
-              # exponential backoff
-  ```
-- Graceful import fallbacks with feature flags:
-  ```python
-  try:
-      import jwt
-      HAS_JWT = True
-  except ImportError:
-      HAS_JWT = False
-  ```
+**Patterns:**
+- Try/except blocks with specific exception catching (not bare except)
+- Logging on exception: `logger.warning()`, `logger.error()` with context
+- HTTPException for API responses (FastAPI conventions)
+- Custom exceptions: `ReportBlockedError` raised in reports engine
+- Database operations wrapped in try/finally for connection cleanup
 
-**TypeScript - API Routes:**
-- Wrap entire handler body in try/catch
-- Return `NextResponse.json({ error: 'message' }, { status: code })` on errors
-- Log errors with `console.error('Context:', error)`
-- Always include HTTP status codes: 400 (bad input), 401 (unauthorized), 403 (forbidden), 409 (conflict), 500 (server error), 503 (unavailable)
-- Standard pattern:
-  ```typescript
-  export async function GET() {
-    try {
-      const auth = await getAuthenticatedUser();
-      if (!auth) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-      // ... business logic ...
-      return NextResponse.json({ data });
-    } catch (error) {
-      console.error('Descriptive context:', error);
-      return NextResponse.json({ error: 'User-facing message' }, { status: 500 });
-    }
-  }
-  ```
+**Example from `api/dependencies.py`:**
+```python
+conn = pool.getconn()
+try:
+    cur = conn.cursor()
+    cur.execute(...)
+    row = cur.fetchone()
+    cur.close()
+finally:
+    pool.putconn(conn)
+```
 
-**TypeScript - React Components:**
-- Use try/catch in async event handlers
-- Log errors with `console.error()`
-- Set error state via `useState<string | null>(null)`
+**Example from `engine/classifier.py`:**
+```python
+except Exception as exc:
+    logger.warning("FMV lookup failed for %s at %s: %s", symbol, unix_ts, exc)
+
+except json.JSONDecodeError:
+    logger.warning("AI returned invalid JSON; falling back to unknown")
+```
 
 ## Logging
 
-**Framework:** None (both Python and TypeScript use native logging)
+**Framework:** Standard `logging` module
 
-**Python Patterns:**
-- Use `print()` for all output: progress, errors, debug info
-- Format: `print(f"Context: {detail}")` for progress
-- No structured logging library
+**Patterns:**
+- Module-level logger: `logger = logging.getLogger(__name__)`
+- Log levels used:
+  - `logger.debug()` — low-level state/iteration details (e.g., "Skipping category=X")
+  - `logger.info()` — key lifecycle events (e.g., "Replay started")
+  - `logger.warning()` — recoverable errors and fallbacks
+  - `logger.error()` — critical failures with context
+- Always include context in log messages (use % formatting or f-strings)
 
-**TypeScript Patterns:**
-- Use `console.error()` for errors in API routes
-- Use `console.error()` in React components for failed fetches
-- No structured logging library
+**Example from `engine/acb.py`:**
+```python
+logger = logging.getLogger(__name__)
+
+logger.info("Replay started for user_id=%s, token=%s, chain=%s", user_id, token, chain)
+logger.warning("FMV lookup failed for %s at %s: %s", symbol, unix_ts, exc)
+logger.error("ACB calculation failed: %s", exc, exc_info=True)
+logger.debug("Skipping category=%s classification_id=%s", category, row.id)
+```
 
 ## Comments
 
-**Python:**
-- Module-level docstrings on all major files (triple-quoted, descriptive):
-  ```python
-  """
-  Transaction classifier for Canadian tax treatment.
+**When to Comment:**
+- Section headers with dashes: `# ---------------------------------------------------------------------------`
+- Complex business logic needing explanation (tax rules, algorithm steps)
+- Non-obvious intent or workarounds
+- Algorithm constraints (e.g., "NEAR nanoseconds; divide by 1e9")
 
-  Classification Types:
-  - income: Taxable as income (staking rewards, airdrops, mining)
-  """
-  ```
-- Function docstrings with Args/Returns sections in key modules (`engine/acb.py`)
-- Inline comments for business logic explanations
-- Shebang line `#!/usr/bin/env python3` on standalone scripts
+**JSDoc/TSDoc:**
+- Not used in Python codebase; use docstrings instead
+- Function docstrings follow pattern: "Brief description.\n\nLonger explanation.\n\nArgs:\n...\nReturns:\n...\nRaises:\n..."
 
-**TypeScript:**
-- JSDoc-style `/** */` comments on exported functions in library code (`web/lib/db.ts`, `web/lib/auth.ts`)
-- Inline comments for security notes (`// SECURITY FIX`, `// FILTERED BY USER_ID`)
-- Section comments in SQL queries
+**Example from `engine/acb.py`:**
+```python
+def resolve_token_symbol(
+    token_id: Optional[str],
+    chain: str,
+    asset: Optional[str] = None,
+) -> str:
+    """Resolve a token identifier to a canonical uppercase symbol.
+
+    Priority:
+      1. If asset is not None (exchange transaction): return asset.upper()
+      2. If token_id in TOKEN_SYMBOL_MAP: return mapped symbol
+      3. If token_id is None and chain == 'near': return 'NEAR'
+      4. Otherwise: return token_id or 'UNKNOWN'
+    """
+```
 
 ## Function Design
 
-**Python:**
-- Functions are typically short (10-30 lines) in engine modules
-- Standalone scripts can have longer main blocks
-- Return dictionaries for structured data (not dataclasses, except in `tax/categories.py`)
-- Use `if __name__ == "__main__":` for runnable scripts
+**Size:** Generally 20-50 lines; larger functions (100+ lines) appear only in core engines with clear sections
 
-**TypeScript API Routes:**
-- Functions tend to be long (50-150+ lines) with inline SQL queries
-- Each route file exports named HTTP method functions: `GET()`, `POST()`, `DELETE()`
-- Input validation at top of function, then business logic, then response formatting
+**Parameters:**
+- Positional parameters for required arguments
+- Type hints used throughout (e.g., `pool: pg_pool.SimpleConnectionPool`, `amount: Decimal`)
+- Optional parameters use `Optional[T]` from `typing`
+- Dependency injection in FastAPI routes: `param=Depends(get_db_conn)`
 
-**TypeScript Components:**
-- Define interfaces at top of file for component props and data shapes
-- Use hooks pattern: `useState`, `useEffect`, `useCallback`
-- Fetch data in `useEffect` with loading/error state pattern:
-  ```typescript
-  const [data, setData] = useState<Type | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => { fetchData(); }, []);
-  ```
+**Return Values:**
+- Explicit return types (e.g., `-> FastAPI`, `-> dict`, `-> Decimal`)
+- Functions return dict for flexible JSON responses in API routes
+- Database operations return tuples or dicts (e.g., `(status, count)` or `{"blocked": False}`)
+
+**Example from `api/routers/wallets.py`:**
+```python
+def _jobs_for_chain(chain: str) -> List[tuple]:
+    """Return list of (job_type, priority) tuples to queue for the given chain."""
+    if _is_near_chain(chain):
+        return _NEAR_JOBS
+    return _EVM_JOBS
+```
 
 ## Module Design
 
-**Python:**
-- Each directory has `__init__.py` (may be empty)
-- Modules expose functions and classes directly (no `__all__` usage detected)
-- No barrel files or re-exports
+**Exports:**
+- All public functions/classes available at module level
+- No `__all__` declarations observed; imports are explicit
+- Internal helpers prefixed with `_` to indicate private
 
-**TypeScript:**
-- Use named exports for library functions: `export function getAuthenticatedUser()`
-- Use default export for the primary object in a module: `export default db`
-- `web/lib/utils.ts` is a utility barrel with small helper functions
-- UI components in `web/components/ui/` follow shadcn/ui patterns with `forwardRef`
+**Barrel Files:**
+- `api/__init__.py` — minimal, no re-exports
+- `api/routers/__init__.py` — imports and re-exports all router modules:
+  ```python
+  from api.routers.wallets import router as wallets_router
+  from api.routers.transactions import router as transactions_router
+  ```
+- `api/schemas/__init__.py` — minimal
 
-## Database Access
+## Database Code
 
-**Python:**
-- Use `sqlite3` directly via `db/init.py` helper: `get_connection()` returns connection
-- Use `?` placeholders for parameterized queries
-- Pattern: get connection, execute, close manually
-- Some scripts hardcode DB paths instead of using config
+**Pattern:**
+- psycopg2 connections managed via `indexers/db.py`
+- Connection pool usage: `pool.getconn()` and `pool.putconn(conn)` in finally blocks
+- Cursors created with `conn.cursor()`, closed with `cur.close()`
+- SQL passed as strings with `%s` parameterization for safety
+- No ORM; raw SQL used throughout
 
-**TypeScript:**
-- Use PostgreSQL via `pg` Pool (`web/lib/db.ts`)
-- Two interfaces: async `db` object (preferred) and legacy `getDb()` compatibility shim
-- `db.all()`, `db.get()`, `db.run()` for queries
-- Uses `?` placeholders auto-converted to `$1, $2, ...` for PostgreSQL
-- The `getDb()` shim wraps `db.prepare(sql).all(params)` pattern (mimics SQLite better-sqlite3 API)
+**Example:**
+```python
+conn = pool.getconn()
+try:
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, name FROM rules WHERE active = %s",
+        (True,)
+    )
+    rows = cur.fetchall()
+finally:
+    cur.close()
+    pool.putconn(conn)
+```
 
-## Authentication Pattern
+## Decimal Precision
 
-- All API routes that access user data must call `getAuthenticatedUser()` first
-- Return 401 if not authenticated
-- Use `auth.userId` to scope all database queries to the current user
-- Admin routes use `getAuthenticatedAdmin()` or `requireAdmin()`
-- Accountant delegation supported via `isViewingAsClient` flag
-
-## React Component Patterns
-
-- All client components start with `'use client';` directive
-- Icons exclusively from `lucide-react`
-- Styling with Tailwind CSS utility classes
-- Use `cn()` from `@/lib/utils` for conditional class merging
-- UI primitives in `web/components/ui/` follow shadcn/ui conventions (forwardRef, variant props, `cn()`)
+**Pattern:**
+- `from decimal import Decimal` for all financial calculations
+- Amounts stored as `Decimal("123.45")` not float
+- Quantization: `Decimal("5.33333333")` for 8 decimal place precision
+- Comparisons: `amount_gt: 0` for numeric threshold checks
 
 ---
 
-*Convention analysis: 2026-03-11*
+*Convention analysis: 2026-03-13*

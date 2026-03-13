@@ -1,306 +1,230 @@
 # External Integrations
 
-**Analysis Date:** 2026-03-11
+**Analysis Date:** 2026-03-13
 
 ## APIs & External Services
 
-### Blockchain Data APIs
+**Blockchain Data:**
+- NearBlocks (`https://api.nearblocks.io/v1`) - NEAR transaction indexing and account data
+  - SDK/Client: requests library (custom client in `indexers/near_indexer_nearblocks.py`)
+  - Auth: `NEARBLOCKS_API_KEY` environment variable
+  - Rate limit: 1 req/sec when key present, 3 req/sec without key (paid tier ~190 calls/min)
+  - Implementation: `indexers/near_indexer_nearblocks.py`, `indexers/near_fetcher.py`
 
-**NearBlocks API:**
-- Purpose: NEAR Protocol transaction history, staking deposits, account data
-- Client: `indexers/nearblocks_client.py` (`NearBlocksClient` class)
-- Base URL: `https://api.nearblocks.io/v1`
-- Auth: `NEARBLOCKS_API_KEY` env var (paid tier: 190 calls/min; free tier: ~6 rapid requests before 429)
-- Rate limiting: 1.0s delay (paid) or 3.0s (free), exponential backoff on 429, max 5 retries
-- Used by: `indexers/near_indexer_nearblocks.py`, `indexers/ft_indexer.py`
+- Alchemy (`https://eth-mainnet.g.alchemy.com/v2/`, `https://polygon-mainnet.g.alchemy.com/v2/`) - EVM transaction indexing for Ethereum and Polygon
+  - SDK/Client: requests library (custom RPC client in `indexers/evm_indexer_alchemy.py`)
+  - Auth: `ALCHEMY_API_KEY` environment variable
+  - Implementation: `indexers/evm_indexer_alchemy.py`, `indexers/evm_fetcher.py`
+  - Methods: alchemy_getAssetTransfers (all transfers including zero-value contract calls)
 
-**FastNEAR RPC:**
-- Purpose: NEAR blockchain RPC calls (account balances, contract state)
-- Client (TypeScript): `web/lib/near-rpc.ts` (`nearRpcCall()`, `viewAccount()`)
-- Client (Python): Direct in `config.py`
-- Base URLs:
-  - `https://rpc.mainnet.fastnear.com/{API_KEY}` (with key)
-  - `https://rpc.fastnear.com` (free, no rate limit for basic calls)
-  - `https://archival-rpc.mainnet.fastnear.com` (archival data)
-- Auth: `FASTNEAR_API_KEY` env var (optional)
+- FastNEAR RPC (`https://free.rpc.fastnear.com`, `https://archival-rpc.mainnet.fastnear.com`) - NEAR balance checks and archival queries
+  - SDK/Client: fetch API (browser) or requests (backend)
+  - Auth: Optional `FASTNEAR_API_KEY` environment variable
+  - Implementation: `web/lib/near-rpc.ts`, `config.py` (FASTNEAR_RPC, FASTNEAR_ARCHIVAL_RPC)
+  - No rate limit if using free endpoint; API key improves tier
 
-**NEARDATA API:**
-- Purpose: High-throughput block-level indexing for tax-grade reliability
-- Client: `indexers/neardata_indexer.py` (async with aiohttp)
-- Features: Block-level state tracking, gap detection, verification passes, graceful shutdown
+- Etherscan API - EVM block explorer data (fallback, optional)
+  - Auth: `ETHERSCAN_API_KEY` environment variable
+  - Implementation: referenced in docker-compose env but usage location unclear
 
-**Etherscan V2 API:**
-- Purpose: EVM chain transaction history (Ethereum, Polygon, Cronos, Optimism)
-- Client: `indexers/evm_indexer.py`
-- Base URL: `https://api.etherscan.io/v2/api` (unified V2 endpoint with chainid param)
-- Auth: `ETHERSCAN_API_KEY` env var
-- Supported chains: ETH (chainid 1), Polygon (137), Cronos (25, uses separate API), Optimism (10, paid tier)
-- Note: V1 API deprecated Aug 2025
+**Price Data:**
+- CoinGecko API (primary) - Historical and current crypto prices
+  - Base URL: `https://api.coingecko.com/api/v3` (free) or `https://pro-api.coingecko.com/api/v3` (pro)
+  - Auth: `COINGECKO_API_KEY` environment variable (optional, enables pro tier)
+  - Rate limit: Free tier 30 calls/min, enforced with 2.1sec delay between calls
+  - Implementation: `indexers/price_service.py`, `engine/prices.py`, `verify/reconcile.py`
+  - Features: CAD conversion (uses Bank of Canada Valet API), outlier detection (>50% variance triggers alert)
 
-**Alchemy API:**
-- Purpose: EVM asset transfers with full gas fee tracking (Ethereum, Polygon)
-- Client: `indexers/evm_indexer_alchemy.py`
-- Base URLs: `https://eth-mainnet.g.alchemy.com/v2/{KEY}`, `https://polygon-mainnet.g.alchemy.com/v2/{KEY}`
-- Auth: `ALCHEMY_API_KEY` env var
-- Method: `getAssetTransfers` (includes zero-value contract calls)
+- CryptoCompare API (fallback) - Historical prices when CoinGecko unavailable
+  - Base URL: `https://min-api.cryptocompare.com/data`
+  - Auth: `CRYPTOCOMPARE_API_KEY` environment variable (optional)
+  - Implementation: `indexers/price_service.py`
+  - Fallback strategy: Uses CoinGecko as primary, CryptoCompare for validation
 
-**Cronos Explorer API:**
-- Purpose: Cronos chain transaction data
-- Client: `indexers/evm_indexer.py` (custom_api path)
-- Base URL: `https://cronos.org/explorer/api`
-- Auth: `CRONOS_API_KEY` env var
+- Bank of Canada Valet API (`https://www.bankofcanada.ca/valet`) - CAD/USD historical exchange rates
+  - No auth required
+  - Implementation: Referenced in `indexers/price_service.py` for CAD conversion
+  - Caching: Results stored in PostgreSQL price_cache table
 
-**XRP Ledger API:**
-- Purpose: XRP transaction history
-- Client: `indexers/xrp_indexer.py` (`XRPIndexer` class)
-- Endpoints: `https://xrplcluster.com`, `https://s1.ripple.com:51234`, `https://s2.ripple.com:51234`
-- Auth: None required (public JSON-RPC)
-- Rate limit: 0.5s delay (2 req/sec)
+**Blockchain SDKs:**
+- NEAR SDK (@vitalpoint/near-phantom-auth 0.5.2) - Custom NEAR wallet authentication
+  - Implementation: `web/components/` (assumed WalletConnect integration)
 
-**Akash Network LCD API:**
-- Purpose: Akash (Cosmos SDK) transaction history
-- Client: `indexers/akash_indexer.py` (`AkashIndexer` class)
-- Endpoints: `https://api.akash.forbole.com`, `https://akash-api.polkachu.com`, `https://akash-rest.publicnode.com`
-- Auth: None required (public REST)
-- Rate limit: 0.5s delay
+- WalletConnect Sign Client (2.23.6) - Multi-chain wallet connection
+  - Implementation: Referenced in web package.json, assumed used in auth flow
 
-### Price Data APIs
-
-**Pyth Network (Hermes):**
-- Purpose: Real-time price feeds for major tokens (NEAR, ETH, BTC, AURORA, USDC, USDT)
-- Client: `web/lib/token-prices.ts` (`fetchPythPrice()`)
-- Base URL: `https://hermes.pyth.network`
-- Auth: None required
-- Priority: Primary price source in web app
-- Cache: 5-minute in-memory TTL
-
-**Ref Finance API:**
-- Purpose: NEAR ecosystem token prices (wNEAR, stNEAR, LiNEAR, REF, OCT, AURORA)
-- Client: `web/lib/token-prices.ts` (`fetchRefPrices()`)
-- Base URL: `https://api.ref.finance`
-- Auth: None required
-- Priority: Secondary price source (after Pyth)
-
-**CoinGecko API:**
-- Purpose: Historical price data, current price fallback
-- Client (TypeScript): `web/lib/prices.ts` (`getNearPriceForDate()`, `getCurrentNearPrice()`)
-- Base URL: `https://api.coingecko.com/api/v3`
-- Auth: `COINGECKO_API_KEY` env var (optional, for indexer)
-- Cache: 24h for historical, 60s for current (Next.js revalidate)
-
-**CoinCap API:**
-- Purpose: Fallback current price source
-- Client: `web/lib/prices.ts` (`getCurrentNearPrice()` fallback)
-- Base URL: `https://api.coincap.io/v2`
-- Auth: None required
-
-**CryptoCompare API:**
-- Purpose: Historical hourly/daily price data for cost basis calculations
-- Client: `indexers/price_service.py` (`get_hourly_price()`)
-- Base URL: `https://min-api.cryptocompare.com/data/v2`
-- Auth: None (free tier)
-- Used for: Backfilling cost basis on indexed transactions
-
-**Exchange Rate API:**
-- Purpose: Fiat currency exchange rates (USD to CAD, EUR, GBP, etc.)
-- Client: `web/app/api/exchange-rates/route.ts`
-- Base URL: `https://api.exchangerate.host/latest`
-- Auth: None required
-- Cache: 1 hour in-memory
-- Fallback: Hardcoded rates for 12 currencies
-
-### Exchange Connectors (CEX APIs)
-
-**Coinbase Advanced Trade API:**
-- Purpose: Trade history, deposits, withdrawals from Coinbase
-- Client: `indexers/coinbase_indexer.py`, `indexers/exchange_connectors/coinbase.py`
-- Base URL: `https://api.coinbase.com`
-- Auth: JWT with EC private key (`COINBASE_CREDS` env var pointing to JSON file)
-- Dependencies: `PyJWT`, `cryptography` (optional import)
-
-**Kraken API:**
-- Purpose: Account balances, trade history, deposit/withdrawal history
-- Client: `indexers/exchange_connectors/kraken.py` (`KrakenConnector` class)
-- Base URL: `https://api.kraken.com`
-- Auth: HMAC-SHA512 signature with base64-encoded API keys
-
-**Crypto.com Exchange API:**
-- Purpose: Account balances, trade history, deposits/withdrawals
-- Client: `indexers/exchange_connectors/cryptocom.py` (`CryptoComConnector` class)
-- Base URL: `https://api.crypto.com/exchange/v1`
-- Auth: HMAC-SHA256 signature
-
-### Exchange Statement Parsers (CSV/PDF Import)
-
-**Supported formats (parsed from uploaded files, no API):**
-- Coinbase: `indexers/exchange_parsers/coinbase.py`
-- Crypto.com: `indexers/exchange_parsers/crypto_com.py`
-- Wealthsimple: `indexers/exchange_parsers/wealthsimple.py`
-- Generic CSV: `indexers/exchange_parsers/generic.py`
-- PDF statements: `web/app/api/import/pdf/route.ts` (uses `pdf-parse`, `pdf2json`, `pdfjs-dist`)
+- Algorand SDK (algosdk) - Algorand blockchain support (installed but minimal usage)
+  - Implementation: If used, likely in indexers for Algorand transaction parsing
 
 ## Data Storage
 
 **Databases:**
-- PostgreSQL 16 (Production)
-  - Connection: `DATABASE_URL` env var (format: `postgres://neartax:{password}@{host}:5432/neartax`)
-  - Web client: `pg` (Node.js) via connection pool in `web/lib/db.ts` (max 20 connections, 30s idle timeout)
-  - Indexer client: `psycopg2-binary` (Python)
-  - Schemas: `db/schema.sql`, `db/schema_evm.sql`, `db/schema_users.sql`, `db/schema_exchanges.sql`, `01_create_table.sql`
-  - Note: Web DB layer converts `?` placeholders to `$1, $2...` for Postgres compatibility (`web/lib/db.ts` `convertPlaceholders()`)
+- PostgreSQL 16 (primary and only database)
+  - Connection: `DATABASE_URL` environment variable (format: `postgresql://user:pass@host:5432/dbname`)
+  - Client: psycopg2-binary (Python) via connection pool
+  - Migrations: Alembic 1.13.0 (`db/migrations/alembic.ini`)
+  - Schema files: `db/models.py`, `db/init.sql`, migration versions in `db/migrations/versions/`
+  - Pool management: `indexers/db.py` (SimpleConnectionPool for async handlers)
 
-- SQLite (Legacy/Scripts)
-  - Path: `neartax.db` (configured via `NEARTAX_DB` env var or `config.py` `DATABASE_PATH`)
-  - Client (Python): `sqlite3` stdlib via `db/init.py` `get_connection()`
-  - Client (Node.js): `better-sqlite3` in `scripts/`
-  - Status: Python indexers still reference SQLite via `db/init.py`; web app fully migrated to PostgreSQL
+- SQLite (legacy, minimal use)
+  - Client: better-sqlite3
+  - Purpose: Possible legacy scripts or sync operations (not primary)
 
 **File Storage:**
-- Local filesystem only (no cloud storage)
-- Output directory: `output/` (gitignored)
-- Reports directory: `reports/` (gitignored)
+- S3 compatible storage (implied by boto3 import in web dependencies)
+  - Implementation: AWS SES is actively used; S3 integration possible but not explicitly configured
+  - Configuration: None explicitly set in docker-compose or config.py
+  - If used: Would require `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` in environment
 
 **Caching:**
-- In-memory Map caches in web app:
-  - Token prices: 5-min TTL (`web/lib/token-prices.ts`)
-  - Historical prices: unbounded Map (`web/lib/prices.ts`)
-  - Exchange rates: 1-hour TTL (`web/app/api/exchange-rates/route.ts`)
-  - Passkey challenges: global Map with 60s cleanup interval (`web/lib/passkey-challenges.ts`)
-- Next.js `revalidate` for fetch caching (24h historical prices, 60s current prices)
+- PostgreSQL price_cache table - In-database caching for price data
+  - Schema: `(coin_id, date, currency, price, cached_at)` with UniqueConstraint
+  - INSERT ... ON CONFLICT pattern for idempotent writes
+  - Implementation: `indexers/price_service.py`
+- No Redis or external cache layer detected
 
 ## Authentication & Identity
 
-**Passkey/WebAuthn (Primary):**
-- Implementation: `@simplewebauthn/server` + `@simplewebauthn/browser`
-- Registration flow: `web/app/api/phantom-auth/register/start/route.ts` -> `finish/route.ts`
-- Login flow: `web/app/api/phantom-auth/login/start/route.ts` -> `finish/route.ts`
-- Challenge storage: In-memory global Map (`web/lib/passkey-challenges.ts`)
-- DB tables: `users`, `passkeys`, `sessions` (PostgreSQL)
-- Session: Cookie-based (`neartax_session`), 7-day expiry, httpOnly + secure + sameSite:lax
+**Auth Provider:**
+- Custom implementation (hybrid multi-method)
+  - Methods supported:
+    1. WebAuthn/Passkeys - Server-side verification via `webauthn 2.0.0` library
+    2. Google OAuth 2.0 - PKCE flow, token exchange, email-based user upsert
+    3. Magic Link (email) - Signed tokens via itsdangerous, SES delivery
+    4. NEAR Wallet - Via @vitalpoint/near-phantom-auth and WalletConnect
 
-**Google OAuth (Secondary):**
-- Implementation: Custom OAuth 2.0 flow
-- Client: `web/app/api/phantom-auth/oauth/callback/route.ts`
-- Auth: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` env vars
-- Redirect: `{NEXT_PUBLIC_APP_URL}/api/phantom-auth/oauth/callback`
-- Providers endpoint: `web/app/api/phantom-auth/oauth/providers/route.ts`
+**Implementation:**
+- Location: `api/auth/` module
+  - `passkey.py` - WebAuthn registration and authentication (RP_ID, RP_NAME, ORIGIN configured)
+  - `oauth.py` - Google OAuth 2.0 (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, OAUTH_REDIRECT_URI)
+  - `magic_link.py` - Email magic links with SES (SECRET_KEY for signing, SES_FROM_EMAIL, SES_REGION)
+  - `session.py` - Session management (httponly, samesite=lax cookies, 7-day TTL)
 
-**NEAR Wallet Auth:**
-- Package: `@vitalpoint/near-phantom-auth` 0.5.2
-- WalletConnect: `@walletconnect/sign-client` 2.23.6
+**Challenge Storage:**
+- PostgreSQL `challenges` table - Stores WebAuthn and OAuth state challenges
+  - Columns: `id, challenge, challenge_type, expires_at, metadata`
+  - TTL: WebAuthn 60s, OAuth 600s (10 minutes)
+  - Implementation: `api/auth/passkey.py`, `api/auth/oauth.py`
 
-**Session Management:**
-- Implementation: `web/lib/auth.ts` (`getAuthenticatedUser()`, `createSession()`, `invalidateCurrentSession()`)
-- DB-backed sessions with expiry checks
-- Accountant delegation: Cookie `neartax_viewing_as` for viewing client accounts
-- Permission levels: `read`, `readwrite` for accountant access
-- Admin check: `is_admin` flag on users table
-
-**Auth DB Helper:**
-- `web/lib/auth-db.ts` - Separate pool for auth queries (`getUser()`, `getPasskey()`, `getSession()`)
-
-## Email Service
-
-**AWS SES:**
-- Purpose: Transactional emails (accountant invitations)
-- Client: `@aws-sdk/client-ses` in `web/lib/email.ts`
-- Region: `AWS_SES_REGION` env var (default: `ca-central-1`)
-- From: `AWS_SES_FROM_EMAIL` env var (default: `neartax@vitalpoint.ai`)
-- Auth: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` env vars
-- Functions: `sendEmail()`, `sendAccountantInviteEmail()`
-
-## DeFi Protocol Integrations
-
-**Burrow Finance (Lending/Borrowing):**
-- Parser: `defi/burrow_parser.py`
-- Tracker: `indexers/burrow_tracker.py`
-- Contracts: `contract.main.burrow.near`, `burrow.near`
-- Tax events: Interest earned (income), BRRR rewards (income), liquidations (capital loss)
-
-**Ref Finance (DEX):**
-- Parser: `defi/ref_finance_parser.py`
-- Price API: `https://api.ref.finance/list-token-price`
-
-**Meta Pool (Liquid Staking):**
-- Parser: `defi/meta_pool_parser.py`
-
-**SWEAT Jars:**
-- Tracker: `indexers/sweat_jars_tracker.py`
-- Cron: Daily at 5am UTC
-
-**Aurora (Intents/Swap):**
-- Widget: `@aurora-is-near/intents-swap-widget` 6.3.1
+**User Table:**
+- PostgreSQL `users` table - Core identity
+  - Columns: `id, near_account_id, email, username, codename, is_admin, created_at`
+  - Upsert on OAuth/magic link: INSERT ... ON CONFLICT (email)
 
 ## Monitoring & Observability
 
 **Error Tracking:**
-- None (console.error only)
+- Not detected in codebase
+- No Sentry, DataDog, or Rollbar integration found
 
 **Logs:**
-- Console logging throughout (`console.log`, `console.error`)
-- Python: `print()` statements, some `logging` module usage in `neardata_indexer.py`
-- Cron logs: `/var/log/cron.log` in indexer container
+- Docker logging driver: json-file (production docker-compose.prod.yml)
+  - Max size: 10m per file, max 3 files per container
+  - stdout/stderr capture (standard Docker approach)
+- Python logging: `logging` module (standard library, not explicitly configured)
+- Implementation: Standard print statements or logging.getLogger in Python code
 
-**Health Check:**
-- Endpoint: `web/app/api/health/` (used in Docker healthcheck)
-- Docker: 30s interval, 10s timeout, 3 retries
+**Monitoring Metrics:**
+- Health check endpoints (docker-compose only)
+  - API: `GET /health` (8000/8000)
+  - Web: `GET http://127.0.0.1:3000` (HTTP 200 check)
+  - Postgres: pg_isready check
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- Docker Compose on self-hosted infrastructure
-- Domain: `neartax.vitalpoint.ai` (inferred from `NEXT_PUBLIC_APP_URL`)
+- Docker containers (self-hosted or cloud-agnostic)
+- Infrastructure agnostic (works on any Docker-compatible platform)
 
 **CI Pipeline:**
-- None detected (GitHub Actions workflow was removed per commit history: "Remove workflow (token scope issue)")
+- Not detected in repository
+- No GitHub Actions, GitLab CI, or Jenkins configuration found
+- Deployment: Manual via docker-compose up or orchestration tool (Kubernetes assumed for prod)
 
-## Scheduled Tasks
-
-**Cron Jobs (in indexer container):**
-- `indexers/crontab` defines the schedule:
-  - Every 5 min: Price indexer (`price_indexer.py`)
-  - Every 6 hours: NEAR indexer (`near_indexer_nearblocks.py`)
-  - Every 6 hours (offset +1h): FT token indexer (`ft_indexer.py`)
-  - Every 6 hours (offset +2h): EVM indexer (`evm_indexer.py`)
-  - Every 6 hours (offset +3h): DeFi/Burrow tracker (`burrow_tracker.py`)
-  - Daily 4am UTC: Staking tracker
-  - Daily 5am UTC: SWEAT Jars tracker
+**Deployment Configuration:**
+- docker-compose.yml - Development environment
+- docker-compose.prod.yml - Production environment with resource limits, logging, health checks
+- Dockerfiles: `web/Dockerfile`, `api/Dockerfile`, `indexers/Dockerfile`
+- Database migrations: Alembic runs on startup (migrate service in prod compose)
 
 ## Environment Configuration
 
-**Required env vars (critical for operation):**
-- `DATABASE_URL` - PostgreSQL connection string
+**Required env vars (production):**
+- `DATABASE_URL` - PostgreSQL connection string (REQUIRED, no default)
 - `POSTGRES_PASSWORD` - Database password
-- `NEARBLOCKS_API_KEY` - NEAR transaction indexing
+- `NEARBLOCKS_API_KEY` - NearBlocks API access (rate limiting depends on presence)
+- `ALCHEMY_API_KEY` - Ethereum/Polygon indexing
+- `ETHERSCAN_API_KEY` - Block explorer fallback (optional)
+- `COINGECKO_API_KEY` - CoinGecko pricing (optional, enables pro tier)
+- `CRYPTOCOMPARE_API_KEY` - Price fallback (optional)
+- `FASTNEAR_API_KEY` - FastNEAR RPC key (optional)
 
-**Required env vars (for full functionality):**
-- `ETHERSCAN_API_KEY` - EVM chain indexing
-- `ALCHEMY_API_KEY` - EVM detailed transfers
-- `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` - Email sending
-- `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` - Google OAuth login
-- `NEXT_PUBLIC_APP_URL` - Base URL for OAuth redirects and links
+**Auth & Security:**
+- `SECRET_KEY` - Token signing secret (REQUIRED in production)
+- `GOOGLE_CLIENT_ID` - OAuth 2.0 client ID
+- `GOOGLE_CLIENT_SECRET` - OAuth 2.0 client secret
+- `RP_ID` - WebAuthn relying party domain (default: localhost)
+- `RP_NAME` - WebAuthn relying party name (default: Axiom)
+- `ORIGIN` - WebAuthn expected origin (default: http://localhost:3003)
+- `OAUTH_REDIRECT_URI` - Google callback (default: http://localhost:3003/auth/oauth/callback)
 
-**Optional env vars:**
-- `FASTNEAR_API_KEY` - Better RPC rate limits
-- `COINGECKO_API_KEY` - Better price data rate limits
-- `COINBASE_CREDS` - Path to Coinbase API credentials JSON
-- `CRONOS_API_KEY` - Cronos chain indexing
-- `AWS_SES_REGION` - SES region (default: ca-central-1)
-- `AWS_SES_FROM_EMAIL` - Email sender (default: neartax@vitalpoint.ai)
+**AWS Configuration:**
+- `AWS_ACCESS_KEY_ID` - AWS credentials for SES
+- `AWS_SECRET_ACCESS_KEY` - AWS credentials for SES
+- `AWS_SES_REGION` - AWS region (default: ca-central-1)
+- `AWS_SES_FROM_EMAIL` - SES sender email (default: axiom@vitalpoint.ai)
+- `SES_FROM_EMAIL` - Alias for AWS_SES_FROM_EMAIL
+- `SES_REGION` - Alias for AWS_SES_REGION
+
+**Frontend Configuration:**
+- `NEXT_PUBLIC_API_URL` - Backend API endpoint (default: http://localhost:8000)
+- `NODE_ENV` - Environment (default: production)
+- `ALLOWED_ORIGINS` - CORS origins for FastAPI (default: http://localhost:3000)
+
+**Indexer Configuration:**
+- `JOB_POLL_INTERVAL` - Job check interval in seconds (default: 5)
+- `SYNC_INTERVAL_MINUTES` - Indexing sync interval (default: 15)
 
 **Secrets location:**
-- `.env` file at project root (gitignored)
-- `.credentials/` directory (gitignored)
-- Coinbase credentials in JSON file at path specified by `COINBASE_CREDS`
+- .env file (not committed, listed in .gitignore)
+- Production: Environment variables injected at container runtime
+- Development: `.env` in project root (with secrets, not committed)
 
 ## Webhooks & Callbacks
 
 **Incoming:**
-- Google OAuth callback: `GET /api/phantom-auth/oauth/callback`
+- OAuth 2.0 callback: `POST /auth/oauth/callback` (Google redirect)
+  - Consumes: authorization code, state
+  - Verifies: CSRF token via challenges table
+  - Returns: Session cookie (neartax_session)
 
 **Outgoing:**
-- None detected
+- Magic link emails - SES outbound (not webhooks, direct email)
+- No webhook subscriptions to external services detected
+- No event streaming (Kafka, NATS, etc.) configured
+
+## Integration Patterns
+
+**Price Data Pipeline:**
+1. Indexer requests price from CoinGecko API (or CryptoCompare fallback)
+2. Result cached in PostgreSQL price_cache table (INSERT ... ON CONFLICT)
+3. CAD conversion via Bank of Canada Valet API (if CAD requested)
+4. Outlier detection: if >50% variance between sources, prefer CoinGecko
+5. API endpoint returns cached price to frontend
+
+**Blockchain Transaction Indexing:**
+1. NearBlocks API queries NEAR transactions → stored in PostgreSQL
+2. Alchemy API queries Ethereum/Polygon transfers → stored in PostgreSQL
+3. Rate limiting enforced per-chain (NEAR: 1-3 req/sec, Alchemy: per-chain limits)
+4. Indexer runs on schedule (JOB_POLL_INTERVAL, SYNC_INTERVAL_MINUTES)
+5. Frontend queries PostgreSQL via FastAPI `/transactions` endpoint
+
+**Authentication Flow:**
+1. WebAuthn: Client (browser) starts ceremony → API verifies → session created
+2. OAuth: Client redirects to Google → Google redirects back to callback → API upserts user
+3. Magic Link: Client enters email → API sends signed link via SES → Client clicks → API verifies token
+4. NEAR: Client connects wallet → API resolves account_id → session created
 
 ---
 
-*Integration audit: 2026-03-11*
+*Integration audit: 2026-03-13*

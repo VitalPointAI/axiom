@@ -1,201 +1,372 @@
 # Testing Patterns
 
-**Analysis Date:** 2026-03-11
+**Analysis Date:** 2026-03-13
 
 ## Test Framework
 
-**Runner:** None configured
+**Runner:**
+- pytest - all test files use pytest conventions
+- Config: No explicit `pytest.ini` detected; pytest discovers tests automatically via `test_*.py` naming
 
-No test framework is set up for either the Python backend or the TypeScript frontend:
-- No `jest.config.*`, `vitest.config.*`, `pytest.ini`, `pyproject.toml` (with test config), or `setup.cfg`
-- No test dependencies in `web/package.json` (no jest, vitest, @testing-library, etc.)
-- No test scripts in `web/package.json` (only `dev`, `build`, `start`, `lint`)
-- No `requirements.txt` at project root for Python dependencies
-- `indexers/requirements.txt` exists but contains only runtime dependencies
+**Assertion Library:**
+- pytest built-in assertions (`assert`, `assert x == y`)
+- unittest assertions in some test classes (`.assertEqual()`, `.assertRaises()`)
+- No external assertion library (requests, hypothesis, etc.)
 
 **Run Commands:**
 ```bash
-cd web && npm run lint   # Only linting is available, no test runner
+pytest                    # Run all tests
+pytest tests/test_*.py   # Run all tests in tests/ directory
+pytest -v                # Verbose output with individual test names
+pytest --tb=short        # Show short traceback format
 ```
 
-## Test Files
-
-**Total test files found:** 2
-
-Both are ad-hoc debug/investigation scripts, not automated tests:
-
-- `test_trace.py` - Manual script to test Alchemy `trace_filter` API for Ethereum traces. Runs requests and prints results. No assertions.
-- `test_trace_tx.py` - Manual script to test Alchemy `trace_transaction` API. Queries a hardcoded database path and prints results. No assertions.
-
-These files are **not automated tests**. They are one-off debugging scripts that:
-- Make live API calls (require `ALCHEMY_API_KEY` env var)
-- Query a hardcoded production database path (`/home/deploy/neartax/neartax.db`)
-- Print output to stdout for manual inspection
-- Have no assertions, no test structure, no pass/fail reporting
+No `conftest.py` fixture discovery or custom pytest plugins configured beyond shared fixtures.
 
 ## Test File Organization
 
-**Location:** No established pattern. The two `test_*.py` files sit in the project root.
+**Location:**
+- All tests in `/home/vitalpointai/projects/Axiom/tests/` directory
+- Tests are **co-located with codebase** (not in separate test directory structure matching src/)
+- Fixture data in `tests/fixtures/` subdirectory
+- Test database data mocked, not requiring live PostgreSQL
 
-**No test directories exist:**
-- No `tests/`, `__tests__/`, `test/`, `spec/` directories
-- No co-located test files alongside source code
-- No test files in `web/`, `engine/`, `indexers/`, `tax/`, or `db/`
+**Naming:**
+- Test files: `test_*.py` (e.g., `test_acb.py`, `test_classifier.py`, `test_api_auth.py`)
+- Test functions: `test_*()` (e.g., `test_acquire()`, `test_multi_acquire()`)
+- Test classes: `Test*` (e.g., `TestACBPool`, `TestACBEngine`, `TestClassifierRules`)
+- Helper functions: `_*()` (e.g., `_make_pool()`, `_make_classifier()`)
+
+**Structure:**
+```
+tests/
+├── conftest.py                         # Shared pytest fixtures
+├── fixtures/                           # Fixture data
+├── test_acb.py                        # ACB engine tests
+├── test_api_auth.py                   # FastAPI auth endpoint tests
+├── test_api_wallets.py                # Wallets endpoint tests
+├── test_api_portfolio.py               # Portfolio endpoint tests
+├── test_api_transactions.py            # Transactions endpoint tests
+├── test_api_reports.py                 # Reports endpoint tests
+├── test_api_verification.py            # Verification endpoint tests
+├── test_classifier.py                  # Transaction classifier tests
+├── test_evm_decoder.py                 # EVM method signature decoding tests
+├── test_evm_fetcher.py                 # EVM indexer tests
+├── test_fifo.py                        # FIFO tracker tests
+├── test_near_fetcher.py                # NEAR fetcher tests
+├── test_price_service.py               # Price service tests
+├── test_reports.py                     # Report generation tests
+└── test_superficial.py                 # Superficial loss detection tests
+```
 
 ## Test Structure
 
-No structured tests exist. There are no `describe`/`it` blocks, no `unittest.TestCase` subclasses, no `pytest` functions, and no assertion library usage.
+**Suite Organization:**
+
+From `tests/test_acb.py`:
+```python
+"""
+Tests for ACB (Adjusted Cost Base) engine.
+
+Coverage:
+  - TestACBPool: unit tests for the per-token pool state machine
+  - TestACBEngine: integration tests for cross-wallet replay and income handling
+  - TestGainsCalculator: tests for capital gains and income ledger population
+"""
+
+class TestACBPool:
+    """Unit tests for the ACBPool (per-token running total / ACB calculator)."""
+
+    def test_acquire(self):
+        """Acquiring 1000 units at $5000 CAD -> acb_per_unit = 5.00000000"""
+        from engine.acb import ACBPool
+        pool = ACBPool("NEAR")
+        result = pool.acquire(Decimal("1000"), Decimal("5000"))
+        assert pool.total_units == Decimal("1000")
+        assert pool.total_cost_cad == Decimal("5000")
+```
+
+From `tests/test_classifier.py`:
+```python
+"""Tests for TransactionClassifier — the core classification engine.
+
+Covers CLASS-01 (NEAR rule-based), CLASS-02 (wallet graph / internal transfers),
+CLASS-03 (staking reward linkage), CLASS-04 (lockup vest linkage),
+CLASS-05 (EVM classification), and multi-leg decomposition.
+
+All database interactions are mocked so no live DB is required.
+"""
+
+def _make_pool(rows=None, rowcount=1):
+    """Build a minimal mock psycopg2 connection pool."""
+    cur = MagicMock()
+    cur.fetchall.return_value = rows or []
+    cur.fetchone.return_value = None
+    cur.rowcount = rowcount
+
+    conn = MagicMock()
+    conn.cursor.return_value = cur
+
+    pool = MagicMock()
+    pool.getconn.return_value = conn
+    return pool, conn, cur
+```
+
+**Patterns:**
+
+1. **Module docstring with coverage summary:**
+   ```python
+   """Tests for ReportEngine — report generation and validation.
+
+   Tests:
+     - TestReportGate: gate check logic (needs_review blocking)
+     - TestCapitalGainsReport: CSV generation with summaries
+   """
+   ```
+
+2. **Test class organization by component:**
+   - One class per logical component (e.g., `TestACBPool`, `TestWalletGraph`)
+   - Class docstring explains what is being tested
+
+3. **Helper functions at module level:**
+   ```python
+   def _make_pool(rows=None):
+       """Build a minimal mock psycopg2 connection pool."""
+
+   def _make_classifier(pool=None, rules=None):
+       """Build a TransactionClassifier with optional overrides."""
+   ```
+
+4. **Test method docstrings describe the scenario and assertion:**
+   ```python
+   def test_oversell_clamps(self):
+       """If pool has 100 units and dispose(150), clamp to 100 and flag needs_review"""
+   ```
 
 ## Mocking
 
-**Framework:** None
+**Framework:** `unittest.mock` (standard library)
 
-No mocking is done anywhere in the codebase. The debug scripts in the root make live API calls.
+**Patterns:**
+
+From `tests/conftest.py`:
+```python
+@pytest.fixture
+def mock_pool(mock_conn):
+    """MagicMock psycopg2 SimpleConnectionPool.
+
+    getconn() returns mock_conn, putconn() is a no-op.
+    """
+    pool = MagicMock()
+    pool.getconn.return_value = mock_conn
+    pool.putconn.return_value = None
+    return pool
+
+
+@pytest.fixture
+def api_client(mock_pool):
+    """FastAPI TestClient with the DB pool dependency overridden.
+
+    The get_pool_dep dependency is replaced with a mock so tests don't
+    need a real PostgreSQL connection.
+    """
+    app = create_app()
+    app.dependency_overrides[get_pool_dep] = lambda: mock_pool
+    with patch("indexers.db.get_pool", return_value=mock_pool), \
+         patch("indexers.db.close_pool"):
+        with TestClient(app, raise_server_exceptions=True) as client:
+            yield client
+    app.dependency_overrides.clear()
+```
+
+**Mocking helpers:**
+```python
+from unittest.mock import MagicMock, patch, call
+
+# Create mock objects
+pool = MagicMock()
+pool.getconn.return_value = mock_conn
+
+# Configure return values
+cur.fetchall.return_value = [row1, row2]
+cur.fetchone.return_value = None
+
+# Setup side effects (multiple calls)
+cur.fetchone.side_effect = [(row1,), (row2,), None]
+
+# Verify calls made
+pool.getconn.assert_called_once_with()
+pool.putconn.assert_called_with(conn)
+
+# Use patch for imports
+with patch("module.function_name", return_value=value):
+    test_function()
+```
+
+**What to Mock:**
+- Database connections and cursors (psycopg2 operations)
+- External API calls (e.g., price fetcher, blockchain indexers)
+- Authentication/session dependencies in FastAPI tests
+- Time-based functions when testing temporal logic
+
+**What NOT to Mock:**
+- Business logic being tested (ACBPool, TransactionClassifier, etc.)
+- Pydantic model validation
+- Core tax calculation engines
+- Internal helper functions
 
 ## Fixtures and Factories
 
-**Test Data:** None
+**Test Data:**
 
-The only test data patterns are:
-- Inline example usage in `if __name__ == "__main__":` blocks (e.g., `engine/acb.py` has example transactions)
-- Hardcoded addresses and transaction hashes in debug scripts
+From `tests/conftest.py` — shared fixtures for all tests:
+```python
+@pytest.fixture
+def mock_user():
+    """Standard authenticated user context dict (non-admin)."""
+    return {
+        "user_id": 1,
+        "near_account_id": "alice.near",
+        "is_admin": False,
+        "email": "alice@example.com",
+        "username": "alice",
+        "codename": None,
+        "viewing_as_user_id": None,
+        "permission_level": None,
+    }
+
+
+@pytest.fixture
+def auth_client(mock_pool, mock_user):
+    """FastAPI TestClient with both DB pool and authentication mocked."""
+    app = create_app()
+    app.dependency_overrides[get_pool_dep] = lambda: mock_pool
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    with patch("indexers.db.get_pool", return_value=mock_pool), \
+         patch("indexers.db.close_pool"):
+        with TestClient(app, raise_server_exceptions=True) as client:
+            yield client
+    app.dependency_overrides.clear()
+```
+
+From `tests/test_superficial.py` — test-specific factories:
+```python
+def _make_ledger_row(**kwargs):
+    """Create a mock capital_gains_ledger-style row."""
+    defaults = {
+        "id": 1,
+        "user_id": 1,
+        "token_symbol": "NEAR",
+        "gain_loss_cad": Decimal("-200.00"),
+        "units_disposed": Decimal("100"),
+        "block_timestamp": 1680000000,
+        "acb_snapshot_id": 10,
+    }
+    defaults.update(kwargs)
+    row = MagicMock()
+    for k, v in defaults.items():
+        setattr(row, k, v)
+    return row
+```
+
+**Location:**
+- Shared fixtures: `tests/conftest.py` — available to all tests
+- Test-specific factories: defined at module level in test file (e.g., `_make_pool()`)
+- Fixture data: `tests/fixtures/` (if using file-based data)
 
 ## Coverage
 
-**Requirements:** None enforced
-**Coverage tooling:** Not configured
+**Requirements:** No explicit coverage enforcement detected
+
+**View Coverage:**
+```bash
+pytest --cov=api --cov=engine --cov=indexers tests/
+pytest --cov-report=html  # Generate HTML coverage report
+```
+
+Current test files cover:
+- API endpoints (auth, wallets, transactions, portfolio, reports, verification)
+- Core engines (ACB, FIFO, gains calculation, classification)
+- Utility modules (EVM decoder, wallet graph, spam detector, price service)
+- Exchange parsers (Coinbase, Crypto.com, Wealthsimple)
 
 ## Test Types
 
-**Unit Tests:** None exist
+**Unit Tests:**
+- Scope: Single function or small class (e.g., ACBPool.acquire, ACBPool.dispose)
+- Approach: Test with specific inputs, verify output and state changes
+- Example from `test_acb.py`:
+  ```python
+  def test_acquire(self):
+      """Acquiring 1000 units at $5000 CAD -> acb_per_unit = 5.00000000"""
+      from engine.acb import ACBPool
+      pool = ACBPool("NEAR")
+      result = pool.acquire(Decimal("1000"), Decimal("5000"))
+      assert pool.total_units == Decimal("1000")
+      assert pool.acb_per_unit == Decimal("5.00000000")
+  ```
 
-**Integration Tests:** None exist
+**Integration Tests:**
+- Scope: Multiple components interacting (e.g., ACBEngine with classifier output)
+- Approach: Set up mocked DB with test data, replay through engine, verify ledger results
+- Example from `test_acb.py` — `TestACBEngine` class testing full replay flow
+- Example from `test_classifier.py` — classifier rules against transactions with DB mocks
 
-**E2E Tests:** Not configured (no Playwright, Cypress, or similar)
+**E2E Tests:**
+- Status: Not observed in current test suite
+- FastAPI tests use TestClient (simulated requests, not real HTTP)
+- No browser/Selenium tests for UI
 
-## Recommended Testing Setup
+## Common Patterns
 
-When adding tests, follow these patterns based on the existing codebase structure:
-
-### Python (engine, tax, indexers)
-
-Use `pytest` as it requires minimal boilerplate and matches the functional style of the codebase.
-
-**Suggested structure:**
-```
-tests/
-  engine/
-    test_acb.py          # ACBTracker, PortfolioACB calculations
-    test_classifier.py   # Transaction classification logic
-    test_prices.py       # Price fetching and caching
-  tax/
-    test_categories.py   # TaxCategory classification
-    test_cost_basis.py   # Cost basis calculations
-    test_reports.py      # Report generation
-  indexers/
-    test_nearblocks_client.py  # API client (mock HTTP)
-```
-
-**Priority test targets (pure logic, no DB/API needed):**
-- `engine/acb.py` - `ACBTracker.acquire()`, `ACBTracker.dispose()`, `PortfolioACB` - pure math
-- `engine/classifier.py` - `classify_near_transaction()`, `classify_exchange_transaction()` - pure classification logic
-- `tax/categories.py` - `TaxCategory` enum and `categorize_transaction()` - pure mapping logic
-- `tax/cost_basis.py` - Cost basis calculations
-
-**Example test pattern matching codebase style:**
+**Async Testing:**
+FastAPI TestClient handles async routes automatically:
 ```python
-# tests/engine/test_acb.py
-import pytest
-from engine.acb import ACBTracker, PortfolioACB, check_superficial_loss
-from datetime import datetime
-
-def test_acquire_updates_cost_basis():
-    tracker = ACBTracker("NEAR")
-    tracker.acquire(1000, 5000, fee_cad=10, date=datetime(2023, 1, 15))
-    assert tracker.total_units == 1000
-    assert tracker.total_cost == 5010  # cost + fee
-    assert tracker.acb_per_unit == pytest.approx(5.01)
-
-def test_dispose_calculates_gain():
-    tracker = ACBTracker("NEAR")
-    tracker.acquire(1000, 5000)
-    result = tracker.dispose(500, 4000)
-    assert result['gain_loss'] == pytest.approx(1500)  # 4000 - (500 * 5.0)
-    assert result['is_gain'] is True
-
-def test_superficial_loss_within_30_days():
-    # Test the 30-day rebuy rule
-    dispositions = [{'gain_loss': -500, 'date': datetime(2023, 6, 15)}]
-    acquisition_dates = [datetime(2023, 6, 20)]  # rebuy within 30 days
-    result = check_superficial_loss(dispositions, acquisition_dates)
-    assert result[0]['superficial_loss'] is True
+def test_health_endpoint(api_client):
+    """GET /health must return 200 with status ok — no auth required."""
+    response = api_client.get("/health")
+    assert response.status_code == 200
 ```
 
-### TypeScript (web app)
+**Error Testing:**
 
-Use `vitest` as it integrates well with Next.js and requires minimal config.
-
-**Suggested structure:**
-```
-web/
-  __tests__/
-    lib/
-      auth.test.ts
-      db.test.ts
-      utils.test.ts
-    api/
-      wallets.test.ts
-      transactions.test.ts
+From `tests/test_reports.py`:
+```python
+def test_raises_when_cgl_has_needs_review(self):
+    """Test: ReportBlockedError raised when capital_gains_ledger has needs_review=TRUE rows."""
+    from reports.engine import ReportEngine, ReportBlockedError
+    pool, conn, cur = self._make_pool(cgl_count=3, acb_count=0)
+    engine = ReportEngine(pool)
+    with self.assertRaises(ReportBlockedError):
+        engine._check_gate(user_id=1, tax_year=2024)
 ```
 
-**Priority test targets:**
-- `web/lib/utils.ts` - `formatCurrency()`, `formatNumber()`, `cn()` - pure functions
-- `web/lib/db.ts` - `convertPlaceholders()` (internal function) - pure SQL transform
-- `web/lib/auth.ts` - `canWrite()` - pure logic check
-- API route handlers (mock `db` and `getAuthenticatedUser`)
-
-**Example test pattern matching codebase style:**
-```typescript
-// web/__tests__/lib/utils.test.ts
-import { describe, it, expect } from 'vitest';
-import { formatCurrency, formatNumber, cn } from '@/lib/utils';
-
-describe('formatCurrency', () => {
-  it('formats USD with 2 decimal places', () => {
-    expect(formatCurrency(1234.5)).toBe('$1,234.50');
-  });
-
-  it('handles string-like numbers', () => {
-    expect(formatCurrency(0)).toBe('$0.00');
-  });
-});
-
-describe('cn', () => {
-  it('merges tailwind classes', () => {
-    expect(cn('p-4', 'p-2')).toBe('p-2');
-  });
-});
+**Testing with side_effect for sequential calls:**
+```python
+cur.fetchone.side_effect = [(cgl_count,), (acb_count,)]  # Two sequential calls return different values
 ```
 
-## What NOT to Mock
+**Testing HTTP responses:**
+```python
+def test_unauthenticated_wallets_returns_401(api_client, mock_cursor):
+    """GET /api/wallets without a session cookie must return 401."""
+    mock_cursor.fetchone.return_value = None  # No session row in DB
+    response = api_client.get("/api/wallets")
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication required"
+```
 
-Based on codebase patterns, these should use integration tests with a test database rather than mocking:
-- Database queries in API routes (complex SQL with joins, filters, pagination)
-- Multi-step wallet creation flows (insert + trigger indexer)
-- Authentication session management (cookie + DB interaction)
-
-## Critical Untested Areas
-
-| Area | Files | Risk |
-|------|-------|------|
-| ACB calculations | `engine/acb.py` | Incorrect tax calculations |
-| Transaction classification | `engine/classifier.py`, `tax/categories.py` | Wrong tax categories |
-| Cost basis tracking | `tax/cost_basis.py` | Incorrect capital gains |
-| Superficial loss detection | `engine/acb.py` | Missing Canadian tax rule |
-| API auth guards | `web/lib/auth.ts`, all `route.ts` files | Authorization bypass |
-| DB placeholder conversion | `web/lib/db.ts` `convertPlaceholders()` | SQL injection or query errors |
-| Currency formatting | `web/lib/utils.ts` | Display errors |
+**Testing database operations:**
+```python
+def test_session_create(auth_client, mock_conn, mock_cursor):
+    """POST /auth/session/create inserts row and returns session ID."""
+    mock_cursor.fetchone.return_value = (1, "abc123def456")  # (id, token)
+    response = auth_client.post("/auth/session/create", json={"...": "..."})
+    assert response.status_code == 201
+    # Verify SQL was executed
+    mock_cursor.execute.assert_called()
+```
 
 ---
 
-*Testing analysis: 2026-03-11*
+*Testing analysis: 2026-03-13*
