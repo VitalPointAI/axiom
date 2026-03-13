@@ -48,8 +48,8 @@
 - [x] **UI-01**: Web UI with user authentication via near-phantom-auth (NEAR wallet login)
 - [x] **UI-02**: Dashboard showing portfolio summary (total holdings, value by asset, staking positions)
 - [x] **UI-03**: Wallet management view (add/edit/remove wallets, view balances, sync status)
-- [ ] **UI-04**: Transaction ledger with filtering, search, and pagination
-- [ ] **UI-05**: Transaction detail view with classification editing and notes
+- [x] **UI-04**: Transaction ledger with filtering, search, and pagination
+- [x] **UI-05**: Transaction detail view with classification editing and notes
 - [x] **UI-06**: Report generation UI (select tax year, generate/download reports)
 - [x] **UI-07**: Verification dashboard showing reconciliation status and flagged issues
 - [x] **UI-08**: Multi-user support with isolated data per NEAR account
@@ -108,8 +108,8 @@
 | UI-01 | Phase 7 | Complete |
 | UI-02 | Phase 7 | Complete |
 | UI-03 | Phase 7 | Complete |
-| UI-04 | Phase 7 | Not Started |
-| UI-05 | Phase 7 | Not Started |
+| UI-04 | Phase 7 | Complete |
+| UI-05 | Phase 7 | Complete |
 | UI-06 | Phase 7 | Complete |
 | UI-07 | Phase 7 | Complete |
 | UI-08 | Phase 7 | Complete (07-01) |

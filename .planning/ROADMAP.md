@@ -272,7 +272,7 @@ Plans:
 - [x] 07-03-PLAN.md — Wallet CRUD + portfolio summary + job status + pipeline progress (Wave 2) [UI-02, UI-03] ✅ DONE (2026-03-13)
 - [x] 07-04-PLAN.md — Transaction ledger + classification editing + review queue + batch recalc (Wave 3) [UI-04, UI-05] ✅ DONE (2026-03-13)
 - [x] 07-05-PLAN.md — Report generation/preview/download + verification dashboard (Wave 3) [UI-06, UI-07] ✅ DONE (2026-03-13)
-- [ ] 07-06-PLAN.md — Frontend rewiring: API client + auth-provider + dashboard pages + progress bar (Wave 4) [UI-01, UI-02, UI-03, UI-04, UI-05, UI-06, UI-07]
+- [x] 07-06-PLAN.md — Frontend rewiring: API client + auth-provider + dashboard pages + progress bar (Wave 4) [UI-01, UI-02, UI-03, UI-04, UI-05, UI-06, UI-07] ✓ DONE
 - [ ] 07-07-PLAN.md — Docker integration + deploy workflow update + old API route cleanup + e2e verify (Wave 5) [UI-01, UI-02, UI-03, UI-04, UI-05, UI-06, UI-07, UI-08]
 
 **Requirements:**

@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-03-13T22:02:00Z"
+last_updated: "2026-03-13T22:16:04Z"
 progress:
   total_phases: 8
   completed_phases: 7
   total_plans: 37
-  completed_plans: 37
+  completed_plans: 38
 ---
 
 # Project State
@@ -66,7 +66,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Plan 07-03: Wallet CRUD + portfolio summary + job status endpoints ✅ DONE (2026-03-13)
 - Plan 07-04: Transaction ledger + classification editing + review queue ✅ DONE (2026-03-13)
 - Plan 07-05: Reports + verification API (generate/preview/download + verification dashboard) ✅ DONE (2026-03-13)
-- Plan 07-06: (remaining)
+- Plan 07-06: Frontend FastAPI rewiring (apiClient + auth page + pipeline progress bar + all dashboard pages) ✅ DONE (2026-03-13)
 - Plan 07-07: (remaining)
 
 **Needs from Aaron:**
@@ -84,7 +84,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | 4. Cost Basis Engine | **Complete** | 100% (3/3 plans) |
 | 5. Verification | **Complete** | 100% (4/4 plans) |
 | 6. Reporting | **Complete** | 100% (5/5 plans) |
-| 7. Web UI | **In Progress** | 71% (5/7 plans) |
+| 7. Web UI | **In Progress** | 86% (6/7 plans) |
 
 ## Accumulated Context
 
@@ -97,6 +97,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-13: **07-06 complete** - Frontend FastAPI rewiring: apiClient (credentials:include), auth-provider (GET /auth/session), auth page (SimpleWebAuthn + OAuth + magic link to FastAPI), 4-stage pipeline progress bar, portfolio/wallets/transactions/reports all wired to FastAPI.
 - 2026-03-13: **07-05 complete** - Report generation via job queue, 6 inline previews (LIMIT 50), FileResponse downloads with path-traversal guard, SHA-256 exchange CSV import, verification dashboard (summary+issues+resolve+resync+needs-review-count); 28 tests pass.
 - 2026-03-13: **07-04 complete** - Transaction ledger router + classification editing + review queue; transaction filtering, needs_review updates, reclassification endpoints; tests pass.
 - 2026-03-13: **07-03 complete** - Wallet CRUD + pipeline auto-chain (NEAR: 3 jobs, EVM: 1 job), portfolio ACB holdings summary (ROW_NUMBER window per token), job status with pipeline stage progress (running-first semantics); 16 tests pass.
@@ -284,6 +285,10 @@ None currently.
 | 2026-03-13 | BusinessIncomeStatement delegates to COGSReport internally | Avoids duplicating COGS SQL; COGSReport already handles gate check and FIFO/ACB branching |
 | 2026-03-13 | Oversell in FIFOTracker appends $0 residual with needs_review | Matches ACBPool oversell pattern; partial data reviewable without blocking full replay |
 
+| 2026-03-13 | apiClient centralizes credentials:include for all FastAPI fetch calls | No per-page fetch() needed; single import prevents credential omission bugs |
+| 2026-03-13 | User.nearAccountId kept as required string computed from best available field | Sidebar/SwapWidget/LoginButtons expect string not string or undefined; legacy compat |
+| 2026-03-13 | SyncStatus walletId made optional; omitted triggers global /api/jobs/active mode | Layout header uses SyncStatus without wallet context; global mode shows header badge |
+| 2026-03-13 | Auth page replaced AnonAuthProvider with direct SimpleWebAuthn browser calls | Removes @vitalpoint/near-phantom-auth from auth flow; direct FastAPI passkey endpoints |
 | 2026-03-13 | webauthn (not py_webauthn) is the correct PyPI package name for WebAuthn v2 | py_webauthn only has v0.x on PyPI |
 | 2026-03-13 | Challenge.metadata mapped as challenge_metadata to avoid SQLAlchemy reserved attribute | metadata is reserved on DeclarativeBase |
 | 2026-03-13 | All data routers use Depends(get_effective_user) not get_current_user | Enables transparent accountant delegation without per-route logic |
@@ -303,4 +308,4 @@ None currently.
 | 2026-03-13 | NEAR wallet creation queues full_sync+staking_sync+lockup_sync; EVM queues evm_full_sync | Separate job types per chain; classify_transactions auto-chains from ClassifierHandler (no explicit job needed) |
 | 2026-03-13 | portfolio/summary uses ROW_NUMBER OVER (PARTITION BY token_symbol ORDER BY as_of_date DESC) | Window function gives latest snapshot per token in one query without subquery per token |
 
-*Last updated: 2026-03-13 — Stopped at: Completed 07-web-ui 07-04-PLAN.md.*
+*Last updated: 2026-03-13 — Stopped at: Completed 07-web-ui 07-06-PLAN.md.*
