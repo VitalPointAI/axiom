@@ -2,8 +2,15 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { apiClient, ApiError } from '@/lib/api';
 
 interface User {
+  id: string;
+  email?: string;
+  near_account_id?: string;
+  display_name?: string;
+  is_admin?: boolean;
+  // Legacy compat: always set to best available identifier string
   nearAccountId: string;
   codename?: string;
   createdAt?: string;
@@ -19,6 +26,14 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+interface SessionResponse {
+  id: string;
+  email?: string;
+  near_account_id?: string;
+  display_name?: string;
+  is_admin?: boolean;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -27,25 +42,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const checkSession = useCallback(async () => {
     try {
-      const response = await fetch('/api/phantom-auth/session', {
-        credentials: 'include',
-        cache: 'no-store',
+      const data = await apiClient.get<SessionResponse>('/auth/session');
+      setUser({
+        id: data.id,
+        email: data.email,
+        near_account_id: data.near_account_id,
+        display_name: data.display_name,
+        is_admin: data.is_admin,
+        // Legacy compat fields
+        nearAccountId: data.near_account_id || data.email || data.display_name || data.id,
+        codename: data.display_name,
+        createdAt: undefined,
       });
-      if (response.ok) {
-        const data = await response.json();
-        if (data.authenticated) {
-          setUser({
-            nearAccountId: data.nearAccountId,
-            codename: data.codename,
-            createdAt: data.createdAt,
-          });
-          return;
-        }
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        setUser(null);
+      } else {
+        console.error('Session check failed:', err);
+        setUser(null);
       }
-      setUser(null);
-    } catch (error) {
-      console.error('Session check failed:', error);
-      setUser(null);
     } finally {
       setIsLoading(false);
     }
@@ -59,10 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     try {
-      await fetch('/api/phantom-auth/logout', { 
-        method: 'POST',
-        credentials: 'include',
-      });
+      await apiClient.post('/auth/logout');
       setUser(null);
       router.push('/auth');
     } catch (error) {
