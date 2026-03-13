@@ -192,6 +192,31 @@ class ReportEngine:
 
         return {'blocked': False, 'flagged_count': flagged_count}
 
+    def write_pdf(self, output_path: str, template_name: str, context: dict) -> str:
+        """Render a Jinja2 HTML template and write to PDF via WeasyPrint.
+
+        Uses the ``reports/templates/`` directory as the Jinja2 loader base.
+        Creates parent directories if they do not exist.
+
+        Args:
+            output_path: Full file path to write (must end in .pdf).
+            template_name: Filename of the template in ``reports/templates/``.
+            context: Dict of variables to pass to the template.
+
+        Returns:
+            The output_path written (as str).
+        """
+        from jinja2 import Environment, FileSystemLoader
+        from weasyprint import HTML
+        templates_dir = Path(__file__).parent / "templates"
+        env = Environment(loader=FileSystemLoader(str(templates_dir)))
+        template = env.get_template(template_name)
+        html_content = template.render(**context)
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        HTML(string=html_content, base_url=str(templates_dir)).write_pdf(str(output_path))
+        return str(output_path)
+
     def write_csv(self, output_path: str, headers: list, rows: list) -> str:
         """Write a CSV file with given headers and rows.
 

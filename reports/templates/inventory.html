@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>Holdings Summary</h2>
+<div class="summary-box">
+  <div class="summary-row">
+    <span>Total Holdings</span>
+    <span>{{ rows | length }} token{{ 's' if rows | length != 1 else '' }}</span>
+  </div>
+  <div class="summary-row highlight">
+    <span>Total ACB (CAD)</span>
+    <span>$&nbsp;{{ total_acb }}</span>
+  </div>
+  <div class="summary-row highlight">
+    <span>Total FMV (CAD)</span>
+    <span>$&nbsp;{{ total_fmv }}</span>
+  </div>
+  <div class="summary-row total">
+    <span>Total Unrealized Gain / Loss</span>
+    <span>$&nbsp;{{ total_unrealized }}</span>
+  </div>
+</div>
+
+<h2>Inventory Holdings as of {{ as_of_date }}</h2>
+{% if rows %}
+<table>
+  <thead>
+    <tr>
+      <th>Token</th>
+      <th class="num">Units Held</th>
+      <th class="num">ACB per Unit (CAD)</th>
+      <th class="num">Total ACB (CAD)</th>
+      <th class="num">FMV per Unit (CAD)</th>
+      <th class="num">Total FMV (CAD)</th>
+      <th class="num">Unrealized Gain/Loss</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td>{{ row.token_symbol }}</td>
+      <td class="num">{{ row.units_held }}</td>
+      <td class="num">{{ row.acb_per_unit }}</td>
+      <td class="num">{{ row.total_acb }}</td>
+      <td class="num">{{ row.fmv_per_unit or 'N/A' }}</td>
+      <td class="num">{{ row.total_fmv or 'N/A' }}</td>
+      <td class="num">{{ row.unrealized_gain_loss or 'N/A' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr>
+      <td colspan="3">Totals</td>
+      <td class="num">{{ total_acb }}</td>
+      <td></td>
+      <td class="num">{{ total_fmv }}</td>
+      <td class="num">{{ total_unrealized }}</td>
+    </tr>
+  </tfoot>
+</table>
+{% else %}
+<p>No inventory holdings recorded for {{ tax_year }}.</p>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>T1135 Status</h2>
+<div class="summary-box">
+  <div class="summary-row">
+    <span>Total Foreign Property Cost (Peak)</span>
+    <span>$&nbsp;{{ total_foreign_cost }}</span>
+  </div>
+  <div class="summary-row">
+    <span>Reporting Threshold</span>
+    <span>$&nbsp;100,000.00</span>
+  </div>
+  <div class="summary-row total highlight">
+    <span>T1135 Required?</span>
+    <span>{{ 'YES — File T1135' if t1135_required else 'No — Below Threshold' }}</span>
+  </div>
+</div>
+
+{% if t1135_required %}
+<div class="alert-bar">
+  T1135 Foreign Income Verification Statement is required for {{ tax_year }}.
+  Peak cost of foreign property exceeded the $100,000 CAD threshold.
+</div>
+{% endif %}
+
+<h2>Per-Token Breakdown</h2>
+{% if token_rows %}
+<table>
+  <thead>
+    <tr>
+      <th>Token</th>
+      <th>Exchange / Custody</th>
+      <th class="num">Peak Cost (CAD)</th>
+      <th>Foreign?</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in token_rows %}
+    <tr>
+      <td>{{ row.token_symbol }}</td>
+      <td>{{ row.exchange or 'Self-Custody' }}</td>
+      <td class="num">{{ row.peak_cost }}</td>
+      <td>{{ 'Yes' if row.is_foreign else 'No (Canadian)' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No foreign property data available for {{ tax_year }}.</p>
+{% endif %}
+
+{% if self_custody_rows %}
+<h2>Self-Custody Holdings</h2>
+<div class="info-bar">
+  CRA Position Unclear: The tax treatment of self-custodied crypto assets for T1135 purposes
+  is ambiguous. Consult a tax specialist before filing. These holdings are listed separately.
+</div>
+<table>
+  <thead>
+    <tr>
+      <th>Token</th>
+      <th class="num">Peak Cost (CAD)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in self_custody_rows %}
+    <tr>
+      <td>{{ row.token_symbol }}</td>
+      <td class="num">{{ row.peak_cost }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% endblock %}

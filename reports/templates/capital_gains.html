@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+{% if specialist_override and flagged_count > 0 %}
+<div class="alert-bar">
+  WARNING: {{ flagged_count }} item{{ 's' if flagged_count != 1 else '' }} flagged for specialist review.
+  This report was generated with specialist_override=True. Review flagged rows before filing.
+</div>
+{% endif %}
+
+<h2>Summary</h2>
+<div class="summary-box">
+  <div class="summary-row">
+    <span>Total Proceeds</span>
+    <span>$&nbsp;{{ total_proceeds }}</span>
+  </div>
+  <div class="summary-row">
+    <span>Total ACB Used</span>
+    <span>$&nbsp;{{ total_acb_used }}</span>
+  </div>
+  <div class="summary-row">
+    <span>Total Fees</span>
+    <span>$&nbsp;{{ total_fees }}</span>
+  </div>
+  <div class="summary-row">
+    <span>Total Gains</span>
+    <span>$&nbsp;{{ total_gains }}</span>
+  </div>
+  <div class="summary-row">
+    <span>Total Losses</span>
+    <span>$&nbsp;{{ total_losses }}</span>
+  </div>
+  <div class="summary-row total highlight">
+    <span>Net Gain / Loss</span>
+    <span>$&nbsp;{{ net_gain_loss }}</span>
+  </div>
+  <div class="summary-row highlight">
+    <span>Taxable Amount (50% inclusion)</span>
+    <span>$&nbsp;{{ taxable_amount }}</span>
+  </div>
+  {% if superficial_losses_denied %}
+  <div class="summary-row">
+    <span>Superficial Losses Denied</span>
+    <span>$&nbsp;{{ superficial_losses_denied }}</span>
+  </div>
+  {% endif %}
+</div>
+
+<h2>Disposals — Chronological</h2>
+{% if rows %}
+<table>
+  <thead>
+    <tr>
+      <th>Date</th>
+      <th>Token</th>
+      <th class="num">Units</th>
+      <th class="num">Proceeds (CAD)</th>
+      <th class="num">ACB Used (CAD)</th>
+      <th class="num">Fees (CAD)</th>
+      <th class="num">Gain/Loss (CAD)</th>
+      <th>Superficial</th>
+      <th class="num">Denied (CAD)</th>
+      <th>Review</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr{% if row.is_superficial_loss %} class="row-superficial"{% endif %}>
+      <td>{{ row.disposal_date }}</td>
+      <td>{{ row.token_symbol }}</td>
+      <td class="num">{{ row.units_disposed }}</td>
+      <td class="num">{{ row.proceeds_cad }}</td>
+      <td class="num">{{ row.acb_used_cad }}</td>
+      <td class="num">{{ row.fees_cad }}</td>
+      <td class="num">{{ row.gain_loss_cad }}</td>
+      <td>{{ 'Yes' if row.is_superficial_loss else 'No' }}</td>
+      <td class="num">{{ row.denied_loss_cad or '' }}</td>
+      <td>{{ 'Yes' if row.needs_review else 'No' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No disposals recorded for {{ tax_year }}.</p>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>Tax Treatment</h2>
+<div class="info-bar">
+  Mode: <strong>{{ tax_treatment | upper }}</strong>
+  {% if tax_treatment == 'capital' %}
+  — Crypto gains/losses reported as capital gains (50% inclusion rate applies).
+  {% elif tax_treatment == 'business_inventory' %}
+  — Crypto reported as business income (100% inclusion, COGS deductible).
+  {% elif tax_treatment == 'hybrid' %}
+  — Hybrid treatment: trading as business income, long-term as capital gains.
+  {% endif %}
+</div>
+
+<h2>Capital Gains Summary</h2>
+<div class="summary-box">
+  <div class="summary-row">
+    <span>Total Proceeds</span>
+    <span>$&nbsp;{{ cg.total_proceeds }}</span>
+  </div>
+  <div class="summary-row">
+    <span>Total ACB Used</span>
+    <span>$&nbsp;{{ cg.total_acb_used }}</span>
+  </div>
+  <div class="summary-row">
+    <span>Total Fees</span>
+    <span>$&nbsp;{{ cg.total_fees }}</span>
+  </div>
+  <div class="summary-row total highlight">
+    <span>Net Capital Gain / Loss</span>
+    <span>$&nbsp;{{ cg.net_gain_loss }}</span>
+  </div>
+  <div class="summary-row highlight">
+    <span>Taxable Capital Gains (50%)</span>
+    <span>$&nbsp;{{ cg.taxable_amount }}</span>
+  </div>
+  {% if cg.superficial_losses_denied %}
+  <div class="summary-row">
+    <span>Superficial Losses Denied</span>
+    <span>$&nbsp;{{ cg.superficial_losses_denied }}</span>
+  </div>
+  {% endif %}
+</div>
+
+<h2>Income Summary</h2>
+<div class="summary-box">
+  <div class="summary-row highlight">
+    <span>Total Crypto Income</span>
+    <span>$&nbsp;{{ inc.total_income }}</span>
+  </div>
+  {% for source, amount in inc.by_source.items() %}
+  <div class="summary-row">
+    <span>{{ source | capitalize }}</span>
+    <span>$&nbsp;{{ amount }}</span>
+  </div>
+  {% endfor %}
+</div>
+
+<h2>T1135 Foreign Property</h2>
+<div class="summary-box">
+  <div class="summary-row">
+    <span>Peak Foreign Property Cost</span>
+    <span>$&nbsp;{{ t1135.total_foreign_cost }}</span>
+  </div>
+  <div class="summary-row">
+    <span>T1135 Threshold</span>
+    <span>$&nbsp;100,000.00</span>
+  </div>
+  <div class="summary-row highlight">
+    <span>T1135 Required?</span>
+    <span>{{ 'YES — File T1135' if t1135.t1135_required else 'No' }}</span>
+  </div>
+  {% if t1135.self_custody_ambiguous %}
+  <div class="summary-row">
+    <span>Self-Custody (CRA position unclear)</span>
+    <span>$&nbsp;{{ t1135.self_custody_cost }}</span>
+  </div>
+  {% endif %}
+</div>
+
+<h2>Superficial Losses</h2>
+<div class="summary-box">
+  <div class="summary-row">
+    <span>Superficial Loss Transactions</span>
+    <span>{{ superficial.count }}</span>
+  </div>
+  <div class="summary-row">
+    <span>Total Denied Loss</span>
+    <span>$&nbsp;{{ superficial.total_denied }}</span>
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>Income Summary</h2>
+<div class="summary-box">
+  <div class="summary-row highlight">
+    <span>Total Income</span>
+    <span>$&nbsp;{{ total_income }}</span>
+  </div>
+  {% for source, amount in by_source.items() %}
+  <div class="summary-row">
+    <span>{{ source | capitalize }}</span>
+    <span>$&nbsp;{{ amount }}</span>
+  </div>
+  {% endfor %}
+</div>
+
+<h2>Monthly Breakdown</h2>
+{% if monthly_rows %}
+<table>
+  <thead>
+    <tr>
+      <th>Month</th>
+      <th>Source Type</th>
+      <th>Token</th>
+      <th class="num">Units</th>
+      <th class="num">FMV CAD</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in monthly_rows %}
+    <tr>
+      <td>{{ row.month }}</td>
+      <td>{{ row.source_type }}</td>
+      <td>{{ row.token_symbol }}</td>
+      <td class="num">{{ row.total_units }}</td>
+      <td class="num">{{ row.total_fmv_cad }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr>
+      <td colspan="4">Annual Total</td>
+      <td class="num">{{ total_income }}</td>
+    </tr>
+  </tfoot>
+</table>
+{% else %}
+<p>No income recorded for {{ tax_year }}.</p>
+{% endif %}
+
+<h2>Income Detail</h2>
+{% if detail_rows %}
+<table>
+  <thead>
+    <tr>
+      <th>Date</th>
+      <th>Source</th>
+      <th>Token</th>
+      <th class="num">Units</th>
+      <th class="num">FMV USD</th>
+      <th class="num">FMV CAD</th>
+      <th class="num">ACB Added (CAD)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in detail_rows %}
+    <tr>
+      <td>{{ row.income_date }}</td>
+      <td>{{ row.source_type }}</td>
+      <td>{{ row.token_symbol }}</td>
+      <td class="num">{{ row.units_received }}</td>
+      <td class="num">{{ row.fmv_usd or '' }}</td>
+      <td class="num">{{ row.fmv_cad }}</td>
+      <td class="num">{{ row.acb_added_cad }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No income detail records for {{ tax_year }}.</p>
+{% endif %}
+
+{% endblock %}

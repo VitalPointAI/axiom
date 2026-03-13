@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2>Business Income Statement</h2>
+<div class="info-bar">
+  Tax Treatment: <strong>{{ tax_treatment | upper }}</strong> — Crypto reported as business income.
+  All gains and losses are 100% included (no 50% capital gains rate applies).
+</div>
+
+<h2>Revenue</h2>
+<div class="summary-box">
+  <div class="summary-row">
+    <span>Crypto Income (staking, rewards, airdrops)</span>
+    <span>$&nbsp;{{ crypto_income }}</span>
+  </div>
+  <div class="summary-row">
+    <span>Capital Gains (business trading)</span>
+    <span>$&nbsp;{{ trading_gains }}</span>
+  </div>
+  <div class="summary-row total highlight">
+    <span>Total Revenue</span>
+    <span>$&nbsp;{{ total_revenue }}</span>
+  </div>
+</div>
+
+<h2>Expenses / COGS</h2>
+<div class="summary-box">
+  {% if cogs_available %}
+  <div class="summary-row">
+    <span>Opening Inventory (ACB)</span>
+    <span>$&nbsp;{{ opening_inventory }}</span>
+  </div>
+  <div class="summary-row">
+    <span>Purchases (Acquisitions)</span>
+    <span>$&nbsp;{{ acquisitions }}</span>
+  </div>
+  <div class="summary-row">
+    <span>Closing Inventory (ACB)</span>
+    <span>($&nbsp;{{ closing_inventory }})</span>
+  </div>
+  <div class="summary-row total highlight">
+    <span>Cost of Goods Sold (COGS)</span>
+    <span>$&nbsp;{{ cogs }}</span>
+  </div>
+  {% else %}
+  <div class="summary-row">
+    <span>COGS</span>
+    <span>Not applicable (capital treatment for this component)</span>
+  </div>
+  {% endif %}
+</div>
+
+<h2>Net Business Income</h2>
+<div class="summary-box">
+  <div class="summary-row">
+    <span>Total Revenue</span>
+    <span>$&nbsp;{{ total_revenue }}</span>
+  </div>
+  {% if cogs_available %}
+  <div class="summary-row">
+    <span>Less: COGS</span>
+    <span>($&nbsp;{{ cogs }})</span>
+  </div>
+  {% endif %}
+  <div class="summary-row total highlight">
+    <span>Net Business Income</span>
+    <span>$&nbsp;{{ net_business_income }}</span>
+  </div>
+</div>
+
+{% endblock %}
