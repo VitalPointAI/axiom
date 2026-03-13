@@ -561,14 +561,10 @@ class TestLedgerReport(unittest.TestCase):
             self.assertTrue(os.path.exists(csv_path))
             with open(csv_path) as f:
                 reader = csv.reader(f)
-                next(reader)  # skip headers
+                headers_row = next(reader)
                 data = list(reader)
         self.assertEqual(len(data), 1)
         # Chain column should be 'near'
-        headers_row = None
-        with open(csv_path) as f:
-            reader = csv.reader(f)
-            headers_row = next(reader)
         chain_idx = headers_row.index('Chain')
         self.assertEqual(data[0][chain_idx], 'near')
 
