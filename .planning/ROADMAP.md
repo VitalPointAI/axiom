@@ -216,7 +216,16 @@ Plans:
 
 ## Phase 6: Reporting
 
-**Goal:** Generate accountant-ready tax reports.
+**Goal:** Generate accountant-ready tax reports with full Koinly parity, corporate/business reports, accounting software exports, and PDF output. Multi-user with configurable fiscal year and tax treatment (capital/business/hybrid).
+
+**Plans:** 5 plans in 3 waves
+
+Plans:
+- [ ] 06-01-PLAN.md — ReportEngine base class + CapitalGainsReport + IncomeReport (Wave 1) [RPT-01, RPT-02]
+- [ ] 06-02-PLAN.md — LedgerReport + T1135Checker + SuperficialLossReport (Wave 2) [RPT-03, RPT-04]
+- [ ] 06-03-PLAN.md — KoinlyExport + accounting software exports (QuickBooks/Xero/Sage/double-entry) (Wave 2) [RPT-05]
+- [ ] 06-04-PLAN.md — Inventory Holdings + COGS + Business Income Statement + FIFO engine (Wave 2) [RPT-01, RPT-02]
+- [ ] 06-05-PLAN.md — PDF templates (WeasyPrint) + PackageBuilder + ReportHandler job wiring (Wave 3) [RPT-05, RPT-06]
 
 **Requirements:**
 - RPT-01: Capital gains/losses summary
@@ -234,12 +243,20 @@ Plans:
 5. [ ] Accountant confirms package is complete and usable
 
 **Deliverables:**
-- `reports/capital_gains.py`
-- `reports/income.py`
-- `reports/ledger.py`
-- `reports/t1135.py`
-- `reports/export.py`
-- `output/2025_tax_package/` — Final deliverable
+- `reports/engine.py` — ReportEngine base class with gate check
+- `reports/capital_gains.py` — Capital gains report (chronological + grouped)
+- `reports/income.py` — Income summary by month + source type
+- `reports/ledger.py` — Full transaction ledger
+- `reports/t1135.py` — T1135 foreign property check
+- `reports/superficial.py` — Superficial loss report
+- `reports/export.py` — Koinly + accounting software exports
+- `reports/inventory.py` — Inventory holdings + COGS
+- `reports/business.py` — Business income statement
+- `reports/generate.py` — PackageBuilder (rewritten)
+- `reports/templates/` — Jinja2 HTML templates for PDF
+- `reports/handlers/report_handler.py` — IndexerService job handler
+- `engine/fifo.py` — FIFO lot tracking engine
+- `output/{year}_tax_package/` — Final deliverable
 
 ---
 
@@ -333,4 +350,4 @@ Phase 2 ──┘                                              │
 - Phase 7 requires Phase 6 (needs complete data pipeline), but UI scaffolding can start in parallel
 
 ---
-*Last updated: 2026-03-13 — Phase 5 COMPLETE: 4/4 plans done. Full verification pipeline operational: classify -> ACB -> verify_balances.*
+*Last updated: 2026-03-13 — Phase 6 PLANNED: 5 plans in 3 waves. ReportEngine base + 10 report modules + FIFO engine + PDF templates + PackageBuilder + ReportHandler.*
