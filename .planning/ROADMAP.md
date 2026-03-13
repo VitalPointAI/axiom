@@ -181,13 +181,13 @@ Plans:
 
 **Goal:** Ensure data accuracy by reconciling calculated balances against on-chain state, detecting duplicate transactions, and finding missing transactions via balance-based inference.
 
-**Plans:** 4 plans in 3 waves
+**Plans:** 4 plans in 3 waves (4/4 COMPLETE)
 
 Plans:
 - [x] 05-01-PLAN.md — Migration 005 + SQLAlchemy models + VerifyHandler skeleton + service/ACB wiring + config tolerances (Wave 1) [VER-01, VER-02] ✓ DONE
 - [x] 05-02-PLAN.md — BalanceReconciler: NEAR decomposed + EVM + dual cross-check + auto-diagnosis (Wave 2) [VER-01, VER-02] ✓ DONE
 - [x] 05-03-PLAN.md — DuplicateDetector: hash dedup + bridge heuristic + exchange re-scan + balance-aware merge (Wave 2) [VER-03] ✓ DONE
-- [ ] 05-04-PLAN.md — GapDetector + DiscrepancyReporter + VerifyHandler final wiring (Wave 3) [VER-04, VER-01, VER-02, VER-03]
+- [x] 05-04-PLAN.md — GapDetector + DiscrepancyReporter + VerifyHandler final wiring (Wave 3) [VER-04, VER-01, VER-02, VER-03] ✓ DONE
 
 **Requirements:**
 - VER-01: Reconcile calculated vs on-chain balances
@@ -333,4 +333,4 @@ Phase 2 ──┘                                              │
 - Phase 7 requires Phase 6 (needs complete data pipeline), but UI scaffolding can start in parallel
 
 ---
-*Last updated: 2026-03-13 — Phase 5 IN PROGRESS: 3/4 plans complete. 05-01 (schema + wiring) DONE, 05-02 (balance reconciler) DONE, 05-03 (duplicate detector) DONE, 05-04 (gap finder + report + final wiring).*
+*Last updated: 2026-03-13 — Phase 5 COMPLETE: 4/4 plans done. Full verification pipeline operational: classify -> ACB -> verify_balances.*
