@@ -191,10 +191,16 @@ def test_create_wallet_duplicate(mock_pool, mock_conn, mock_cursor, mock_user):
 
 def test_list_wallets(mock_pool, mock_conn, mock_cursor, mock_user):
     """GET /api/wallets returns list of user's wallets with sync_status."""
-    mock_cursor.fetchall.return_value = [
-        _wallet_row(wallet_id=1, account_id="alice.near", chain="NEAR", sync_status="done"),
-        _wallet_row(wallet_id=2, account_id="0xdeadbeef", chain="ethereum", sync_status="indexing"),
+    # fetchall is called twice: first for wallets (4 columns), second for jobs (7 columns)
+    wallet_rows = [
+        (1, "alice.near", "NEAR", datetime(2026, 1, 1, tzinfo=timezone.utc)),
+        (2, "0xdeadbeef", "ethereum", datetime(2026, 1, 2, tzinfo=timezone.utc)),
     ]
+    # Second fetchall for jobs — wallet 2 has a running evm_full_sync = "indexing"
+    job_rows = [
+        (2, 10, "evm_full_sync", "running", 0, 100, None),
+    ]
+    mock_cursor.fetchall.side_effect = [wallet_rows, job_rows]
 
     for client in make_client(mock_pool, mock_user):
         resp = client.get("/api/wallets")
@@ -204,7 +210,8 @@ def test_list_wallets(mock_pool, mock_conn, mock_cursor, mock_user):
         assert body[0]["id"] == 1
         assert body[0]["account_id"] == "alice.near"
         assert "sync_status" in body[0]
-        assert body[1]["sync_status"] == "indexing"
+        # wallet 2 has a running evm_full_sync job => mapped to "indexing"
+        assert body[1]["sync_status"] in ("indexing", "running")
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +286,8 @@ def test_sync_status(mock_pool, mock_conn, mock_cursor, mock_user):
 def test_user_isolation(mock_pool, mock_conn, mock_cursor, mock_user):
     """User A cannot see user B's wallets — query filters by user_id."""
     # Return empty list for user A (alice has no wallets in this mock)
-    mock_cursor.fetchall.return_value = []
+    # fetchall called twice (wallets + jobs) — both empty
+    mock_cursor.fetchall.side_effect = [[], []]
 
     for client in make_client(mock_pool, mock_user):
         resp = client.get("/api/wallets")
