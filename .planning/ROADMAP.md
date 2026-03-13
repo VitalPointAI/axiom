@@ -179,7 +179,15 @@ Plans:
 
 ## Phase 5: Verification
 
-**Goal:** Ensure data accuracy by reconciling against on-chain state.
+**Goal:** Ensure data accuracy by reconciling calculated balances against on-chain state, detecting duplicate transactions, and finding missing transactions via balance-based inference.
+
+**Plans:** 4 plans in 3 waves
+
+Plans:
+- [ ] 05-01-PLAN.md — Migration 005 + SQLAlchemy models + VerifyHandler skeleton + service/ACB wiring + config tolerances (Wave 1) [VER-01, VER-02]
+- [ ] 05-02-PLAN.md — BalanceReconciler: NEAR decomposed + EVM + dual cross-check + auto-diagnosis (Wave 2) [VER-01, VER-02]
+- [ ] 05-03-PLAN.md — DuplicateDetector: hash dedup + bridge heuristic + exchange re-scan + balance-aware merge (Wave 2) [VER-03]
+- [ ] 05-04-PLAN.md — GapDetector + DiscrepancyReporter + VerifyHandler final wiring (Wave 3) [VER-04, VER-01, VER-02, VER-03]
 
 **Requirements:**
 - VER-01: Reconcile calculated vs on-chain balances
@@ -195,10 +203,14 @@ Plans:
 5. [ ] All discrepancies documented with investigation notes
 
 **Deliverables:**
-- `verify/reconcile.py` — Balance reconciler
-- `verify/duplicates.py` — Duplicate detector
-- `verify/gaps.py` — Missing transaction finder
-- `DISCREPANCIES.md` — Manual review notes
+- `db/migrations/versions/005_verification_schema.py` — Verification schema (2 tables)
+- `db/models.py` — Extended with VerificationResult, AccountVerificationStatus
+- `verify/reconcile.py` — Balance reconciler (full PostgreSQL rewrite)
+- `verify/duplicates.py` — Duplicate detector (multi-signal scoring)
+- `verify/gaps.py` — Missing transaction finder (archival RPC)
+- `verify/report.py` — Discrepancy report generator
+- `indexers/verify_handler.py` — Job handler for verify_balances
+- `DISCREPANCIES.md` — Manual review notes (generated)
 
 ---
 
@@ -321,4 +333,4 @@ Phase 2 ──┘                                              │
 - Phase 7 requires Phase 6 (needs complete data pipeline), but UI scaffolding can start in parallel
 
 ---
-*Last updated: 2026-03-12 — Phase 4 COMPLETE: 04-01 (schema + price infrastructure), 04-02 (ACBEngine + GainsCalculator), 04-03 (SuperficialLossDetector + ACBHandler + ClassifierHandler trigger). Phase 5 (Verification) is next.*
+*Last updated: 2026-03-13 — Phase 5 PLANNED: 4 plans in 3 waves. 05-01 (schema + wiring), 05-02 (balance reconciler), 05-03 (duplicate detector), 05-04 (gap finder + report + final wiring).*
