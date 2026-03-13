@@ -82,6 +82,9 @@ class IndexerService:
             "calculate_acb": ACBHandler(self.pool, self.price_service),  # ACB calculation
             "verify_balances": VerifyHandler(self.pool),  # Balance verification
         }
+        # Lazy import to avoid circular deps — same pattern as ACBHandler/VerifyHandler
+        from reports.handlers.report_handler import ReportHandler
+        self.handlers["generate_reports"] = ReportHandler(self.pool)  # priority 3
         self.running = True
 
         # Register signal handlers for graceful shutdown
@@ -161,6 +164,8 @@ class IndexerService:
                         handler.run_calculate_acb(job)
                     elif job_type == "verify_balances":
                         handler.run_verify(job)
+                    elif job_type == "generate_reports":
+                        handler.run(job, conn=None)
                     else:
                         raise ValueError(f"Unknown job_type '{job_type}' — no dispatch method")
 
