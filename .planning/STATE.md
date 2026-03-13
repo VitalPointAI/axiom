@@ -8,7 +8,7 @@ progress:
   total_phases: 8
   completed_phases: 5
   total_plans: 28
-  completed_plans: 23
+  completed_plans: 25
 ---
 
 # Project State
@@ -64,7 +64,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | 2. Multi-Chain + Exchanges | **Complete** | 100% (6/6 plans) |
 | 3. Transaction Classification | **Complete** | 100% (5/5 plans) |
 | 4. Cost Basis Engine | **Complete** | 100% (3/3 plans) |
-| 5. Verification | **In Progress** | 25% (1/4 plans) |
+| 5. Verification | **In Progress** | 75% (3/4 plans) |
 | 6. Reporting | Not Started | 0% |
 | 7. Web UI | **PLANNED** | 0% |
 
@@ -79,6 +79,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-13: **05-03 complete** - DuplicateDetector with 3-scan pipeline (hash dedup score=1.0, bridge heuristic score=0.60, exchange re-scan multi-signal 0.85/0.80/0.60), balance-aware auto-merge, verification_results audit trail; 885 lines
 - 2026-03-13: **05-01 complete** - Migration 005 (verification_results, account_verification_status), VerifyHandler skeleton, service.py + acb_handler.py wiring, RECONCILIATION_TOLERANCES config; pipeline: classify -> ACB -> verify_balances
 - 2026-03-12: **04-03 complete** - SuperficialLossDetector (61-day window, cross-source, pro-rated denial, needs_review), ACBHandler job type, calculate_acb registered in IndexerService, ClassifierHandler auto-queues ACB job after classification; 182 tests pass. Phase 4 COMPLETE.
 - 2026-03-12: **04-02 complete** - Rewrote engine/acb.py (ACBPool Decimal-precise, ACBEngine replay + acb_snapshots upsert, resolve_token_symbol, normalize_timestamp), created engine/gains.py (GainsCalculator: record_disposal + record_income), 13 unit tests; 179 tests pass.
@@ -208,6 +209,10 @@ None currently.
 | 2026-03-13 | verify_balances priority=4 (lower than ACB at 5) | Verification runs last in pipeline: classify -> ACB -> verify |
 | 2026-03-13 | RECONCILIATION_TOLERANCES as string values | Clean Decimal conversion without float precision issues |
 | 2026-03-13 | VerifyHandler takes pool only (no price_service) | Verification reads existing computed data, no FMV lookups needed |
+| 2026-03-13 | Bridge window 30min vs 10min same-chain | Cross-chain confirmation times are slower; 30-min window reduces false negatives |
+| 2026-03-13 | Bridge duplicates never auto-merged | Score 0.60 always flagged; specialist must verify bridge direction |
+| 2026-03-13 | Balance-aware merge requires on-chain ground truth | Returns False without verification_results actual_balance; prevents incorrect merges |
+| 2026-03-13 | Duplicate detection as INSERT not upsert | Each detection is a separate verification_results row for complete audit trail |
 | 2026-03-12 | scan_for_user() and apply_superficial_losses() as separate methods | Allows dry-run inspection before persistence; specialist can review scan output before applying |
 | 2026-03-12 | needs_review=True on all superficial losses | CRA ITA s.54 cases require specialist confirmation before finalizing tax submission |
 | 2026-03-12 | denied_loss quantized to 2 decimal places | Monetary precision for tax reporting (CAD cents) |
@@ -215,4 +220,4 @@ None currently.
 | 2026-03-12 | stats['superficial_losses'] added to ACBEngine return | ACBHandler log includes count for observability; consistent with other stats keys |
 
 ---
-*Last updated: 2026-03-13 — Stopped at: Completed 05-verification 05-01-PLAN.md*
+*Last updated: 2026-03-13 — Stopped at: Completed 05-verification 05-03-PLAN.md*
