@@ -41,7 +41,7 @@
 - [x] **RPT-03**: System generates full transaction ledger with classifications
 - [x] **RPT-04**: System checks T1135 threshold (foreign property > $100K CAD)
 - [x] **RPT-05**: System exports accountant-ready CSV package
-- [ ] **RPT-06**: System generates PDF summary report
+- [x] **RPT-06**: System generates PDF summary report
 
 ### User Interface
 
@@ -104,7 +104,7 @@
 | RPT-03 | Phase 6 | Complete |
 | RPT-04 | Phase 6 | Complete |
 | RPT-05 | Phase 6 | Complete |
-| RPT-06 | Phase 6 | Not Started |
+| RPT-06 | Phase 6 | Complete |
 | UI-01 | Phase 7 | Not Started |
 | UI-02 | Phase 7 | Not Started |
 | UI-03 | Phase 7 | Not Started |

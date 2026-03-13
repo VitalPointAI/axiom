@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-13T19:33:00.000Z"
+last_updated: "2026-03-13T19:48:00.000Z"
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 28
-  completed_plans: 28
+  completed_plans: 29
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 ## Current Phase
 
-**Phase 6: Reporting** IN PROGRESS
+**Phase 6: Reporting** COMPLETE ✅
 - Plan 06-01: ReportEngine base class + CapitalGainsReport + IncomeReport ✅ DONE (2026-03-13)
 - Plan 06-02: LedgerReport + T1135Checker + SuperficialLossReport (Wave 2) ✅ DONE (2026-03-13)
 - Plan 06-03: KoinlyExport + accounting software exports ✅ DONE (2026-03-13)
 - Plan 06-04: Inventory Holdings + COGS + Business Income Statement + FIFO engine ✅ DONE (2026-03-13)
-- Plan 06-05: PDF templates + PackageBuilder + ReportHandler job wiring - PENDING
+- Plan 06-05: PDF templates + PackageBuilder + ReportHandler job wiring ✅ DONE (2026-03-13)
 
 **Phase 5: Verification** COMPLETE ✅
 - Plan 05-01: Migration 005 + SQLAlchemy models + VerifyHandler skeleton + service/ACB wiring + config tolerances ✅ DONE (2026-03-13)
@@ -79,7 +79,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | 3. Transaction Classification | **Complete** | 100% (5/5 plans) |
 | 4. Cost Basis Engine | **Complete** | 100% (3/3 plans) |
 | 5. Verification | **Complete** | 100% (4/4 plans) |
-| 6. Reporting | In Progress | 40% (2/5 plans) |
+| 6. Reporting | **Complete** | 100% (5/5 plans) |
 | 7. Web UI | **PLANNED** | 0% |
 
 ## Accumulated Context
@@ -93,6 +93,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-13: **06-05 complete** - Jinja2/WeasyPrint PDF templates (7 templates, A4 @page), PackageBuilder (orchestrates all 10 report modules, gate check once, CSV+PDF output, tax_treatment modes), ReportHandler (generate_reports job type, ReportBlockedError returns error dict); 92 tests pass. Phase 6 COMPLETE.
 - 2026-03-13: **06-04 complete** - FIFOTracker (deque lot queues, FIFO dispose, get_cogs(year), replay_from_snapshots), InventoryHoldingsReport (ACB per unit + FMV/unrealized), COGSReport (opening+acq-closing; ACB and FIFO methods), BusinessIncomeStatement (crypto income + capital gains + COGS + fiat flow + hybrid treatment); 22 new tests
 - 2026-03-13: **06-03 complete** - KoinlyExport (KOINLY_LABEL_MAP, yoctoNEAR->NEAR, fiscal year filter, full-history mode), AccountingExporter (QuickBooks IIF TRNS/SPL/ENDTRNS, Xero CSV, Sage 50 CSV, balanced double-entry CSV); 15 new tests (71 total in test_reports.py)
 - 2026-03-13: **06-02 complete** - LedgerReport (UNION ALL NEAR/EVM + exchange txs with classifications, 17 columns), T1135Checker (peak ACB cost, CANADIAN vs FOREIGN exchanges, self-custody ambiguous), SuperficialLossReport (denied losses from capital_gains_ledger); 18 new tests (43 total in test_reports.py)
@@ -259,6 +260,10 @@ None currently.
 | 2026-03-12 | Dedup check before calculate_acb INSERT | Prevents duplicate ACB recalculations when classify_transactions jobs run for multiple user wallets simultaneously |
 | 2026-03-12 | stats['superficial_losses'] added to ACBEngine return | ACBHandler log includes count for observability; consistent with other stats keys |
 
+| 2026-03-13 | PackageBuilder runs gate check once, passes specialist_override=True to sub-reports | Avoids N duplicate gate queries (one per report module); single gate result passed down |
+| 2026-03-13 | ReportHandler imports PackageBuilder at module level (not lazy) | No circular dep since reports/ doesn't import indexers/; lazy only in IndexerService.init |
+| 2026-03-13 | ReportHandler returns {error, blocked: True} on ReportBlockedError | Job marked failed with informative message; handler never raises, consistent with verify pipeline |
+| 2026-03-13 | PDF base_url=templates_dir in write_pdf() | Allows WeasyPrint to resolve any relative asset references in HTML templates |
 | 2026-03-13 | FIFOTracker uses deque per token for O(1) FIFO dispose | list.pop(0) is O(n); deque.popleft() is O(1) — important for wallets with many lots |
 | 2026-03-13 | FIFO COGS via get_cogs(year) from disposal history | Independent from ACB formula; FIFOTracker tracks disposal timestamps for year-scoped COGS |
 | 2026-03-13 | COGSReport fetches all acb_snapshots for FIFO replay | Full history required to reconstruct lot queues correctly; not just fiscal year window |
