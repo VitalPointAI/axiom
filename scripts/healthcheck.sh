@@ -29,15 +29,30 @@ else
   FAILED=1
 fi
 
-# Check web via HTTP health endpoint
-echo -n "Web (Next.js): "
+# Check api via HTTP health endpoint
+echo -n "API (FastAPI): "
 for i in $(seq 1 $MAX_RETRIES); do
-  if curl -sf http://localhost:3003/api/health > /dev/null 2>&1; then
+  if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
     echo "OK"
     break
   fi
   if [[ $i -eq $MAX_RETRIES ]]; then
     echo "FAIL (health endpoint unreachable after ${MAX_RETRIES} retries)"
+    FAILED=1
+  else
+    sleep $RETRY_DELAY
+  fi
+done
+
+# Check web via HTTP
+echo -n "Web (Next.js): "
+for i in $(seq 1 $MAX_RETRIES); do
+  if curl -sf http://localhost:3003 > /dev/null 2>&1; then
+    echo "OK"
+    break
+  fi
+  if [[ $i -eq $MAX_RETRIES ]]; then
+    echo "FAIL (web unreachable after ${MAX_RETRIES} retries)"
     FAILED=1
   else
     sleep $RETRY_DELAY

@@ -48,14 +48,24 @@ $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod
 echo "==> Running database migrations"
 $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up migrate --exit-code-from migrate"
 
-# Step 4: Stop old containers, then start fresh
-echo "==> Stopping web and indexer"
-$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml stop web indexer && docker compose -f docker-compose.prod.yml rm -f web indexer"
+# Step 4: Rolling restart - user-facing services first, background workers last
+# Rolling restart order: web, api, indexer
+echo "==> Stopping web, api, and indexer"
+$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml stop web api indexer && docker compose -f docker-compose.prod.yml rm -f web api indexer"
 
-echo "==> Starting web and indexer"
-$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d web indexer"
+echo "==> Starting api (FastAPI backend)"
+$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d api"
 
-echo "==> Waiting for web health check (30s)"
+echo "==> Waiting for api health check (20s)"
+sleep 20
+
+echo "==> Starting web (Next.js frontend)"
+$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d web"
+
+echo "==> Starting indexer"
+$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d indexer"
+
+echo "==> Waiting for services to stabilize (30s)"
 sleep 30
 
 # Step 5: Run health checks
