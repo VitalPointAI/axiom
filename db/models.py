@@ -14,6 +14,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     SmallInteger,
     String,
@@ -21,7 +22,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, mapped_column, relationship
 
 
@@ -30,16 +31,26 @@ class Base(DeclarativeBase):
 
 
 class User(Base):
-    """Application users — authenticated via NEAR wallet."""
+    """Application users — authenticated via passkey, email magic link, or Google OAuth.
+
+    Phase 7 adds: username, email, is_admin, codename columns (migration 006).
+    near_account_id is now optional (nullable=True) to support email-only users.
+    """
 
     __tablename__ = "users"
 
     id = mapped_column(Integer, primary_key=True, autoincrement=True)
-    near_account_id = mapped_column(String(128), unique=True, nullable=False)
+    near_account_id = mapped_column(String(128), unique=True, nullable=True)
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     last_login_at = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Phase 7 auth columns (added via migration 006)
+    username = mapped_column(String(128), unique=True, nullable=True)
+    email = mapped_column(String(256), unique=True, nullable=True)
+    is_admin = mapped_column(Boolean, default=False, nullable=True)
+    codename = mapped_column(String(64), unique=True, nullable=True)
 
     wallets = relationship("Wallet", back_populates="user", cascade="all, delete-orphan")
 
@@ -792,3 +803,159 @@ class AccountVerificationStatus(Base):
 
     user = relationship("User", foreign_keys=[user_id])
     wallet = relationship("Wallet", foreign_keys=[wallet_id])
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 Auth Models (migration 006)
+# ---------------------------------------------------------------------------
+
+
+class Passkey(Base):
+    """WebAuthn passkey credentials stored per user.
+
+    credential_id is the base64url-encoded credential ID from the authenticator.
+    counter is incremented on each use for replay attack prevention.
+    """
+
+    __tablename__ = "passkeys"
+    __table_args__ = (
+        Index("ix_passkeys_user_id", "user_id"),
+        Index("ix_passkeys_credential_id", "credential_id"),
+    )
+
+    id = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    user_id = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    credential_id = mapped_column(Text, unique=True, nullable=False)
+    public_key = mapped_column(LargeBinary, nullable=False)
+    counter = mapped_column(BigInteger, nullable=False, default=0)
+    device_type = mapped_column(Text, nullable=True)
+    backed_up = mapped_column(Boolean, nullable=False, default=False)
+    last_used_at = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    user = relationship("User", foreign_keys=[user_id])
+
+
+class Session(Base):
+    """HTTP session tokens — HTTP-only cookie value with expiry.
+
+    id is a token_hex(32) random string stored as the cookie value.
+    Sessions are single-use per browser tab and expire after 7 days.
+    """
+
+    __tablename__ = "sessions"
+    __table_args__ = (
+        Index("ix_sessions_user_id", "user_id"),
+        Index("ix_sessions_expires_at", "expires_at"),
+    )
+
+    id = mapped_column(Text, primary_key=True)
+    user_id = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    expires_at = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    user = relationship("User", foreign_keys=[user_id])
+
+
+class Challenge(Base):
+    """One-time WebAuthn/OAuth challenge tokens.
+
+    challenge_type indicates the flow:
+      - 'registration': WebAuthn passkey registration
+      - 'authentication': WebAuthn passkey login
+      - 'oauth_state': Google OAuth CSRF state parameter
+      - 'magic_link': email magic link generation challenge
+
+    user_id is nullable — challenges are created before user identity is confirmed
+    (e.g., during registration or login before credential verification).
+    """
+
+    __tablename__ = "challenges"
+    __table_args__ = (
+        CheckConstraint(
+            "challenge_type IN ('registration','authentication','oauth_state','magic_link')",
+            name="ck_challenge_type",
+        ),
+        Index("ix_challenges_expires_at", "expires_at"),
+        Index("ix_challenges_user_id", "user_id"),
+    )
+
+    id = mapped_column(Text, primary_key=True)
+    challenge = mapped_column(LargeBinary, nullable=False)
+    challenge_type = mapped_column(Text, nullable=False)
+    user_id = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    expires_at = mapped_column(DateTime(timezone=True), nullable=False)
+    challenge_metadata = mapped_column("metadata", JSONB, nullable=True)
+    created_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    user = relationship("User", foreign_keys=[user_id])
+
+
+class MagicLinkToken(Base):
+    """Email magic link one-time tokens.
+
+    Tokens expire and can only be used once (used_at is set on first use).
+    user_id is nullable to support both new user signup and existing user login flows.
+    """
+
+    __tablename__ = "magic_link_tokens"
+    __table_args__ = (
+        Index("ix_magic_link_tokens_email", "email"),
+        Index("ix_magic_link_tokens_expires_at", "expires_at"),
+    )
+
+    id = mapped_column(Text, primary_key=True)
+    email = mapped_column(Text, nullable=False)
+    user_id = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    expires_at = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    user = relationship("User", foreign_keys=[user_id])
+
+
+class AccountantAccess(Base):
+    """Accountant-to-client access grants with permission levels.
+
+    permission_level:
+      - 'read': accountant can view client data but not modify
+      - 'readwrite': accountant can view and make changes (e.g., mark items reviewed)
+
+    UNIQUE(accountant_user_id, client_user_id) prevents duplicate grants.
+    """
+
+    __tablename__ = "accountant_access"
+    __table_args__ = (
+        CheckConstraint(
+            "permission_level IN ('read','readwrite')",
+            name="ck_aa_permission_level",
+        ),
+        UniqueConstraint("accountant_user_id", "client_user_id", name="uq_aa_accountant_client"),
+        Index("ix_accountant_access_accountant", "accountant_user_id"),
+        Index("ix_accountant_access_client", "client_user_id"),
+    )
+
+    id = mapped_column(Integer, primary_key=True, autoincrement=True)
+    accountant_user_id = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    client_user_id = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    permission_level = mapped_column(Text, nullable=False)
+    created_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    accountant = relationship("User", foreign_keys=[accountant_user_id])
+    client = relationship("User", foreign_keys=[client_user_id])
