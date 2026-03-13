@@ -50,8 +50,8 @@
 - [x] **UI-03**: Wallet management view (add/edit/remove wallets, view balances, sync status)
 - [ ] **UI-04**: Transaction ledger with filtering, search, and pagination
 - [ ] **UI-05**: Transaction detail view with classification editing and notes
-- [ ] **UI-06**: Report generation UI (select tax year, generate/download reports)
-- [ ] **UI-07**: Verification dashboard showing reconciliation status and flagged issues
+- [x] **UI-06**: Report generation UI (select tax year, generate/download reports)
+- [x] **UI-07**: Verification dashboard showing reconciliation status and flagged issues
 - [x] **UI-08**: Multi-user support with isolated data per NEAR account
 
 ### CI/CD Deployment
@@ -110,8 +110,8 @@
 | UI-03 | Phase 7 | Complete |
 | UI-04 | Phase 7 | Not Started |
 | UI-05 | Phase 7 | Not Started |
-| UI-06 | Phase 7 | Not Started |
-| UI-07 | Phase 7 | Not Started |
+| UI-06 | Phase 7 | Complete |
+| UI-07 | Phase 7 | Complete |
 | UI-08 | Phase 7 | Complete (07-01) |
 | CICD-01 | Phase 8 | Not Started |
 | CICD-02 | Phase 8 | Complete |

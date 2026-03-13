@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-03-13T21:51:50Z"
+last_updated: "2026-03-13T22:02:00Z"
 progress:
   total_phases: 8
   completed_phases: 7
   total_plans: 37
-  completed_plans: 35
+  completed_plans: 37
 ---
 
 # Project State
@@ -64,10 +64,10 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Plan 07-01: FastAPI foundation (migration 006 + app + auth deps + test infra) ✅ DONE (2026-03-13)
 - Plan 07-02: WebAuthn passkey + OAuth + magic link auth system ✅ DONE (2026-03-13)
 - Plan 07-03: Wallet CRUD + portfolio summary + job status endpoints ✅ DONE (2026-03-13)
-- Plan 07-04: Wallet + transaction routers
-- Plan 07-05: Portfolio router
-- Plan 07-06: Reports + verification routers
-- Plan 07-07: Job status router + pipeline auto-chain
+- Plan 07-04: Transaction ledger + classification editing + review queue ✅ DONE (2026-03-13)
+- Plan 07-05: Reports + verification API (generate/preview/download + verification dashboard) ✅ DONE (2026-03-13)
+- Plan 07-06: (remaining)
+- Plan 07-07: (remaining)
 
 **Needs from Aaron:**
 1. Exchange CSV files (Crypto.com, Wealthsimple, Uphold, Coinsquare, Coinbase)
@@ -84,7 +84,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | 4. Cost Basis Engine | **Complete** | 100% (3/3 plans) |
 | 5. Verification | **Complete** | 100% (4/4 plans) |
 | 6. Reporting | **Complete** | 100% (5/5 plans) |
-| 7. Web UI | **In Progress** | 29% (2/7 plans) |
+| 7. Web UI | **In Progress** | 71% (5/7 plans) |
 
 ## Accumulated Context
 
@@ -97,6 +97,8 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-13: **07-05 complete** - Report generation via job queue, 6 inline previews (LIMIT 50), FileResponse downloads with path-traversal guard, SHA-256 exchange CSV import, verification dashboard (summary+issues+resolve+resync+needs-review-count); 28 tests pass.
+- 2026-03-13: **07-04 complete** - Transaction ledger router + classification editing + review queue; transaction filtering, needs_review updates, reclassification endpoints; tests pass.
 - 2026-03-13: **07-03 complete** - Wallet CRUD + pipeline auto-chain (NEAR: 3 jobs, EVM: 1 job), portfolio ACB holdings summary (ROW_NUMBER window per token), job status with pipeline stage progress (running-first semantics); 16 tests pass.
 - 2026-03-13: **07-02 complete** - WebAuthn passkey register/login (py_webauthn, PostgreSQL challenge storage), Google OAuth PKCE flow (httpx, user upsert by email), email magic link (itsdangerous, SES); 25 tests pass; 10 /auth/* endpoints.
 - 2026-03-13: **07-01 complete** - FastAPI foundation: migration 006 (passkeys/sessions/challenges/magic_link_tokens/accountant_access), FastAPI app factory with CORS+lifespan, auth dependencies (get_current_user/get_effective_user), Pydantic schemas, stub routers, test infrastructure with 8 passing tests. Phase 7 started.
@@ -267,6 +269,11 @@ None currently.
 | 2026-03-12 | Dedup check before calculate_acb INSERT | Prevents duplicate ACB recalculations when classify_transactions jobs run for multiple user wallets simultaneously |
 | 2026-03-12 | stats['superficial_losses'] added to ACBEngine return | ACBHandler log includes count for observability; consistent with other stats keys |
 
+| 2026-03-13 | _get_output_dir() as patchable helper for report downloads | Allows tests to use tmp_path without env vars; tests patch 'api.routers.reports._get_output_dir' |
+| 2026-03-13 | Path traversal guard uses both string check and resolve().relative_to() | Defense in depth: string check catches obvious attempts, resolve() catches encoded variants |
+| 2026-03-13 | _CATEGORY_META dict maps diagnosis_category to (severity, description, action) | Single source of truth for verification UI metadata; extensible without if/elif chains |
+| 2026-03-13 | _RESYNC_JOB_MAP maps diagnosis_category to job_type | Routes resync to staking_sync for missing rewards, full_sync for gaps, classify for classification errors |
+| 2026-03-13 | year query range 1900-2200 not 2000-2100 for status endpoint | Tax data from pre-2000 is valid; 1999 test would 422 with tight constraint |
 | 2026-03-13 | PackageBuilder runs gate check once, passes specialist_override=True to sub-reports | Avoids N duplicate gate queries (one per report module); single gate result passed down |
 | 2026-03-13 | ReportHandler imports PackageBuilder at module level (not lazy) | No circular dep since reports/ doesn't import indexers/; lazy only in IndexerService.init |
 | 2026-03-13 | ReportHandler returns {error, blocked: True} on ReportBlockedError | Job marked failed with informative message; handler never raises, consistent with verify pipeline |
@@ -296,4 +303,4 @@ None currently.
 | 2026-03-13 | NEAR wallet creation queues full_sync+staking_sync+lockup_sync; EVM queues evm_full_sync | Separate job types per chain; classify_transactions auto-chains from ClassifierHandler (no explicit job needed) |
 | 2026-03-13 | portfolio/summary uses ROW_NUMBER OVER (PARTITION BY token_symbol ORDER BY as_of_date DESC) | Window function gives latest snapshot per token in one query without subquery per token |
 
-*Last updated: 2026-03-13 — Stopped at: Completed 07-web-ui 07-03-PLAN.md.*
+*Last updated: 2026-03-13 — Stopped at: Completed 07-web-ui 07-04-PLAN.md.*
