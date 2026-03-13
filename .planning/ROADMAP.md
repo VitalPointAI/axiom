@@ -267,7 +267,7 @@ Plans:
 **Plans:** 7 plans in 5 waves
 
 Plans:
-- [ ] 07-01-PLAN.md — Migration 006 (auth schema) + FastAPI app skeleton + dependencies + test infrastructure (Wave 1) [UI-08]
+- [x] 07-01-PLAN.md — Migration 006 (auth schema) + FastAPI app skeleton + dependencies + test infrastructure (Wave 1) [UI-08] ✅ DONE (2026-03-13)
 - [ ] 07-02-PLAN.md — Auth: WebAuthn passkey + Google OAuth + email magic link + session management (Wave 2) [UI-01, UI-08]
 - [ ] 07-03-PLAN.md — Wallet CRUD + portfolio summary + job status + pipeline progress (Wave 2) [UI-02, UI-03]
 - [ ] 07-04-PLAN.md — Transaction ledger + classification editing + review queue + batch recalc (Wave 3) [UI-04, UI-05]

@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-last_updated: "2026-03-13T19:30:32.085Z"
+status: in_progress
+last_updated: "2026-03-13T21:39:00Z"
 progress:
   total_phases: 8
   completed_phases: 7
   total_plans: 37
-  completed_plans: 32
+  completed_plans: 33
 ---
 
 # Project State
@@ -60,10 +60,14 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Plan 08-01: Production Docker Compose + deployment scripts ✅ DONE (2026-03-12)
 - Plan 08-02: GitHub Actions deploy workflow + .gitignore hardening ✅ DONE (2026-03-12)
 
-**Phase 7: Web UI** 📋 PLANNED
-- Requirements added (UI-01 through UI-08)
-- Will use near-phantom-auth for NEAR wallet login
-- Next.js + Tailwind + shadcn/ui stack
+**Phase 7: Web UI** 🔄 IN PROGRESS
+- Plan 07-01: FastAPI foundation (migration 006 + app + auth deps + test infra) ✅ DONE (2026-03-13)
+- Plan 07-02: WebAuthn passkey register/login handlers
+- Plan 07-03: Magic link + Google OAuth
+- Plan 07-04: Wallet + transaction routers
+- Plan 07-05: Portfolio router
+- Plan 07-06: Reports + verification routers
+- Plan 07-07: Job status router + pipeline auto-chain
 
 **Needs from Aaron:**
 1. Exchange CSV files (Crypto.com, Wealthsimple, Uphold, Coinsquare, Coinbase)
@@ -80,7 +84,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | 4. Cost Basis Engine | **Complete** | 100% (3/3 plans) |
 | 5. Verification | **Complete** | 100% (4/4 plans) |
 | 6. Reporting | **Complete** | 100% (5/5 plans) |
-| 7. Web UI | **PLANNED** | 0% |
+| 7. Web UI | **In Progress** | 14% (1/7 plans) |
 
 ## Accumulated Context
 
@@ -93,6 +97,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-13: **07-01 complete** - FastAPI foundation: migration 006 (passkeys/sessions/challenges/magic_link_tokens/accountant_access), FastAPI app factory with CORS+lifespan, auth dependencies (get_current_user/get_effective_user), Pydantic schemas, stub routers, test infrastructure with 8 passing tests. Phase 7 started.
 - 2026-03-13: **06-05 complete** - Jinja2/WeasyPrint PDF templates (7 templates, A4 @page), PackageBuilder (orchestrates all 10 report modules, gate check once, CSV+PDF output, tax_treatment modes), ReportHandler (generate_reports job type, ReportBlockedError returns error dict); 92 tests pass. Phase 6 COMPLETE.
 - 2026-03-13: **06-04 complete** - FIFOTracker (deque lot queues, FIFO dispose, get_cogs(year), replay_from_snapshots), InventoryHoldingsReport (ACB per unit + FMV/unrealized), COGSReport (opening+acq-closing; ACB and FIFO methods), BusinessIncomeStatement (crypto income + capital gains + COGS + fiat flow + hybrid treatment); 22 new tests
 - 2026-03-13: **06-03 complete** - KoinlyExport (KOINLY_LABEL_MAP, yoctoNEAR->NEAR, fiscal year filter, full-history mode), AccountingExporter (QuickBooks IIF TRNS/SPL/ENDTRNS, Xero CSV, Sage 50 CSV, balanced double-entry CSV); 15 new tests (71 total in test_reports.py)
@@ -270,5 +275,12 @@ None currently.
 | 2026-03-13 | BusinessIncomeStatement delegates to COGSReport internally | Avoids duplicating COGS SQL; COGSReport already handles gate check and FIFO/ACB branching |
 | 2026-03-13 | Oversell in FIFOTracker appends $0 residual with needs_review | Matches ACBPool oversell pattern; partial data reviewable without blocking full replay |
 
+| 2026-03-13 | webauthn (not py_webauthn) is the correct PyPI package name for WebAuthn v2 | py_webauthn only has v0.x on PyPI |
+| 2026-03-13 | Challenge.metadata mapped as challenge_metadata to avoid SQLAlchemy reserved attribute | metadata is reserved on DeclarativeBase |
+| 2026-03-13 | All data routers use Depends(get_effective_user) not get_current_user | Enables transparent accountant delegation without per-route logic |
+| 2026-03-13 | TestClient fixtures patch both dependency_overrides[get_pool_dep] and indexers.db.get_pool | Lifespan calls get_pool() directly; dependency override alone is insufficient for startup |
+| 2026-03-13 | User.near_account_id made nullable=True | Email-only users (no NEAR wallet) must be supported per Phase 7 context |
+| 2026-03-13 | ALLOWED_ORIGINS defaults to localhost:3000 | Safe dev default; explicit env var required in production |
+
 ---
-*Last updated: 2026-03-13 — Stopped at: Completed 06-reporting 06-04-PLAN.md.*
+*Last updated: 2026-03-13 — Stopped at: Completed 07-web-ui 07-01-PLAN.md.*
