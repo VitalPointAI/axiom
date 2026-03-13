@@ -1,26 +1,30 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { 
-  Wallet, 
-  Plus, 
-  RefreshCw, 
-  Trash2, 
-  Edit2,
+import {
+  Wallet,
+  Plus,
+  RefreshCw,
+  Trash2,
   CheckCircle,
   Clock,
   AlertCircle,
-  X
+  X,
 } from 'lucide-react';
+import { apiClient, ApiError } from '@/lib/api';
+import { SyncStatus } from '@/components/sync-status';
 
 interface WalletData {
   id: number;
-  address: string;
+  account_id: string;
   chain: string;
-  label: string;
   sync_status: string;
   last_synced_at: string | null;
   created_at: string;
+}
+
+interface WalletsResponse {
+  wallets: WalletData[];
 }
 
 const CHAINS = [
@@ -36,11 +40,11 @@ export default function WalletsPage() {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [syncing, setSyncing] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState<number | null>(null);
 
   const fetchWallets = async () => {
     try {
-      const res = await fetch('/api/wallets');
-      const data = await res.json();
+      const data = await apiClient.get<WalletsResponse>('/api/wallets');
       setWallets(data.wallets || []);
     } catch (error) {
       console.error('Failed to fetch wallets:', error);
@@ -56,8 +60,7 @@ export default function WalletsPage() {
   const handleSync = async (walletId: number) => {
     setSyncing(walletId);
     try {
-      await fetch(`/api/wallets/${walletId}/sync`, { method: 'POST' });
-      // Refresh wallets after sync
+      await apiClient.post(`/api/wallets/${walletId}/resync`);
       await fetchWallets();
     } catch (error) {
       console.error('Sync failed:', error);
@@ -67,15 +70,22 @@ export default function WalletsPage() {
   };
 
   const handleDelete = async (walletId: number) => {
-    if (!confirm('Are you sure you want to delete this wallet? All associated transactions will be removed.')) {
+    if (
+      !confirm(
+        'Are you sure you want to delete this wallet? All associated transactions will be removed.'
+      )
+    ) {
       return;
     }
-    
+
+    setDeleting(walletId);
     try {
-      await fetch(`/api/wallets/${walletId}`, { method: 'DELETE' });
+      await apiClient.delete(`/api/wallets/${walletId}`);
       await fetchWallets();
     } catch (error) {
       console.error('Delete failed:', error);
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -95,7 +105,7 @@ export default function WalletsPage() {
   };
 
   const getChainInfo = (chainId: string) => {
-    return CHAINS.find(c => c.id === chainId) || { id: chainId, name: chainId, color: 'bg-gray-500' };
+    return CHAINS.find((c) => c.id === chainId) || { id: chainId, name: chainId, color: 'bg-gray-500' };
   };
 
   return (
@@ -118,7 +128,7 @@ export default function WalletsPage() {
       {/* Wallets Grid */}
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3].map(i => (
+          {[1, 2, 3].map((i) => (
             <div key={i} className="bg-white rounded-lg shadow-sm border p-6 animate-pulse">
               <div className="h-6 bg-slate-200 rounded w-3/4 mb-4"></div>
               <div className="h-4 bg-slate-200 rounded w-1/2 mb-2"></div>
@@ -141,18 +151,25 @@ export default function WalletsPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {wallets.map(wallet => {
+          {wallets.map((wallet) => {
             const chain = getChainInfo(wallet.chain);
             return (
-              <div key={wallet.id} className="bg-white rounded-lg shadow-sm border p-6 hover:shadow-md transition">
+              <div
+                key={wallet.id}
+                className="bg-white rounded-lg shadow-sm border p-6 hover:shadow-md transition"
+              >
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 ${chain.color} rounded-lg flex items-center justify-center`}>
+                    <div
+                      className={`w-10 h-10 ${chain.color} rounded-lg flex items-center justify-center`}
+                    >
                       <Wallet className="w-5 h-5 text-white" />
                     </div>
                     <div>
-                      <h3 className="font-medium text-slate-800">{wallet.label}</h3>
-                      <p className="text-xs text-slate-400">{chain.name}</p>
+                      <h3 className="font-medium text-slate-800">{chain.name}</h3>
+                      <p className="text-xs text-slate-400 font-mono truncate max-w-[150px]" title={wallet.account_id}>
+                        {wallet.account_id}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
@@ -160,33 +177,36 @@ export default function WalletsPage() {
                   </div>
                 </div>
 
-                <div className="mb-4">
-                  <p className="text-sm font-mono text-slate-600 truncate" title={wallet.address}>
-                    {wallet.address}
-                  </p>
-                </div>
+                {/* Pipeline progress bar */}
+                {(wallet.sync_status === 'syncing' || wallet.sync_status === 'in_progress') && (
+                  <div className="mb-4">
+                    <SyncStatus walletId={wallet.id} compact={true} />
+                  </div>
+                )}
 
-                <div className="flex items-center justify-between text-xs text-slate-400">
+                <div className="flex items-center justify-between text-xs text-slate-400 mb-4">
                   <span>
-                    {wallet.last_synced_at 
+                    {wallet.last_synced_at
                       ? `Synced ${new Date(wallet.last_synced_at).toLocaleDateString()}`
-                      : 'Never synced'
-                    }
+                      : 'Never synced'}
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2 mt-4 pt-4 border-t">
+                <div className="flex items-center gap-2 pt-4 border-t">
                   <button
                     onClick={() => handleSync(wallet.id)}
                     disabled={syncing === wallet.id}
                     className="flex-1 flex items-center justify-center gap-1 px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition disabled:opacity-50"
                   >
-                    <RefreshCw className={`w-4 h-4 ${syncing === wallet.id ? 'animate-spin' : ''}`} />
+                    <RefreshCw
+                      className={`w-4 h-4 ${syncing === wallet.id ? 'animate-spin' : ''}`}
+                    />
                     Sync
                   </button>
                   <button
                     onClick={() => handleDelete(wallet.id)}
-                    className="flex items-center justify-center px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition"
+                    disabled={deleting === wallet.id}
+                    className="flex items-center justify-center px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -199,8 +219,8 @@ export default function WalletsPage() {
 
       {/* Add Wallet Modal */}
       {showAddModal && (
-        <AddWalletModal 
-          onClose={() => setShowAddModal(false)} 
+        <AddWalletModal
+          onClose={() => setShowAddModal(false)}
           onAdd={() => {
             setShowAddModal(false);
             fetchWallets();
@@ -213,8 +233,7 @@ export default function WalletsPage() {
 
 function AddWalletModal({ onClose, onAdd }: { onClose: () => void; onAdd: () => void }) {
   const [chain, setChain] = useState('NEAR');
-  const [address, setAddress] = useState('');
-  const [label, setLabel] = useState('');
+  const [accountId, setAccountId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -224,20 +243,15 @@ function AddWalletModal({ onClose, onAdd }: { onClose: () => void; onAdd: () => 
     setLoading(true);
 
     try {
-      const res = await fetch('/api/wallets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chain, address, label }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to add wallet');
-      }
-
+      await apiClient.post('/api/wallets', { account_id: accountId, chain });
       onAdd();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add wallet');
+      if (err instanceof ApiError) {
+        const body = err.body as Record<string, unknown>;
+        setError(String(body?.detail || 'Failed to add wallet'));
+      } else {
+        setError('Failed to add wallet');
+      }
     } finally {
       setLoading(false);
     }
@@ -255,50 +269,33 @@ function AddWalletModal({ onClose, onAdd }: { onClose: () => void; onAdd: () => 
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Blockchain
-            </label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Blockchain</label>
             <select
               value={chain}
               onChange={(e) => setChain(e.target.value)}
               className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
-              {CHAINS.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
+              {CHAINS.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
               ))}
             </select>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Wallet Address
-            </label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Wallet Address</label>
             <input
               type="text"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
               placeholder={chain === 'NEAR' ? 'yourname.near' : '0x...'}
               className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
               required
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Label (optional)
-            </label>
-            <input
-              type="text"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="My main wallet"
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-
-          {error && (
-            <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error}</p>
-          )}
+          {error && <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error}</p>}
 
           <div className="flex gap-3 pt-4">
             <button

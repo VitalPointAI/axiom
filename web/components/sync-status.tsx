@@ -1,46 +1,83 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { RefreshCw, CheckCircle, AlertCircle, Clock, Loader2, Play, Pause, RotateCcw } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { CheckCircle, Loader2, RefreshCw } from 'lucide-react';
+import { apiClient, ApiError } from '@/lib/api';
 
-interface SyncStatusData {
-  status: 'idle' | 'syncing' | 'complete' | 'error';
-  progress: number;
-  wallets: {
-    total: number;
-    synced: number;
-    inProgress: number;
-    error: number;
-    pending: number;
-  };
-  transactions: {
-    total: number;
-    blockRange: { min: number; max: number } | null;
-    dateRange: { oldest: string; newest: string } | null;
-  };
-  indexer: {
-    position: number;
-    status: string;
-    lastUpdated: string;
-  } | null;
-  lastChecked: string;
+interface WalletStatusResponse {
+  stage: string;
+  pct: number;
+  detail: string;
 }
 
-export function SyncStatus() {
-  const [status, setStatus] = useState<SyncStatusData | null>(null);
+interface PipelineStage {
+  key: string;
+  label: string;
+}
+
+const PIPELINE_STAGES: PipelineStage[] = [
+  { key: 'indexing', label: 'Indexing' },
+  { key: 'classifying', label: 'Classifying' },
+  { key: 'cost_basis', label: 'Cost Basis' },
+  { key: 'verifying', label: 'Verifying' },
+];
+
+// Normalize stage names from FastAPI to one of our pipeline stage keys
+function normalizeStage(stage: string): string {
+  const s = stage.toLowerCase();
+  if (s.includes('index') || s.includes('fetch') || s.includes('sync')) return 'indexing';
+  if (s.includes('classif')) return 'classifying';
+  if (s.includes('acb') || s.includes('cost') || s.includes('basis')) return 'cost_basis';
+  if (s.includes('verif')) return 'verifying';
+  if (s === 'done' || s === 'complete') return 'done';
+  return s;
+}
+
+interface SyncStatusProps {
+  /** If omitted, component polls /api/jobs/active for a global status indicator */
+  walletId?: number;
+  /** If true, the component is shown inline on the wallet card (compact mode) */
+  compact?: boolean;
+}
+
+interface ActiveJobsResponse {
+  jobs: Array<{ status: string; pipeline_stage: string; pipeline_pct: number }>;
+  pipeline_stage: string;
+  pipeline_pct: number;
+}
+
+export function SyncStatus({ walletId, compact = false }: SyncStatusProps) {
+  const [status, setStatus] = useState<WalletStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(false);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch('/api/sync/status');
-      if (res.ok) {
-        const data = await res.json();
+      if (walletId !== undefined) {
+        // Per-wallet status
+        const data = await apiClient.get<WalletStatusResponse>(
+          `/api/wallets/${walletId}/status`
+        );
         setStatus(data);
+      } else {
+        // Global: use /api/jobs/active for overall pipeline stage
+        const data = await apiClient.get<ActiveJobsResponse>('/api/jobs/active');
+        if (data.jobs && data.jobs.length > 0) {
+          setStatus({
+            stage: data.pipeline_stage || 'indexing',
+            pct: data.pipeline_pct || 0,
+            detail: `${data.jobs.length} job${data.jobs.length === 1 ? '' : 's'} active`,
+          });
+        } else {
+          setStatus({ stage: 'done', pct: 100, detail: '' });
+        }
       }
-    } catch (error) {
-      console.error('Failed to fetch sync status:', error);
+    } catch (err) {
+      if (!(err instanceof ApiError && err.status === 404)) {
+        console.error('Failed to fetch sync status:', err);
+      }
+      // On error for global status, show nothing
+      if (walletId === undefined) setStatus(null);
     } finally {
       setLoading(false);
     }
@@ -48,39 +85,31 @@ export function SyncStatus() {
 
   useEffect(() => {
     fetchStatus();
-    // Poll every 10 seconds if syncing, otherwise every 30 seconds
-    const interval = setInterval(() => {
-      fetchStatus();
-    }, status?.status === 'syncing' ? 10000 : 30000);
-    
-    return () => clearInterval(interval);
-  }, [status?.status]);
 
-  const handleAction = async (action: 'pause' | 'resume' | 'refresh') => {
-    setActionLoading(action);
-    try {
-      const res = await fetch('/api/sync/control', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action })
-      });
-      
-      if (res.ok) {
-        const data = await res.json();
-        // Refresh status after action
+    // Poll every 3 seconds while a stage is active, stop when Done
+    const schedule = () => {
+      intervalRef.current = setInterval(async () => {
         await fetchStatus();
-        
-        if (action === 'refresh' && data.walletsQueued) {
-          // Show brief success message
-          alert(`Refresh triggered for ${data.walletsQueued} wallets`);
-        }
+      }, 3000);
+    };
+
+    schedule();
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [walletId]);
+
+  // Stop polling when done
+  useEffect(() => {
+    if (status && (status.stage === 'done' || status.pct >= 100)) {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
-    } catch (error) {
-      console.error('Sync action failed:', error);
-    } finally {
-      setActionLoading(null);
     }
-  };
+  }, [status]);
 
   if (loading) {
     return (
@@ -92,245 +121,117 @@ export function SyncStatus() {
   }
 
   if (!status) {
+    // Global mode with no active jobs — show nothing
     return null;
   }
 
-  const indexerStatus = status.indexer?.status || 'idle';
-  const isRunning = indexerStatus === 'running' || indexerStatus === 'scanning';
-  const isPaused = indexerStatus === 'paused';
+  const normalizedStage = normalizeStage(status.stage);
+  const isDone = normalizedStage === 'done' || status.pct >= 100;
 
-  const getStatusIcon = () => {
-    if (status.status === 'syncing' || isRunning) {
-      return <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />;
-    }
-    if (status.status === 'complete' && !isPaused) {
-      return <CheckCircle className="w-4 h-4 text-green-400" />;
-    }
-    if (status.status === 'error') {
-      return <AlertCircle className="w-4 h-4 text-red-400" />;
-    }
-    if (isPaused) {
-      return <Pause className="w-4 h-4 text-amber-400" />;
-    }
-    return <Clock className="w-4 h-4 text-gray-400" />;
-  };
+  // Global mode (no walletId) — always compact badge in header
+  if (walletId === undefined) {
+    if (isDone) return null;
+    return (
+      <div className="flex items-center gap-2 text-blue-400 text-sm">
+        <RefreshCw className="w-4 h-4 animate-spin" />
+        <span className="text-xs">{status.stage} {status.pct}%</span>
+      </div>
+    );
+  }
 
-  const getStatusText = () => {
-    if (status.status === 'syncing' || isRunning) return 'Running';
-    if (isPaused) return 'Paused';
-    if (status.status === 'complete') return 'Synced';
-    if (status.status === 'error') return 'Error';
-    return 'Idle';
-  };
-
-  const getStatusColor = () => {
-    if (status.status === 'syncing' || isRunning) {
-      return 'bg-blue-500/20 border-blue-500/50 text-blue-400';
-    }
-    if (isPaused) {
-      return 'bg-amber-500/20 border-amber-500/50 text-amber-400';
-    }
-    if (status.status === 'complete') {
-      return 'bg-green-500/20 border-green-500/50 text-green-400';
-    }
-    if (status.status === 'error') {
-      return 'bg-red-500/20 border-red-500/50 text-red-400';
-    }
-    return 'bg-gray-500/20 border-gray-500/50 text-gray-400';
-  };
-
-  const formatNumber = (n: number) => n?.toLocaleString() || '0';
-  const formatBlock = (n: number) => n ? `#${n.toLocaleString()}` : '-';
-
-  return (
-    <div className="relative">
-      {/* Compact Status Badge */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition-colors ${getStatusColor()} hover:opacity-80`}
-      >
-        {getStatusIcon()}
-        <span>{getStatusText()}</span>
-        {(status.status === 'syncing' || isRunning) && (
-          <span className="text-xs opacity-75">
-            {status.progress}%
-          </span>
-        )}
-      </button>
-
-      {/* Expanded Details Panel */}
-      {expanded && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-4 z-50">
-          <div className="space-y-4">
-            {/* Header with Controls */}
-            <div className="flex items-center justify-between">
-              <h3 className="font-medium text-white">Sync Status</h3>
-              <div className="flex items-center gap-1">
-                {/* Pause/Resume Button */}
-                {isRunning ? (
-                  <button
-                    onClick={() => handleAction('pause')}
-                    disabled={actionLoading === 'pause'}
-                    className="p-1.5 text-amber-400 hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
-                    title="Pause Indexer"
-                  >
-                    {actionLoading === 'pause' ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Pause className="w-4 h-4" />
-                    )}
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => handleAction('resume')}
-                    disabled={actionLoading === 'resume'}
-                    className="p-1.5 text-green-400 hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
-                    title="Resume Indexer"
-                  >
-                    {actionLoading === 'resume' ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Play className="w-4 h-4" />
-                    )}
-                  </button>
-                )}
-                
-                {/* Refresh Button */}
-                <button
-                  onClick={() => handleAction('refresh')}
-                  disabled={actionLoading === 'refresh'}
-                  className="p-1.5 text-blue-400 hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
-                  title="Refresh All Wallets"
-                >
-                  {actionLoading === 'refresh' ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <RotateCcw className="w-4 h-4" />
-                  )}
-                </button>
-                
-                {/* Status Refresh Button */}
-                <button
-                  onClick={fetchStatus}
-                  className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
-                  title="Refresh Status"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Progress Bar */}
-            {(status.status === 'syncing' || isRunning) && (
-              <div>
-                <div className="flex justify-between text-xs text-gray-400 mb-1">
-                  <span>Progress</span>
-                  <span>{status.progress}%</span>
-                </div>
-                <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-blue-500 transition-all duration-500"
-                    style={{ width: `${status.progress}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Wallet Stats */}
-            <div>
-              <h4 className="text-xs text-gray-400 uppercase tracking-wide mb-2">Wallets</h4>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Total</span>
-                  <span className="text-white">{formatNumber(status.wallets.total)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-green-400">Synced</span>
-                  <span className="text-white">{formatNumber(status.wallets.synced)}</span>
-                </div>
-                {status.wallets.inProgress > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-blue-400">In Progress</span>
-                    <span className="text-white">{formatNumber(status.wallets.inProgress)}</span>
-                  </div>
-                )}
-                {status.wallets.error > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-red-400">Error</span>
-                    <span className="text-white">{formatNumber(status.wallets.error)}</span>
-                  </div>
-                )}
-                {status.wallets.pending > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Pending</span>
-                    <span className="text-white">{formatNumber(status.wallets.pending)}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Transaction Stats */}
-            <div>
-              <h4 className="text-xs text-gray-400 uppercase tracking-wide mb-2">Transactions</h4>
-              <div className="space-y-1 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Total Indexed</span>
-                  <span className="text-white font-medium">{formatNumber(status.transactions.total)}</span>
-                </div>
-                {status.transactions.blockRange && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Block Range</span>
-                    <span className="text-white text-xs">
-                      {formatBlock(status.transactions.blockRange.min)} → {formatBlock(status.transactions.blockRange.max)}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Indexer Status */}
-            {status.indexer && (
-              <div>
-                <h4 className="text-xs text-gray-400 uppercase tracking-wide mb-2">Indexer</h4>
-                <div className="space-y-1 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Status</span>
-                    <span className={`capitalize ${
-                      isRunning ? 'text-blue-400' :
-                      isPaused ? 'text-amber-400' :
-                      status.indexer.status === 'done' ? 'text-green-400' : 'text-gray-400'
-                    }`}>
-                      {status.indexer.status}
-                    </span>
-                  </div>
-                  {status.indexer.position && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Position</span>
-                      <span className="text-white">{formatBlock(status.indexer.position)}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Control Buttons Description */}
-            <div className="text-xs text-gray-500 pt-2 border-t border-gray-700 space-y-1">
-              <div className="flex items-center gap-2">
-                <Play className="w-3 h-3 text-green-400" /> Resume realtime indexing
-              </div>
-              <div className="flex items-center gap-2">
-                <Pause className="w-3 h-3 text-amber-400" /> Pause realtime indexing
-              </div>
-              <div className="flex items-center gap-2">
-                <RotateCcw className="w-3 h-3 text-blue-400" /> Full refresh all wallets
-              </div>
-            </div>
-
-            {/* Last Updated */}
-            <div className="text-xs text-gray-500">
-              Last checked: {new Date(status.lastChecked).toLocaleTimeString()}
-            </div>
+  if (compact) {
+    // Compact badge for wallet cards
+    return (
+      <div className="text-xs space-y-1">
+        {isDone ? (
+          <div className="flex items-center gap-1 text-green-400">
+            <CheckCircle className="w-3 h-3" />
+            <span>Synced</span>
           </div>
+        ) : (
+          <div className="flex items-center gap-1 text-blue-400">
+            <RefreshCw className="w-3 h-3 animate-spin" />
+            <span>{status.stage} {status.pct}%</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Full pipeline progress bar
+  return (
+    <div className="space-y-3">
+      {/* Stage dots */}
+      <div className="flex items-center justify-between relative">
+        {/* Connector line behind dots */}
+        <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-0.5 bg-gray-700 z-0" />
+
+        {PIPELINE_STAGES.map((stage, idx) => {
+          const isActive = normalizedStage === stage.key;
+          const stageIdx = PIPELINE_STAGES.findIndex((s) => s.key === normalizedStage);
+          const isComplete = isDone || (stageIdx > idx);
+
+          return (
+            <div key={stage.key} className="relative z-10 flex flex-col items-center gap-1">
+              {/* Dot */}
+              <div
+                className={`w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all ${
+                  isComplete
+                    ? 'bg-green-500 border-green-500'
+                    : isActive
+                    ? 'bg-blue-500 border-blue-400 animate-pulse'
+                    : 'bg-gray-800 border-gray-600'
+                }`}
+              >
+                {isComplete ? (
+                  <CheckCircle className="w-3 h-3 text-white" />
+                ) : isActive ? (
+                  <Loader2 className="w-3 h-3 text-white animate-spin" />
+                ) : (
+                  <span className="w-2 h-2 rounded-full bg-gray-600" />
+                )}
+              </div>
+              {/* Label */}
+              <span
+                className={`text-xs font-medium whitespace-nowrap ${
+                  isComplete
+                    ? 'text-green-400'
+                    : isActive
+                    ? 'text-blue-400'
+                    : 'text-gray-500'
+                }`}
+              >
+                {stage.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Progress percentage + detail */}
+      {!isDone && (
+        <div className="space-y-1">
+          <div className="flex justify-between text-xs text-gray-400">
+            <span>{status.stage}</span>
+            <span>{status.pct}%</span>
+          </div>
+          {/* Progress bar */}
+          <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-blue-500 transition-all duration-500"
+              style={{ width: `${status.pct}%` }}
+            />
+          </div>
+          {status.detail && (
+            <p className="text-xs text-gray-500 truncate">{status.detail}</p>
+          )}
+        </div>
+      )}
+
+      {isDone && (
+        <div className="flex items-center gap-2 text-green-400 text-sm">
+          <CheckCircle className="w-4 h-4" />
+          <span>Sync complete</span>
         </div>
       )}
     </div>

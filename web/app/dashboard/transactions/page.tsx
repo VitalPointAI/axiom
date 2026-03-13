@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { 
-  ArrowLeftRight, 
+import { apiClient, ApiError } from '@/lib/api';
+import {
+  ArrowLeftRight,
   ArrowUpRight, 
   ArrowDownRight,
   Search,
@@ -46,9 +47,9 @@ interface Transaction {
 
 interface Pagination {
   page: number;
-  limit: number;
+  per_page: number;
   total: number;
-  totalPages: number;
+  pages: number;
 }
 
 interface ChainOption {
@@ -91,7 +92,7 @@ const PAGE_SIZES = [10, 25, 50, 100];
 
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 25, total: 0, totalPages: 0 });
+  const [pagination, setPagination] = useState<Pagination>({ page: 1, per_page: 25, total: 0, pages: 0 });
   const [filters, setFilters] = useState<Filters>({ types: [], chains: [], categories: [], assets: [] });
   const [loading, setLoading] = useState(true);
 
@@ -119,40 +120,40 @@ export default function TransactionsPage() {
     maxAmount: '',
   });
 
+  interface TransactionsResponse {
+    transactions: Transaction[];
+    total: number;
+    page: number;
+    per_page: number;
+    pages: number;
+  }
+
   const fetchTransactions = useCallback(async (page = 1) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({
         page: page.toString(),
-        limit: pageSize.toString(),
-        sort: sortField,
-        order: sortDir,
+        per_page: pageSize.toString(),
       });
-      
-      if (selectedType) params.set('type', selectedType);
+
+      if (selectedType) params.set('tx_type', selectedType);
       if (selectedChain) params.set('chain', selectedChain);
-      if (selectedCategory) params.set('category', selectedCategory);
+      if (selectedCategory) params.set('tax_category', selectedCategory);
       if (selectedAsset) params.set('asset', selectedAsset);
       if (searchQuery) params.set('q', searchQuery);
-      if (startDate) params.set('from', startDate);
-      if (endDate) params.set('to', endDate);
+      if (startDate) params.set('date_from', startDate);
+      if (endDate) params.set('date_to', endDate);
       if (columnFilters.wallet) params.set('wallet', columnFilters.wallet);
-      if (columnFilters.address) params.set('address', columnFilters.address);
-      if (columnFilters.minAmount) params.set('minAmount', columnFilters.minAmount);
-      if (columnFilters.maxAmount) params.set('maxAmount', columnFilters.maxAmount);
 
-      const res = await fetch(`/api/transactions?${params}`);
-      const data = await res.json();
-      
+      const data = await apiClient.get<TransactionsResponse>(`/api/transactions?${params}`);
+
       setTransactions(data.transactions || []);
-      // FIX: API returns pagination fields at root level, not nested
       setPagination({
         page: data.page || 1,
-        limit: data.limit || pageSize,
+        per_page: data.per_page || pageSize,
         total: data.total || 0,
-        totalPages: data.totalPages || 0
+        pages: data.pages || 0,
       });
-      setFilters(data.filters || { types: [], chains: [], categories: [], assets: [] });
     } catch (error) {
       console.error('Failed to fetch transactions:', error);
     } finally {
@@ -181,45 +182,15 @@ export default function TransactionsPage() {
   const handleGoToPage = (e: React.FormEvent) => {
     e.preventDefault();
     const page = parseInt(goToPage);
-    if (page >= 1 && page <= pagination.totalPages) {
+    if (page >= 1 && page <= pagination.pages) {
       fetchTransactions(page);
       setGoToPage('');
     }
   };
 
-  // Export to CSV with current filters
-  const handleExport = async () => {
-    try {
-      const params = new URLSearchParams();
-      
-      if (selectedType) params.set('type', selectedType);
-      if (selectedChain) params.set('chain', selectedChain);
-      if (selectedCategory) params.set('category', selectedCategory);
-      if (selectedAsset) params.set('asset', selectedAsset);
-      if (searchQuery) params.set('q', searchQuery);
-      if (startDate) params.set('from', startDate);
-      if (endDate) params.set('to', endDate);
-      if (columnFilters.wallet) params.set('wallet', columnFilters.wallet);
-      if (columnFilters.minAmount) params.set('minAmount', columnFilters.minAmount);
-      if (columnFilters.maxAmount) params.set('maxAmount', columnFilters.maxAmount);
-
-      const res = await fetch(`/api/transactions/export?${params}`);
-      
-      if (!res.ok) throw new Error('Export failed');
-      
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `neartax-transactions-${new Date().toISOString().split('T')[0]}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (error) {
-      console.error('Export failed:', error);
-      alert('Export failed. Please try again.');
-    }
+  // Export is not available via FastAPI yet — show informative message
+  const handleExport = () => {
+    alert('CSV export will be available once the full report package is generated in the Reports tab.');
   };
 
   const SortIcon = ({ field }: { field: SortField }) => {
@@ -594,7 +565,7 @@ export default function TransactionsPage() {
         )}
 
         {/* Pagination */}
-        {pagination.totalPages > 0 && (
+        {pagination.pages > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-3 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
             {/* Page size selector */}
             <div className="flex items-center gap-2">
@@ -613,8 +584,8 @@ export default function TransactionsPage() {
 
             {/* Page info */}
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Showing {((pagination.page - 1) * pagination.limit) + 1} to{' '}
-              {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total.toLocaleString()}
+              Showing {((pagination.page - 1) * pagination.per_page) + 1} to{' '}
+              {Math.min(pagination.page * pagination.per_page, pagination.total)} of {pagination.total.toLocaleString()}
             </p>
 
             {/* Navigation */}
@@ -642,18 +613,18 @@ export default function TransactionsPage() {
                 <input
                   type="number"
                   min={1}
-                  max={pagination.totalPages}
+                  max={pagination.pages}
                   value={goToPage || pagination.page}
                   onChange={(e) => setGoToPage(e.target.value)}
                   onFocus={(e) => e.target.select()}
                   className="w-16 px-2 py-1 border border-slate-200 dark:border-slate-600 rounded text-sm text-center bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
                 />
-                <span className="text-sm text-slate-500 dark:text-slate-400">of {pagination.totalPages}</span>
+                <span className="text-sm text-slate-500 dark:text-slate-400">of {pagination.pages}</span>
               </form>
 
               <button
                 onClick={() => fetchTransactions(pagination.page + 1)}
-                disabled={pagination.page >= pagination.totalPages}
+                disabled={pagination.page >= pagination.pages}
                 className="p-2 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-white dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 dark:text-slate-300"
                 title="Next page"
               >
@@ -661,8 +632,8 @@ export default function TransactionsPage() {
               </button>
 
               <button
-                onClick={() => fetchTransactions(pagination.totalPages)}
-                disabled={pagination.page >= pagination.totalPages}
+                onClick={() => fetchTransactions(pagination.pages)}
+                disabled={pagination.page >= pagination.pages}
                 className="p-2 border border-slate-200 dark:border-slate-600 rounded-lg hover:bg-white dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 dark:text-slate-300"
                 title="Last page"
               >
