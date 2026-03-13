@@ -667,3 +667,128 @@ class PriceCacheMinute(Base):
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class VerificationResult(Base):
+    """Per-wallet verification run results with auto-diagnosis.
+
+    One row per (wallet_id, token_symbol) — upserted each verification run.
+    Stores both ACB-based and raw-replay expected balances for dual cross-check.
+    NEAR wallets include decomposed on-chain balance (liquid + locked + staked).
+    Exchange wallets support manual balance entry for reconciliation.
+
+    status values: 'open', 'resolved', 'accepted', 'unverified'
+    diagnosis_category values: 'missing_staking_rewards', 'uncounted_fees',
+        'unindexed_period', 'classification_error', 'duplicate_merged',
+        'within_tolerance', 'unknown'
+    """
+
+    __tablename__ = "verification_results"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('open', 'resolved', 'accepted', 'unverified')",
+            name="ck_vr_status",
+        ),
+        UniqueConstraint("wallet_id", "token_symbol", name="uq_vr_wallet_token"),
+        Index("ix_vr_user_id", "user_id"),
+        Index("ix_vr_wallet_id", "wallet_id"),
+        Index("ix_vr_status", "status"),
+        Index("ix_vr_verified_at", "verified_at"),
+    )
+
+    id = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    wallet_id = mapped_column(Integer, ForeignKey("wallets.id"), nullable=False)
+    chain = mapped_column(String(20), nullable=False)
+    token_symbol = mapped_column(String(32), nullable=False, default="NEAR")
+
+    # Balance components (all in human units, Decimal precision)
+    expected_balance_acb = mapped_column(Numeric(24, 8), nullable=True)
+    expected_balance_replay = mapped_column(Numeric(24, 8), nullable=True)
+    actual_balance = mapped_column(Numeric(24, 8), nullable=True)
+    manual_balance = mapped_column(Numeric(24, 8), nullable=True)
+    manual_balance_date = mapped_column(DateTime(timezone=True), nullable=True)
+    difference = mapped_column(Numeric(24, 8), nullable=True)
+    tolerance = mapped_column(Numeric(24, 8), nullable=False, default=0.01)
+
+    # NEAR decomposed components (NULL for non-NEAR)
+    onchain_liquid = mapped_column(Numeric(24, 8), nullable=True)
+    onchain_locked = mapped_column(Numeric(24, 8), nullable=True)
+    onchain_staked = mapped_column(Numeric(24, 8), nullable=True)
+
+    # Status
+    status = mapped_column(String(20), nullable=False, default="open")
+
+    # Diagnosis
+    diagnosis_category = mapped_column(String(50), nullable=True)
+    diagnosis_detail = mapped_column(JSONB, nullable=True)
+    diagnosis_confidence = mapped_column(Numeric(4, 3), nullable=True)
+
+    # Resolution
+    resolved_by = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    resolved_at = mapped_column(DateTime(timezone=True), nullable=True)
+    notes = mapped_column(Text, nullable=True)
+
+    # Verification run metadata
+    verified_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    rpc_error = mapped_column(Text, nullable=True)
+
+    created_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user = relationship("User", foreign_keys=[user_id])
+    wallet = relationship("Wallet", foreign_keys=[wallet_id])
+    resolved_by_user = relationship("User", foreign_keys=[resolved_by])
+
+
+class AccountVerificationStatus(Base):
+    """Per-wallet verification status rollup for Phase 7 UI dashboard.
+
+    One row per wallet_id (UNIQUE constraint). Updated after each verification run.
+    status is the worst-case of all verification_results for that wallet:
+      - 'verified': no open issues, at least one result exists
+      - 'flagged': open issues exist
+      - 'unverified': no verification results yet
+
+    open_issues: count of verification_results with status='open' for this wallet.
+    """
+
+    __tablename__ = "account_verification_status"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('verified', 'flagged', 'unverified')",
+            name="ck_avs_status",
+        ),
+        UniqueConstraint("wallet_id", name="uq_avs_wallet_id"),
+        Index("ix_avs_user_id", "user_id"),
+        Index("ix_avs_status", "status"),
+    )
+
+    id = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    wallet_id = mapped_column(Integer, ForeignKey("wallets.id"), nullable=False)
+    status = mapped_column(String(20), nullable=False, default="unverified")
+    last_checked_at = mapped_column(DateTime(timezone=True), nullable=True)
+    open_issues = mapped_column(Integer, nullable=False, default=0)
+    notes = mapped_column(Text, nullable=True)
+    created_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user = relationship("User", foreign_keys=[user_id])
+    wallet = relationship("Wallet", foreign_keys=[wallet_id])
