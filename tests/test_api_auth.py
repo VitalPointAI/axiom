@@ -382,11 +382,13 @@ def test_post_register_finish_endpoint(api_client, mock_pool, mock_conn, mock_cu
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=1)
     challenge_row = (b"reg_challenge_bytes", expires_at)
 
+    # finish_registration: challenge SELECT, passkey check SELECT, user INSERT
+    # load_user_by_id: user SELECT
     mock_cursor.fetchone.side_effect = [
-        challenge_row,  # Challenge lookup
-        None,           # User not found
-        (1,),           # User INSERT RETURNING id
-        # Session and passkey INSERT calls will also go through cursor
+        challenge_row,                                              # Challenge lookup
+        None,                                                       # Passkey check (not found)
+        (1,),                                                       # User INSERT RETURNING id
+        (1, None, "alice", "alice@example.com", None, False),       # load_user_by_id
     ]
 
     mock_verified = MagicMock()
@@ -450,10 +452,12 @@ def test_oauth_start(api_client):
 def test_oauth_callback(api_client, mock_pool, mock_conn, mock_cursor):
     """POST /auth/oauth/callback exchanges code for token, upserts user, creates session."""
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-    # Mock DB: state challenge row, then user insert/upsert row
+    # finish_google_oauth: state challenge SELECT, user upsert
+    # load_user_by_id: user SELECT
     mock_cursor.fetchone.side_effect = [
-        (b"state_bytes", expires_at),  # state challenge lookup
-        (99,),                          # user upsert RETURNING id
+        (b"state_bytes", expires_at),                               # state challenge lookup
+        (99,),                                                       # user upsert RETURNING id
+        (99, None, "Test User", "user@gmail.com", None, False),     # load_user_by_id
     ]
 
     mock_token_response = MagicMock()
@@ -511,11 +515,12 @@ def test_magic_link_verify(api_client, mock_pool, mock_conn, mock_cursor):
     s = itsdangerous.URLSafeTimedSerializer(secret_key)
     token = s.dumps(email)
 
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
-    # Mock: token row (valid, unused), then user upsert
+    # verify_magic_link: magic_link_tokens SELECT, user upsert
+    # load_user_by_id: user SELECT
     mock_cursor.fetchone.side_effect = [
-        ("ml-token-id", email, None),  # magic_link_tokens row (id, email, used_at=None)
-        (77,),                          # user upsert RETURNING id
+        ("ml-token-id", email, None),                              # magic_link_tokens row
+        (77,),                                                      # user upsert RETURNING id
+        (77, None, None, email, None, False),                       # load_user_by_id
     ]
 
     with patch("api.auth.magic_link.SECRET_KEY", secret_key):
