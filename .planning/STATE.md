@@ -290,5 +290,10 @@ None currently.
 | 2026-03-13 | itsdangerous URLSafeTimedSerializer for magic link tokens | Self-contained signed token; DB row (magic_link_tokens) only needed for used-at guard |
 | 2026-03-13 | OAuth state stored as challenges.id (string) | Allows WHERE id = %s lookup without base64 decode; challenge bytes also stored |
 | 2026-03-13 | All user creation paths use ON CONFLICT (email) DO UPDATE | Prevents duplicate accounts across auth methods |
+| 2026-03-13 | Pipeline stage prefers running jobs over queued for stage determination | Running = currently executing; showing queued stage would be misleading to the user |
+| 2026-03-13 | Active jobs query returns 9-col rows (wallet_id included); single job query returns 8-col | Separate _active_row_to_job_status and _row_to_job_status helpers per shape prevent index errors |
+| 2026-03-13 | /api/jobs/active registered before /{job_id}/status | FastAPI matches routes in registration order; prevents "active" being parsed as integer path param |
+| 2026-03-13 | NEAR wallet creation queues full_sync+staking_sync+lockup_sync; EVM queues evm_full_sync | Separate job types per chain; classify_transactions auto-chains from ClassifierHandler (no explicit job needed) |
+| 2026-03-13 | portfolio/summary uses ROW_NUMBER OVER (PARTITION BY token_symbol ORDER BY as_of_date DESC) | Window function gives latest snapshot per token in one query without subquery per token |
 
-*Last updated: 2026-03-13 — Stopped at: Completed 07-web-ui 07-02-PLAN.md.*
+*Last updated: 2026-03-13 — Stopped at: Completed 07-web-ui 07-03-PLAN.md.*
