@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-13T19:11:00.000Z"
+last_updated: "2026-03-13T19:33:00.000Z"
 progress:
   total_phases: 8
   completed_phases: 6
@@ -93,6 +93,8 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-13: **06-04 complete** - FIFOTracker (deque lot queues, FIFO dispose, get_cogs(year), replay_from_snapshots), InventoryHoldingsReport (ACB per unit + FMV/unrealized), COGSReport (opening+acq-closing; ACB and FIFO methods), BusinessIncomeStatement (crypto income + capital gains + COGS + fiat flow + hybrid treatment); 22 new tests
+- 2026-03-13: **06-03 complete** - KoinlyExport (KOINLY_LABEL_MAP, yoctoNEAR->NEAR, fiscal year filter, full-history mode), AccountingExporter (QuickBooks IIF TRNS/SPL/ENDTRNS, Xero CSV, Sage 50 CSV, balanced double-entry CSV); 15 new tests (71 total in test_reports.py)
 - 2026-03-13: **06-02 complete** - LedgerReport (UNION ALL NEAR/EVM + exchange txs with classifications, 17 columns), T1135Checker (peak ACB cost, CANADIAN vs FOREIGN exchanges, self-custody ambiguous), SuperficialLossReport (denied losses from capital_gains_ledger); 18 new tests (43 total in test_reports.py)
 - 2026-03-13: **06-01 complete** - ReportEngine (needs_review gate check + specialist override), CapitalGainsReport (chronological + grouped-by-token CSVs, 50% inclusion), IncomeReport (detail + monthly CSVs), 25 tests; reports/ removed from .gitignore
 - 2026-03-13: **05-04 complete** - GapDetector (monthly balance checkpoints vs archival NEAR RPC relative deltas, targeted re-index queuing), DiscrepancyReporter (DISCREPANCIES.md generation), VerifyHandler fully wired with all 4 modules. Phase 5 COMPLETE.
@@ -236,6 +238,10 @@ None currently.
 | 2026-03-13 | Gap diagnosis confidence 0.60 | Archival liquid balance is an approximation; lower confidence triggers specialist review |
 | 2026-03-13 | Lazy imports in VerifyHandler.run_verify() | Matches ACBHandler pattern; avoids circular imports; handler skeleton works before all modules exist |
 | 2026-03-13 | DISCREPANCIES.md grouped by diagnosis_category | Clear specialist review: reconciliation issues, duplicate merges, gap detections in separate sections |
+| 2026-03-13 | KoinlyExport fiscal year filter in Python not SQL | Keeps mock testability; date filter applied after fetchall on in-memory rows |
+| 2026-03-13 | Double-entry balance: Debit Cash = ACB + gain, Credit ACB + Credit Capital Gains | Produces balanced journal entries for all disposal types (gains and losses) |
+| 2026-03-13 | QuickBooks IIF TRNS amount = proceeds (not gain) | IIF needs full proceeds on TRNS line; Capital Gains SPL line reflects gain/loss |
+| 2026-03-13 | GST Free tax rate for all crypto entries in Xero/Sage | Crypto disposals are not subject to GST in Canada |
 | 2026-03-13 | LedgerReport UNION ALL for on-chain + exchange sources | UNION ALL preserves all rows from both sources; JOIN would require matching keys across heterogeneous sources |
 | 2026-03-13 | T1135 uses MAX(total_cost_cad) from acb_snapshots | Canadian tax law requires peak foreign property cost during the year, not year-end FMV |
 | 2026-03-13 | CANADIAN_EXCHANGES = {wealthsimple} for T1135 | Wealthsimple is Canadian; coinbase/crypto_com/uphold/coinsquare treated as foreign (or foreign-parented) |
@@ -253,5 +259,11 @@ None currently.
 | 2026-03-12 | Dedup check before calculate_acb INSERT | Prevents duplicate ACB recalculations when classify_transactions jobs run for multiple user wallets simultaneously |
 | 2026-03-12 | stats['superficial_losses'] added to ACBEngine return | ACBHandler log includes count for observability; consistent with other stats keys |
 
+| 2026-03-13 | FIFOTracker uses deque per token for O(1) FIFO dispose | list.pop(0) is O(n); deque.popleft() is O(1) — important for wallets with many lots |
+| 2026-03-13 | FIFO COGS via get_cogs(year) from disposal history | Independent from ACB formula; FIFOTracker tracks disposal timestamps for year-scoped COGS |
+| 2026-03-13 | COGSReport fetches all acb_snapshots for FIFO replay | Full history required to reconstruct lot queues correctly; not just fiscal year window |
+| 2026-03-13 | BusinessIncomeStatement delegates to COGSReport internally | Avoids duplicating COGS SQL; COGSReport already handles gate check and FIFO/ACB branching |
+| 2026-03-13 | Oversell in FIFOTracker appends $0 residual with needs_review | Matches ACBPool oversell pattern; partial data reviewable without blocking full replay |
+
 ---
-*Last updated: 2026-03-13 — Stopped at: Completed 06-reporting 06-02-PLAN.md.*
+*Last updated: 2026-03-13 — Stopped at: Completed 06-reporting 06-04-PLAN.md.*
