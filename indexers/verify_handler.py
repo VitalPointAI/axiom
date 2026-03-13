@@ -10,6 +10,8 @@ Orchestrates three verification modules:
 """
 import logging
 
+from verify.reconcile import BalanceReconciler
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,11 +45,21 @@ class VerifyHandler:
         user_id = job["user_id"]
         logger.info("Starting verification for user_id=%s", user_id)
 
-        # Phase 5 Plans 02-04 will implement these imports and calls.
-        # For now, log placeholder to confirm handler wiring works.
-
         # Step 1: Balance reconciliation
-        logger.info("Step 1: Balance reconciliation for user_id=%s (not yet implemented)", user_id)
+        try:
+            reconciler = BalanceReconciler(self.pool)
+            recon_stats = reconciler.reconcile_user(user_id)
+            logger.info(
+                "Step 1: Balance reconciliation for user_id=%s: %s",
+                user_id,
+                recon_stats,
+            )
+        except Exception as exc:
+            logger.error(
+                "Step 1: Balance reconciliation failed for user_id=%s: %s",
+                user_id,
+                exc,
+            )
 
         # Step 2: Duplicate detection
         logger.info("Step 2: Duplicate detection for user_id=%s (not yet implemented)", user_id)
