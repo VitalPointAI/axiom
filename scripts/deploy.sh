@@ -37,7 +37,7 @@ if [[ -n "$ROLLBACK_SHA" ]]; then
   $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && git fetch origin && git checkout $ROLLBACK_SHA"
 else
   echo "==> Pulling latest from main"
-  $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && git pull origin main"
+  $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && git pull origin main && git clean -fd"
 fi
 
 # Step 2: Build new images
