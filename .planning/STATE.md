@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-13T19:03:00.000Z"
+last_updated: "2026-03-13T19:11:00.000Z"
 progress:
   total_phases: 8
   completed_phases: 6
@@ -24,9 +24,9 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 **Phase 6: Reporting** IN PROGRESS
 - Plan 06-01: ReportEngine base class + CapitalGainsReport + IncomeReport ✅ DONE (2026-03-13)
-- Plan 06-02: LedgerReport + T1135Checker + SuperficialLossReport (Wave 2) - PENDING
-- Plan 06-03: KoinlyExport + accounting software exports - PENDING
-- Plan 06-04: Inventory Holdings + COGS + Business Income Statement + FIFO engine - PENDING
+- Plan 06-02: LedgerReport + T1135Checker + SuperficialLossReport (Wave 2) ✅ DONE (2026-03-13)
+- Plan 06-03: KoinlyExport + accounting software exports ✅ DONE (2026-03-13)
+- Plan 06-04: Inventory Holdings + COGS + Business Income Statement + FIFO engine ✅ DONE (2026-03-13)
 - Plan 06-05: PDF templates + PackageBuilder + ReportHandler job wiring - PENDING
 
 **Phase 5: Verification** COMPLETE ✅
@@ -79,7 +79,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | 3. Transaction Classification | **Complete** | 100% (5/5 plans) |
 | 4. Cost Basis Engine | **Complete** | 100% (3/3 plans) |
 | 5. Verification | **Complete** | 100% (4/4 plans) |
-| 6. Reporting | In Progress | 20% (1/5 plans) |
+| 6. Reporting | In Progress | 40% (2/5 plans) |
 | 7. Web UI | **PLANNED** | 0% |
 
 ## Accumulated Context
@@ -93,6 +93,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-13: **06-02 complete** - LedgerReport (UNION ALL NEAR/EVM + exchange txs with classifications, 17 columns), T1135Checker (peak ACB cost, CANADIAN vs FOREIGN exchanges, self-custody ambiguous), SuperficialLossReport (denied losses from capital_gains_ledger); 18 new tests (43 total in test_reports.py)
 - 2026-03-13: **06-01 complete** - ReportEngine (needs_review gate check + specialist override), CapitalGainsReport (chronological + grouped-by-token CSVs, 50% inclusion), IncomeReport (detail + monthly CSVs), 25 tests; reports/ removed from .gitignore
 - 2026-03-13: **05-04 complete** - GapDetector (monthly balance checkpoints vs archival NEAR RPC relative deltas, targeted re-index queuing), DiscrepancyReporter (DISCREPANCIES.md generation), VerifyHandler fully wired with all 4 modules. Phase 5 COMPLETE.
 - 2026-03-13: **05-03 complete** - DuplicateDetector with 3-scan pipeline (hash dedup score=1.0, bridge heuristic score=0.60, exchange re-scan multi-signal 0.85/0.80/0.60), balance-aware auto-merge, verification_results audit trail; 885 lines
@@ -235,6 +236,11 @@ None currently.
 | 2026-03-13 | Gap diagnosis confidence 0.60 | Archival liquid balance is an approximation; lower confidence triggers specialist review |
 | 2026-03-13 | Lazy imports in VerifyHandler.run_verify() | Matches ACBHandler pattern; avoids circular imports; handler skeleton works before all modules exist |
 | 2026-03-13 | DISCREPANCIES.md grouped by diagnosis_category | Clear specialist review: reconciliation issues, duplicate merges, gap detections in separate sections |
+| 2026-03-13 | LedgerReport UNION ALL for on-chain + exchange sources | UNION ALL preserves all rows from both sources; JOIN would require matching keys across heterogeneous sources |
+| 2026-03-13 | T1135 uses MAX(total_cost_cad) from acb_snapshots | Canadian tax law requires peak foreign property cost during the year, not year-end FMV |
+| 2026-03-13 | CANADIAN_EXCHANGES = {wealthsimple} for T1135 | Wealthsimple is Canadian; coinbase/crypto_com/uphold/coinsquare treated as foreign (or foreign-parented) |
+| 2026-03-13 | Self-custodied NEAR/EVM tokens ambiguous for T1135 | CRA position unclear on self-custody foreign property; listed separately for specialist review |
+| 2026-03-13 | SuperficialLossReport filters by tax_year integer column | capital_gains_ledger.tax_year INTEGER is the correct filter; avoids date range edge cases at fiscal year boundaries |
 | 2026-03-13 | reports/ removed from .gitignore | Reports package is source code (engine.py, capital_gains.py, income.py), not test output |
 | 2026-03-13 | Gate check queries both CGL and ACB for needs_review | Both tables can have unresolved items that block report accuracy |
 | 2026-03-13 | taxable_amount = net_gain_loss * Decimal('0.50') | Canadian 50% capital gains inclusion rate for 2024 tax year |
@@ -248,4 +254,4 @@ None currently.
 | 2026-03-12 | stats['superficial_losses'] added to ACBEngine return | ACBHandler log includes count for observability; consistent with other stats keys |
 
 ---
-*Last updated: 2026-03-13 — Stopped at: Completed 06-reporting 06-01-PLAN.md.*
+*Last updated: 2026-03-13 — Stopped at: Completed 06-reporting 06-02-PLAN.md.*

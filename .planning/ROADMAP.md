@@ -222,7 +222,7 @@ Plans:
 
 Plans:
 - [x] 06-01-PLAN.md — ReportEngine base class + CapitalGainsReport + IncomeReport (Wave 1) [RPT-01, RPT-02] ✓ DONE
-- [ ] 06-02-PLAN.md — LedgerReport + T1135Checker + SuperficialLossReport (Wave 2) [RPT-03, RPT-04]
+- [x] 06-02-PLAN.md — LedgerReport + T1135Checker + SuperficialLossReport (Wave 2) [RPT-03, RPT-04] ✓ DONE
 - [ ] 06-03-PLAN.md — KoinlyExport + accounting software exports (QuickBooks/Xero/Sage/double-entry) (Wave 2) [RPT-05]
 - [ ] 06-04-PLAN.md — Inventory Holdings + COGS + Business Income Statement + FIFO engine (Wave 2) [RPT-01, RPT-02]
 - [ ] 06-05-PLAN.md — PDF templates (WeasyPrint) + PackageBuilder + ReportHandler job wiring (Wave 3) [RPT-05, RPT-06]
