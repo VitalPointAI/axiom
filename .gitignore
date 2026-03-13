@@ -57,6 +57,5 @@ postgres_data/
 
 # Test output
 output/
-reports/
 .credentials/
 *.json.bak
