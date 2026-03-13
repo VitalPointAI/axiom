@@ -260,44 +260,55 @@ Plans:
 
 ---
 
----
-
 ## Phase 7: Web UI
 
-**Goal:** Build a user-friendly web interface with NEAR wallet authentication for managing accounts, viewing transactions, and generating reports.
+**Goal:** Wire the existing Next.js frontend to a new FastAPI backend replacing all Next.js API routes. Migrate auth (passkey + email magic link + Google OAuth) to Python, implement full pipeline auto-chaining in UI, verification dashboard with actionable resolution, report generation with inline previews, and transaction classification editing.
+
+**Plans:** 7 plans in 5 waves
+
+Plans:
+- [ ] 07-01-PLAN.md — Migration 006 (auth schema) + FastAPI app skeleton + dependencies + test infrastructure (Wave 1) [UI-08]
+- [ ] 07-02-PLAN.md — Auth: WebAuthn passkey + Google OAuth + email magic link + session management (Wave 2) [UI-01, UI-08]
+- [ ] 07-03-PLAN.md — Wallet CRUD + portfolio summary + job status + pipeline progress (Wave 2) [UI-02, UI-03]
+- [ ] 07-04-PLAN.md — Transaction ledger + classification editing + review queue + batch recalc (Wave 3) [UI-04, UI-05]
+- [ ] 07-05-PLAN.md — Report generation/preview/download + verification dashboard (Wave 3) [UI-06, UI-07]
+- [ ] 07-06-PLAN.md — Frontend rewiring: API client + auth-provider + dashboard pages + progress bar (Wave 4) [UI-01, UI-02, UI-03, UI-04, UI-05, UI-06, UI-07]
+- [ ] 07-07-PLAN.md — Docker integration + deploy workflow update + old API route cleanup + e2e verify (Wave 5) [UI-01, UI-02, UI-03, UI-04, UI-05, UI-06, UI-07, UI-08]
 
 **Requirements:**
-- UI-01: NEAR wallet authentication via near-phantom-auth
+- UI-01: Web UI with user authentication via near-phantom-auth (passkey + email + Google OAuth)
 - UI-02: Portfolio dashboard with holdings summary
-- UI-03: Wallet management (add/edit/remove, sync status)
+- UI-03: Wallet management (add/edit/remove, sync status, pipeline progress bar)
 - UI-04: Transaction ledger with filtering and search
-- UI-05: Transaction detail editing
-- UI-06: Report generation interface
-- UI-07: Verification status dashboard
-- UI-08: Multi-user data isolation
+- UI-05: Transaction detail editing with classification changes and batch recalc
+- UI-06: Report generation interface with inline previews and downloads
+- UI-07: Verification status dashboard with issue grouping and resolution actions
+- UI-08: Multi-user data isolation via user_id filtering on all queries
 
 **Success Criteria:**
-1. [ ] Users can sign in with NEAR wallet (mainnet)
+1. [ ] Users can sign in with passkey, Google OAuth, or email magic link
 2. [ ] Dashboard shows portfolio value, holdings by asset, staking positions
-3. [ ] Users can add/manage wallets and trigger indexing
-4. [ ] Transaction ledger supports filter by date, type, asset, amount
-5. [ ] Users can edit transaction classifications and add notes
-6. [ ] Reports can be generated and downloaded from UI
-7. [ ] Verification issues are clearly displayed with resolution guidance
-8. [ ] Each user's data is isolated by their NEAR account
+3. [ ] Users can add/manage wallets and see pipeline progress (Indexing -> Classifying -> Cost Basis -> Verifying -> Done)
+4. [ ] Transaction ledger supports filter by date, type, asset, amount, chain, needs_review
+5. [ ] Users can edit transaction classifications and trigger ACB recalculation
+6. [ ] Reports can be generated via job queue, previewed inline, and downloaded
+7. [ ] Verification issues grouped by diagnosis category with resolution actions
+8. [ ] Each user's data is isolated by user_id across all endpoints
 
 **Deliverables:**
-- `web/` — Next.js application
-- `web/app/` — App router pages (dashboard, wallets, transactions, reports)
-- `web/components/` — Reusable UI components
-- `web/lib/near-auth.ts` — near-phantom-auth integration
-- `api/` — FastAPI backend (or extend existing)
+- `api/` — FastAPI backend (main.py, dependencies.py, auth/, routers/, schemas/)
+- `api/Dockerfile` — FastAPI Docker image
+- `db/migrations/versions/006_auth_schema.py` — Auth table migration
+- `web/lib/api.ts` — Centralized API client for FastAPI
+- Updated `docker-compose.prod.yml` — 4 services (postgres, web, api, indexer)
+- Updated `.github/workflows/deploy.yml` — Deploys api container
 
 **Tech Stack:**
-- Next.js 14+ with App Router
-- near-phantom-auth for authentication
-- Tailwind CSS + shadcn/ui components
-- SQLite → PostgreSQL migration for multi-user
+- Frontend: Next.js 16+ with App Router, React 19, Tailwind CSS 4, shadcn/ui, Recharts
+- Backend: FastAPI + py_webauthn + itsdangerous + boto3 + slowapi
+- Database: PostgreSQL (multi-user, all tables have user_id FK)
+- Auth: py_webauthn (passkey), Google OAuth PKCE, itsdangerous (magic link)
+- Deployment: Separate Docker containers: web (Next.js), api (FastAPI), indexer (Python), postgres
 
 ---
 
@@ -350,4 +361,4 @@ Phase 2 ──┘                                              │
 - Phase 7 requires Phase 6 (needs complete data pipeline), but UI scaffolding can start in parallel
 
 ---
-*Last updated: 2026-03-13 — Phase 6 PLANNED: 5 plans in 3 waves. ReportEngine base + 10 report modules + FIFO engine + PDF templates + PackageBuilder + ReportHandler.*
+*Last updated: 2026-03-13 — Phase 7 PLANNED: 7 plans in 5 waves. FastAPI backend + auth migration + wallet/transaction/report/verification APIs + frontend rewiring + Docker integration.*
