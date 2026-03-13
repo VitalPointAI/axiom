@@ -72,7 +72,7 @@ jobs:
           AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
           AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
           AWS_SES_REGION=ca-central-1
-          AWS_SES_FROM_EMAIL=neartax@vitalpoint.ai
+          AWS_SES_FROM_EMAIL=axiom@vitalpoint.ai
           NEAR_AI_API_KEY=${NEAR_AI_API_KEY}"
           echo "$ENV_CONTENT" | ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             ${DEPLOY_USER}@${DEPLOY_HOST} "cat > ${DEPLOY_PATH}/.env"
