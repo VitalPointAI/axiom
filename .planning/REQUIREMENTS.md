@@ -45,7 +45,7 @@
 
 ### User Interface
 
-- [ ] **UI-01**: Web UI with user authentication via near-phantom-auth (NEAR wallet login)
+- [x] **UI-01**: Web UI with user authentication via near-phantom-auth (NEAR wallet login)
 - [ ] **UI-02**: Dashboard showing portfolio summary (total holdings, value by asset, staking positions)
 - [ ] **UI-03**: Wallet management view (add/edit/remove wallets, view balances, sync status)
 - [ ] **UI-04**: Transaction ledger with filtering, search, and pagination
@@ -105,7 +105,7 @@
 | RPT-04 | Phase 6 | Complete |
 | RPT-05 | Phase 6 | Complete |
 | RPT-06 | Phase 6 | Complete |
-| UI-01 | Phase 7 | Not Started |
+| UI-01 | Phase 7 | Complete |
 | UI-02 | Phase 7 | Not Started |
 | UI-03 | Phase 7 | Not Started |
 | UI-04 | Phase 7 | Not Started |

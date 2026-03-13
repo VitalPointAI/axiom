@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-03-13T21:39:00Z"
+last_updated: "2026-03-13T21:51:50Z"
 progress:
   total_phases: 8
   completed_phases: 7
   total_plans: 37
-  completed_plans: 33
+  completed_plans: 35
 ---
 
 # Project State
@@ -62,8 +62,8 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 **Phase 7: Web UI** 🔄 IN PROGRESS
 - Plan 07-01: FastAPI foundation (migration 006 + app + auth deps + test infra) ✅ DONE (2026-03-13)
-- Plan 07-02: WebAuthn passkey register/login handlers
-- Plan 07-03: Magic link + Google OAuth
+- Plan 07-02: WebAuthn passkey + OAuth + magic link auth system ✅ DONE (2026-03-13)
+- Plan 07-03: Wallet CRUD + portfolio summary + job status endpoints ✅ DONE (2026-03-13)
 - Plan 07-04: Wallet + transaction routers
 - Plan 07-05: Portfolio router
 - Plan 07-06: Reports + verification routers
@@ -84,7 +84,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | 4. Cost Basis Engine | **Complete** | 100% (3/3 plans) |
 | 5. Verification | **Complete** | 100% (4/4 plans) |
 | 6. Reporting | **Complete** | 100% (5/5 plans) |
-| 7. Web UI | **In Progress** | 14% (1/7 plans) |
+| 7. Web UI | **In Progress** | 29% (2/7 plans) |
 
 ## Accumulated Context
 
@@ -97,6 +97,8 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-13: **07-03 complete** - Wallet CRUD + pipeline auto-chain (NEAR: 3 jobs, EVM: 1 job), portfolio ACB holdings summary (ROW_NUMBER window per token), job status with pipeline stage progress (running-first semantics); 16 tests pass.
+- 2026-03-13: **07-02 complete** - WebAuthn passkey register/login (py_webauthn, PostgreSQL challenge storage), Google OAuth PKCE flow (httpx, user upsert by email), email magic link (itsdangerous, SES); 25 tests pass; 10 /auth/* endpoints.
 - 2026-03-13: **07-01 complete** - FastAPI foundation: migration 006 (passkeys/sessions/challenges/magic_link_tokens/accountant_access), FastAPI app factory with CORS+lifespan, auth dependencies (get_current_user/get_effective_user), Pydantic schemas, stub routers, test infrastructure with 8 passing tests. Phase 7 started.
 - 2026-03-13: **06-05 complete** - Jinja2/WeasyPrint PDF templates (7 templates, A4 @page), PackageBuilder (orchestrates all 10 report modules, gate check once, CSV+PDF output, tax_treatment modes), ReportHandler (generate_reports job type, ReportBlockedError returns error dict); 92 tests pass. Phase 6 COMPLETE.
 - 2026-03-13: **06-04 complete** - FIFOTracker (deque lot queues, FIFO dispose, get_cogs(year), replay_from_snapshots), InventoryHoldingsReport (ACB per unit + FMV/unrealized), COGSReport (opening+acq-closing; ACB and FIFO methods), BusinessIncomeStatement (crypto income + capital gains + COGS + fiat flow + hybrid treatment); 22 new tests
@@ -283,4 +285,10 @@ None currently.
 | 2026-03-13 | ALLOWED_ORIGINS defaults to localhost:3000 | Safe dev default; explicit env var required in production |
 
 ---
-*Last updated: 2026-03-13 — Stopped at: Completed 07-web-ui 07-01-PLAN.md.*
+| 2026-03-13 | PostgreSQL challenge storage for WebAuthn (not in-memory) | Survives server restarts; works in multi-process deployments |
+| 2026-03-13 | run_in_threadpool() for all psycopg2 calls in async routes | psycopg2 is synchronous-only; required to avoid blocking async event loop |
+| 2026-03-13 | itsdangerous URLSafeTimedSerializer for magic link tokens | Self-contained signed token; DB row (magic_link_tokens) only needed for used-at guard |
+| 2026-03-13 | OAuth state stored as challenges.id (string) | Allows WHERE id = %s lookup without base64 decode; challenge bytes also stored |
+| 2026-03-13 | All user creation paths use ON CONFLICT (email) DO UPDATE | Prevents duplicate accounts across auth methods |
+
+*Last updated: 2026-03-13 — Stopped at: Completed 07-web-ui 07-02-PLAN.md.*
