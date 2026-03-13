@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-12T23:52:54.566Z"
+last_updated: "2026-03-13T12:00:00.000Z"
 progress:
   total_phases: 8
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 28
-  completed_plans: 26
+  completed_plans: 27
 ---
 
 # Project State
@@ -21,6 +21,13 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 **Current focus:** Phase 1 - NEAR Indexer
 
 ## Current Phase
+
+**Phase 5: Verification** COMPLETE ✅
+- Plan 05-01: Migration 005 + SQLAlchemy models + VerifyHandler skeleton + service/ACB wiring + config tolerances ✅ DONE (2026-03-13)
+- Plan 05-02: BalanceReconciler: NEAR decomposed + EVM + dual cross-check + auto-diagnosis ✅ DONE (2026-03-13)
+- Plan 05-03: DuplicateDetector: hash dedup + bridge heuristic + exchange re-scan + balance-aware merge ✅ DONE (2026-03-13)
+- Plan 05-04: GapDetector + DiscrepancyReporter + VerifyHandler final wiring ✅ DONE (2026-03-13)
+- Full pipeline: classify -> ACB -> verify_balances (reconcile -> duplicates -> gaps -> report)
 
 **Phase 2: Multi-Chain + Exchanges** COMPLETE ✅
 - Plan 02-01: Alembic migration 002 + ChainFetcher/ExchangeParser/ExchangeConnector ABCs ✅ DONE (2026-03-12)
