@@ -55,3 +55,15 @@ FASTNEAR_ARCHIVAL_RPC = "https://archival-rpc.mainnet.fastnear.com"
 # ---------------------------------------------------------------------------
 COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY")
 CRYPTOCOMPARE_API_KEY = os.environ.get("CRYPTOCOMPARE_API_KEY", "")  # optional
+
+# ---------------------------------------------------------------------------
+# Reconciliation tolerances (per-chain, in native token units)
+# ---------------------------------------------------------------------------
+# String values to convert cleanly to Decimal without float precision issues.
+RECONCILIATION_TOLERANCES = {
+    "near": "0.01",        # +/- 0.01 NEAR
+    "ethereum": "0.0001",  # +/- 0.0001 ETH
+    "polygon": "0.0001",   # +/- 0.0001 MATIC
+    "cronos": "0.0001",    # +/- 0.0001 CRO
+    "optimism": "0.0001",  # +/- 0.0001 ETH (Optimism)
+}

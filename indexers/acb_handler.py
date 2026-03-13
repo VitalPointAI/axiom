@@ -57,3 +57,30 @@ class ACBHandler:
             stats.get("tokens_processed", 0),
             stats.get("superficial_losses", 0),
         )
+
+        # Queue verify_balances job now that ACB is complete.
+        # Verification is user-scoped; wallet_id satisfies FK only.
+        wallet_id = job.get("wallet_id")
+        conn = self.pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id FROM indexing_jobs WHERE user_id=%s AND job_type='verify_balances' AND status IN ('queued','running')",
+                (user_id,),
+            )
+            if cur.fetchone() is None:
+                cur.execute(
+                    "INSERT INTO indexing_jobs (user_id, wallet_id, job_type, chain, status, priority) VALUES (%s,%s,'verify_balances','all','queued',4)",
+                    (user_id, wallet_id),
+                )
+                conn.commit()
+                logger.info("Queued verify_balances job for user_id=%s", user_id)
+            else:
+                conn.rollback()
+                logger.debug("verify_balances job already queued/running for user_id=%s", user_id)
+            cur.close()
+        except Exception as exc:
+            conn.rollback()
+            logger.error("Failed to queue verify_balances for user_id=%s: %s", user_id, exc)
+        finally:
+            self.pool.putconn(conn)

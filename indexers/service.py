@@ -37,6 +37,7 @@ from indexers.akash_fetcher import AkashFetcher
 from indexers.dedup_handler import DedupHandler
 from indexers.classifier_handler import ClassifierHandler
 from indexers.acb_handler import ACBHandler
+from indexers.verify_handler import VerifyHandler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -79,6 +80,7 @@ class IndexerService:
             "dedup_scan": DedupHandler(self.pool),         # Cross-source deduplication
             "classify_transactions": ClassifierHandler(self.pool, self.price_service),  # Transaction classification
             "calculate_acb": ACBHandler(self.pool, self.price_service),  # ACB calculation
+            "verify_balances": VerifyHandler(self.pool),  # Balance verification
         }
         self.running = True
 
@@ -157,6 +159,8 @@ class IndexerService:
                         handler.run_classify(job)
                     elif job_type == "calculate_acb":
                         handler.run_calculate_acb(job)
+                    elif job_type == "verify_balances":
+                        handler.run_verify(job)
                     else:
                         raise ValueError(f"Unknown job_type '{job_type}' — no dispatch method")
 
