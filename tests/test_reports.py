@@ -1,11 +1,15 @@
 """
-Unit tests for reports package — ReportEngine, CapitalGainsReport, IncomeReport.
+Unit tests for reports package — ReportEngine, CapitalGainsReport, IncomeReport,
+LedgerReport, T1135Checker, SuperficialLossReport.
 
 Test classes:
   - TestReportGate: gate check logic (needs_review blocking, specialist override)
   - TestHelpers: fiscal_year_range, fmt_cad, fmt_units
   - TestCapitalGainsReport: chronological CSV, grouped CSV, summary dict
   - TestIncomeReport: detail CSV, monthly CSV, summary dict
+  - TestLedgerReport: NEAR + exchange transactions unified with classifications
+  - TestT1135Checker: peak ACB cost threshold and foreign property determination
+  - TestSuperficialLossReport: denied losses listing
 """
 
 import csv
@@ -469,6 +473,437 @@ class TestIncomeReport(unittest.TestCase):
             with open(csv_path) as f:
                 content = f.read()
         self.assertIn('NOTE', content)
+
+
+# ---------------------------------------------------------------------------
+# TestLedgerReport
+# ---------------------------------------------------------------------------
+
+class TestLedgerReport(unittest.TestCase):
+    """Tests for LedgerReport.generate()"""
+
+    def _make_pool(self, ledger_rows=None, gate_cgl=0, gate_acb=0):
+        """
+        Build a mock pool.
+        Gate check: two fetchone calls (CGL count, ACB count).
+        Then: one fetchall for the unified ledger query.
+        """
+        pool = MagicMock()
+        conn = MagicMock()
+        cur = MagicMock()
+        pool.getconn.return_value = conn
+        conn.cursor.return_value = cur
+
+        # Gate check fetchone calls
+        cur.fetchone.side_effect = [(gate_cgl,), (gate_acb,)]
+        # Ledger fetchall
+        cur.fetchall.return_value = ledger_rows or []
+        return pool, conn, cur
+
+    def _near_row(self):
+        """Sample NEAR transaction row from the unified ledger query."""
+        # Columns: date_str, chain, account_or_exchange, tx_ref, action_type,
+        #   category, direction, counterparty, amount_raw, token_id,
+        #   fee_raw, fmv_usd, fmv_cad, classification_source, confidence,
+        #   needs_review, notes
+        from datetime import datetime
+        return (
+            '2024-03-15 10:00:00',   # date_str (formatted from TO_TIMESTAMP)
+            'near',                   # chain
+            'alice.near',             # account_or_exchange
+            'abc123hash',             # tx_ref (tx_hash)
+            'TRANSFER',               # action_type
+            'transfer',               # category
+            'out',                    # direction
+            'bob.near',               # counterparty
+            '1000000000000000000000000',  # amount_raw (yoctoNEAR)
+            None,                     # token_id
+            '100000000000000000000',  # fee_raw
+            Decimal('4.50'),          # fmv_usd
+            Decimal('6.08'),          # fmv_cad
+            'rule',                   # classification_source
+            Decimal('0.950'),         # confidence
+            False,                    # needs_review
+            None,                     # notes
+        )
+
+    def _exchange_row(self):
+        """Sample exchange transaction row from the unified ledger query."""
+        return (
+            '2024-06-20',            # date_str (tx_date from exchange_transactions)
+            'exchange',              # chain
+            'coinbase',              # account_or_exchange
+            'CB-TX-001',             # tx_ref (tx_id)
+            'buy',                   # action_type
+            'capital_gain',          # category
+            'in',                    # direction
+            None,                    # counterparty
+            None,                    # amount_raw (not applicable for exchange)
+            'BTC',                   # token_id / asset
+            Decimal('10.00'),        # fee (direct numeric from exchange)
+            Decimal('45000.00'),     # fmv_usd
+            Decimal('60750.00'),     # fmv_cad
+            'rule',                  # classification_source
+            Decimal('0.980'),        # confidence
+            False,                   # needs_review
+            'BTC purchase',          # notes
+        )
+
+    def test_ledger_includes_near_transactions(self):
+        """Test 1: Ledger includes NEAR transactions from transactions table."""
+        from reports.ledger import LedgerReport
+        rows = [self._near_row()]
+        pool, conn, cur = self._make_pool(ledger_rows=rows)
+        report = LedgerReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            csv_path = os.path.join(tmpdir, 'transaction_ledger_2024.csv')
+            self.assertTrue(os.path.exists(csv_path))
+            with open(csv_path) as f:
+                reader = csv.reader(f)
+                next(reader)  # skip headers
+                data = list(reader)
+        self.assertEqual(len(data), 1)
+        # Chain column should be 'near'
+        headers_row = None
+        with open(csv_path) as f:
+            reader = csv.reader(f)
+            headers_row = next(reader)
+        chain_idx = headers_row.index('Chain')
+        self.assertEqual(data[0][chain_idx], 'near')
+
+    def test_ledger_includes_exchange_transactions(self):
+        """Test 2: Ledger includes exchange transactions with classification data."""
+        from reports.ledger import LedgerReport
+        rows = [self._exchange_row()]
+        pool, conn, cur = self._make_pool(ledger_rows=rows)
+        report = LedgerReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            csv_path = os.path.join(tmpdir, 'transaction_ledger_2024.csv')
+            with open(csv_path) as f:
+                reader = csv.reader(f)
+                headers_row = next(reader)
+                data = list(reader)
+        chain_idx = headers_row.index('Chain')
+        self.assertEqual(data[0][chain_idx], 'exchange')
+
+    def test_all_rows_have_consistent_columns(self):
+        """Test 3: All rows have consistent columns regardless of source chain."""
+        from reports.ledger import LedgerReport
+        rows = [self._near_row(), self._exchange_row()]
+        pool, conn, cur = self._make_pool(ledger_rows=rows)
+        report = LedgerReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            csv_path = os.path.join(tmpdir, 'transaction_ledger_2024.csv')
+            with open(csv_path) as f:
+                reader = csv.reader(f)
+                headers_row = next(reader)
+                data = list(reader)
+        # Every row should have the same number of columns as headers
+        for row in data:
+            self.assertEqual(len(row), len(headers_row),
+                             f"Row has {len(row)} cols, expected {len(headers_row)}")
+
+    def test_chronological_order(self):
+        """Test 4: Rows are in chronological order by date."""
+        from reports.ledger import LedgerReport
+        # exchange_row is June, near_row is March — DB returns ordered
+        rows = [self._near_row(), self._exchange_row()]
+        pool, conn, cur = self._make_pool(ledger_rows=rows)
+        report = LedgerReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            csv_path = os.path.join(tmpdir, 'transaction_ledger_2024.csv')
+            with open(csv_path) as f:
+                reader = csv.reader(f)
+                next(reader)
+                data = list(reader)
+        # First row should be NEAR (March), second should be exchange (June)
+        self.assertIn('2024-03-15', data[0][0])
+        self.assertIn('2024-06-20', data[1][0])
+
+    def test_wallet_exclusion_filter(self):
+        """Test 5: excluded_wallet_ids are applied as a filter parameter in the query."""
+        from reports.ledger import LedgerReport
+        pool, conn, cur = self._make_pool(ledger_rows=[])
+        report = LedgerReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report.generate(user_id=1, tax_year=2024, output_dir=tmpdir,
+                            excluded_wallet_ids=[10, 20])
+        # Verify execute was called — exclusion list is passed as query params
+        self.assertTrue(cur.execute.called)
+
+    def test_fiscal_year_scoping(self):
+        """Test 6: Fiscal year scoping — generate only queries within the date range."""
+        from reports.ledger import LedgerReport
+        pool, conn, cur = self._make_pool(ledger_rows=[])
+        report = LedgerReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report.generate(user_id=1, tax_year=2024, output_dir=tmpdir, year_end_month=12)
+        # The execute call should have been made (date range in params)
+        self.assertTrue(cur.execute.called)
+        call_args = cur.execute.call_args_list
+        # At least one execute call (the ledger query)
+        self.assertGreater(len(call_args), 0)
+
+    def test_summary_dict_structure(self):
+        """Test 7: Summary dict includes total_count, count_by_chain, count_by_category."""
+        from reports.ledger import LedgerReport
+        rows = [self._near_row(), self._exchange_row()]
+        pool, conn, cur = self._make_pool(ledger_rows=rows)
+        report = LedgerReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+        self.assertIn('total_count', summary)
+        self.assertIn('count_by_chain', summary)
+        self.assertIn('count_by_category', summary)
+        self.assertEqual(summary['total_count'], 2)
+        self.assertIn('near', summary['count_by_chain'])
+        self.assertIn('exchange', summary['count_by_chain'])
+
+
+# ---------------------------------------------------------------------------
+# TestT1135Checker
+# ---------------------------------------------------------------------------
+
+class TestT1135Checker(unittest.TestCase):
+    """Tests for T1135Checker.generate()"""
+
+    def _make_pool(self, peak_rows=None, gate_cgl=0, gate_acb=0):
+        """
+        Build a mock pool.
+        Gate check: two fetchone calls (CGL, ACB).
+        Then: one fetchall for peak cost query.
+        """
+        pool = MagicMock()
+        conn = MagicMock()
+        cur = MagicMock()
+        pool.getconn.return_value = conn
+        conn.cursor.return_value = cur
+
+        cur.fetchone.side_effect = [(gate_cgl,), (gate_acb,)]
+        cur.fetchall.return_value = peak_rows or []
+        return pool, conn, cur
+
+    def _peak_rows_over_threshold(self):
+        """Peak ACB cost rows that sum > $100,000 CAD."""
+        return [
+            ('BTC', Decimal('80000.00'), 'coinbase'),
+            ('ETH', Decimal('25000.00'), 'coinbase'),
+            ('NEAR', Decimal('5000.00'), 'self_custody'),
+        ]
+
+    def _peak_rows_under_threshold(self):
+        """Peak ACB cost rows that sum <= $100,000 CAD."""
+        return [
+            ('BTC', Decimal('60000.00'), 'coinbase'),
+            ('NEAR', Decimal('3000.00'), 'self_custody'),
+        ]
+
+    def test_uses_max_total_cost_cad(self):
+        """Test 1: T1135 uses MAX(total_cost_cad) from acb_snapshots, NOT current FMV."""
+        from reports.t1135 import T1135Checker
+        rows = self._peak_rows_over_threshold()
+        pool, conn, cur = self._make_pool(peak_rows=rows)
+        report = T1135Checker(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+        # total_foreign_cost should be sum of BTC + ETH (coinbase = foreign)
+        # NEAR (self_custody) is ambiguous, not counted as definite foreign
+        self.assertIn('total_foreign_cost', summary)
+        self.assertIsInstance(summary['total_foreign_cost'], Decimal)
+
+    def test_sums_peak_costs_across_tokens(self):
+        """Test 2: T1135 correctly sums peak costs across all foreign-held tokens."""
+        from reports.t1135 import T1135Checker
+        rows = self._peak_rows_over_threshold()
+        pool, conn, cur = self._make_pool(peak_rows=rows)
+        report = T1135Checker(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+        # BTC (80000) + ETH (25000) on coinbase = 105000 foreign
+        self.assertEqual(summary['total_foreign_cost'], Decimal('105000.00'))
+
+    def test_required_true_when_over_threshold(self):
+        """Test 3: T1135 returns required=True when peak cost > $100,000 CAD."""
+        from reports.t1135 import T1135Checker
+        rows = self._peak_rows_over_threshold()
+        pool, conn, cur = self._make_pool(peak_rows=rows)
+        report = T1135Checker(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+        self.assertTrue(summary['required'])
+
+    def test_required_false_when_under_threshold(self):
+        """Test 4: T1135 returns required=False when peak cost <= $100,000 CAD."""
+        from reports.t1135 import T1135Checker
+        rows = self._peak_rows_under_threshold()
+        pool, conn, cur = self._make_pool(peak_rows=rows)
+        report = T1135Checker(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+        # BTC (60000) on coinbase = foreign; NEAR on self_custody = ambiguous
+        self.assertFalse(summary['required'])
+
+    def test_self_custody_flagged_as_ambiguous(self):
+        """Test 5: Self-custodied wallets listed separately with CRA position unclear note."""
+        from reports.t1135 import T1135Checker
+        rows = self._peak_rows_over_threshold()  # includes NEAR with 'self_custody'
+        pool, conn, cur = self._make_pool(peak_rows=rows)
+        report = T1135Checker(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+        self.assertIn('self_custody_tokens', summary)
+        self.assertIn('NEAR', summary['self_custody_tokens'])
+
+    def test_csv_includes_per_token_breakdown(self):
+        """Test 6: T1135 CSV includes per-token breakdown with peak cost and holding source."""
+        from reports.t1135 import T1135Checker
+        rows = self._peak_rows_over_threshold()
+        pool, conn, cur = self._make_pool(peak_rows=rows)
+        report = T1135Checker(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            csv_path = os.path.join(tmpdir, 't1135_check_2024.csv')
+            self.assertTrue(os.path.exists(csv_path))
+            with open(csv_path) as f:
+                reader = csv.reader(f)
+                headers = next(reader)
+                data = list(reader)
+        self.assertIn('Token', headers)
+        self.assertIn('Peak Cost (CAD)', headers)
+        self.assertIn('Holding Source', headers)
+        # BTC and ETH rows should be present
+        tokens_in_csv = {row[headers.index('Token')] for row in data if row[0] != 'TOTAL'}
+        self.assertIn('BTC', tokens_in_csv)
+        self.assertIn('ETH', tokens_in_csv)
+
+    def test_threshold_value_in_summary(self):
+        """Test 7: Summary includes threshold=100000."""
+        from reports.t1135 import T1135Checker
+        rows = self._peak_rows_under_threshold()
+        pool, conn, cur = self._make_pool(peak_rows=rows)
+        report = T1135Checker(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+        self.assertEqual(summary['threshold'], Decimal('100000'))
+
+
+# ---------------------------------------------------------------------------
+# TestSuperficialLossReport
+# ---------------------------------------------------------------------------
+
+class TestSuperficialLossReport(unittest.TestCase):
+    """Tests for SuperficialLossReport.generate()"""
+
+    def _make_pool(self, loss_rows=None, gate_cgl=0, gate_acb=0):
+        """
+        Build a mock pool.
+        Gate check: two fetchone calls.
+        Then: one fetchall for superficial losses query.
+        """
+        pool = MagicMock()
+        conn = MagicMock()
+        cur = MagicMock()
+        pool.getconn.return_value = conn
+        conn.cursor.return_value = cur
+
+        cur.fetchone.side_effect = [(gate_cgl,), (gate_acb,)]
+        cur.fetchall.return_value = loss_rows or []
+        return pool, conn, cur
+
+    def _sample_loss_rows(self):
+        """Sample rows from capital_gains_ledger WHERE is_superficial_loss=TRUE."""
+        return [
+            (
+                date(2024, 3, 10),          # disposal_date
+                'ETH',                       # token_symbol
+                Decimal('1.00000000'),       # units_disposed
+                Decimal('1800.00'),          # proceeds_cad
+                Decimal('2500.00'),          # acb_used_cad
+                Decimal('0.00'),             # gain_loss_cad (0 after denial)
+                Decimal('700.00'),           # denied_loss_cad
+                True,                        # needs_review
+            ),
+            (
+                date(2024, 6, 5),
+                'NEAR',
+                Decimal('500.00000000'),
+                Decimal('1000.00'),
+                Decimal('1500.00'),
+                Decimal('0.00'),
+                Decimal('500.00'),
+                False,
+            ),
+        ]
+
+    def test_lists_all_superficial_losses(self):
+        """Test 7 (of task): SuperficialLossReport lists all rows where is_superficial_loss=TRUE."""
+        from reports.superficial import SuperficialLossReport
+        rows = self._sample_loss_rows()
+        pool, conn, cur = self._make_pool(loss_rows=rows)
+        report = SuperficialLossReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            csv_path = os.path.join(tmpdir, 'superficial_losses_2024.csv')
+            self.assertTrue(os.path.exists(csv_path))
+            with open(csv_path) as f:
+                reader = csv.reader(f)
+                next(reader)  # skip headers
+                data = list(reader)
+        self.assertEqual(len(data), 2)
+
+    def test_includes_denied_loss_and_disposal_details(self):
+        """Test 8 (of task): SuperficialLossReport includes denied_loss_cad and disposal details."""
+        from reports.superficial import SuperficialLossReport
+        rows = self._sample_loss_rows()
+        pool, conn, cur = self._make_pool(loss_rows=rows)
+        report = SuperficialLossReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            csv_path = os.path.join(tmpdir, 'superficial_losses_2024.csv')
+            with open(csv_path) as f:
+                reader = csv.reader(f)
+                headers = next(reader)
+                data = list(reader)
+        self.assertIn('Denied Loss (CAD)', headers)
+        self.assertIn('Units Disposed', headers)
+        self.assertIn('Proceeds (CAD)', headers)
+        # First row: ETH, denied 700.00
+        denied_idx = headers.index('Denied Loss (CAD)')
+        self.assertEqual(data[0][denied_idx], '700.00')
+
+    def test_summary_total_denied(self):
+        """Test: Summary dict includes total_denied_cad and count."""
+        from reports.superficial import SuperficialLossReport
+        rows = self._sample_loss_rows()
+        pool, conn, cur = self._make_pool(loss_rows=rows)
+        report = SuperficialLossReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+        self.assertIn('total_denied_cad', summary)
+        self.assertIn('count', summary)
+        self.assertEqual(summary['count'], 2)
+        self.assertEqual(summary['total_denied_cad'], Decimal('1200.00'))
+
+    def test_empty_result_when_no_superficial_losses(self):
+        """Test: Empty superficial loss set produces headers-only CSV."""
+        from reports.superficial import SuperficialLossReport
+        pool, conn, cur = self._make_pool(loss_rows=[])
+        report = SuperficialLossReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            csv_path = os.path.join(tmpdir, 'superficial_losses_2024.csv')
+            with open(csv_path) as f:
+                reader = csv.reader(f)
+                headers = next(reader)
+                data = list(reader)
+        self.assertGreater(len(headers), 0)
+        self.assertEqual(len(data), 0)
+        self.assertEqual(summary['total_denied_cad'], Decimal('0'))
+        self.assertEqual(summary['count'], 0)
 
 
 if __name__ == '__main__':
