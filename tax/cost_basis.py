@@ -14,11 +14,14 @@ For Canadian taxes:
 - ACB is recalculated after each purchase
 """
 
+import logging
 import sys
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 from decimal import Decimal, ROUND_HALF_UP
+
+logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -273,7 +276,8 @@ def process_transactions_for_cost_basis(wallet_id: int = None, method: str = "ac
             source, direction, amount, cost, ts, tx_hash, action_type = row
             try:
                 near_amount = float(amount) / 1e24 if amount else 0
-            except:
+            except (ValueError, TypeError) as e:
+                logger.warning("Failed to parse NEAR amount %r for tx %s: %s", amount, tx_hash, e)
                 continue
             
             if near_amount <= 0:
@@ -300,7 +304,8 @@ def process_transactions_for_cost_basis(wallet_id: int = None, method: str = "ac
             try:
                 decimals = decimals or 18
                 token_amount = float(amount) / (10 ** decimals) if amount else 0
-            except:
+            except (ValueError, TypeError, ZeroDivisionError) as e:
+                logger.warning("Failed to parse token amount %r for tx %s (token %s): %s", amount, tx_hash, token, e)
                 continue
             
             if token_amount <= 0:

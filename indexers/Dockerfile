@@ -22,6 +22,12 @@ RUN pip install --no-cache-dir -r requirements-root.txt -r requirements-indexer.
 # Copy project files maintaining import paths
 COPY config.py ./config.py
 COPY db/ ./db/
+COPY engine/ ./engine/
+COPY reports/ ./reports/
+COPY tax/ ./tax/
+COPY verify/ ./verify/
+COPY defi/ ./defi/
+COPY historical_price_service.py ./historical_price_service.py
 COPY indexers/ ./indexers/
 
 # Ensure db package is importable

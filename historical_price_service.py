@@ -14,6 +14,7 @@ Usage:
     python3 historical_price_service.py [db_path]
 """
 
+import logging
 import sqlite3
 import requests
 import json
@@ -22,6 +23,8 @@ import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Tuple
 import sys
+
+logger = logging.getLogger(__name__)
 
 # API endpoints
 CRYPTOCOMPARE_API = "https://min-api.cryptocompare.com/data"
@@ -134,15 +137,15 @@ class HistoricalPriceService:
         try:
             resp = requests.get(url, params=params, timeout=10)
             self.cc_calls += 1
-            
+
             if resp.status_code == 200:
                 data = resp.json()
                 price = data.get(cc_symbol, {}).get("USD")
                 if price and price > 0:
                     return float(price)
-        except Exception as e:
-            pass
-        
+        except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError) as e:
+            logger.warning("CryptoCompare price fetch failed for %s on %s: %s", symbol, date, e)
+
         return None
     
     def get_price_coingecko(self, symbol: str, date: str) -> Optional[float]:
@@ -163,15 +166,15 @@ class HistoricalPriceService:
         try:
             resp = requests.get(url, params=params, timeout=10)
             self.cg_calls += 1
-            
+
             if resp.status_code == 200:
                 data = resp.json()
                 price = data.get("market_data", {}).get("current_price", {}).get("usd")
                 if price and price > 0:
                     return float(price)
-        except Exception as e:
-            pass
-        
+        except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError) as e:
+            logger.warning("CoinGecko price fetch failed for %s on %s: %s", symbol, date, e)
+
         return None
     
     def get_price(self, symbol: str, date: str) -> Optional[Tuple[float, str]]:
@@ -249,9 +252,9 @@ class HistoricalPriceService:
                     rate = float(obs[0].get("FXUSDCAD", {}).get("v", 1.35))
                     self.cache.set("CADUSD", date, rate, "boc")
                     return rate
-        except Exception:
-            pass
-        
+        except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError) as e:
+            logger.warning("Bank of Canada rate fetch failed for %s: %s", date, e)
+
         return 1.35  # Default fallback
     
     def batch_get_cad_rates(self, dates: List[str]) -> Dict[str, float]:
@@ -337,35 +340,36 @@ def price_near_transactions(db_path: str):
         try:
             dt = datetime.fromtimestamp(timestamp / 1_000_000_000, tz=timezone.utc)
             date_str = dt.strftime("%Y-%m-%d")
-        except:
+        except (ValueError, TypeError, OSError) as e:
+            logger.warning("Failed to parse timestamp %s for tx %s: %s", timestamp, tx_id, e)
             continue
-        
+
         price = prices.get(date_str)
         if not price:
             continue
-        
+
         cad_rate = cad_rates.get(date_str, 1.35)
-        
+
         # Calculate cost basis
         try:
             # NEAR amounts are in yoctoNEAR (10^24)
             amount_near = float(amount_raw) / 1e24
             cost_basis_usd = amount_near * price
             cost_basis_cad = cost_basis_usd * cad_rate
-            
+
             conn.execute("""
                 UPDATE transactions
                 SET cost_basis_usd = ?, cost_basis_cad = ?
                 WHERE id = ?
             """, (cost_basis_usd, cost_basis_cad, tx_id))
-            
+
             updated += 1
-            
+
             if updated % 500 == 0:
                 print(f"  Updated {updated} transactions...")
                 conn.commit()
-        except Exception as e:
-            pass
+        except (ValueError, TypeError, ZeroDivisionError) as e:
+            logger.warning("Failed to calculate cost basis for tx %s (amount=%s): %s", tx_id, amount_raw, e)
     
     conn.commit()
     print(f"\nSuccessfully updated {updated} NEAR transactions")
@@ -459,15 +463,16 @@ def price_ft_transactions(db_path: str):
             try:
                 dt = datetime.fromtimestamp(timestamp / 1_000_000_000, tz=timezone.utc)
                 date_str = dt.strftime("%Y-%m-%d")
-            except:
+            except (ValueError, TypeError, OSError) as e:
+                logger.warning("Failed to parse timestamp %s for FT tx %s: %s", timestamp, tx_id, e)
                 continue
-            
+
             price = prices.get(date_str)
             if not price:
                 continue
-            
+
             cad_rate = cad_rates.get(date_str, 1.35)
-            
+
             # Determine decimals based on token
             decimals = 24  # Default for NEAR ecosystem
             if contract == "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1":
@@ -476,21 +481,21 @@ def price_ft_transactions(db_path: str):
                 decimals = 18  # Most bridged tokens
             elif symbol in ["USDC", "USDT"]:
                 decimals = 6
-            
+
             try:
                 amount_decimal = float(amount_raw) / (10 ** decimals)
                 value_usd = amount_decimal * price
                 value_cad = value_usd * cad_rate
-                
+
                 conn.execute("""
                     UPDATE ft_transactions
                     SET price_usd = ?, value_usd = ?, value_cad = ?
                     WHERE id = ?
                 """, (price, value_usd, value_cad, tx_id))
-                
+
                 updated += 1
-            except Exception as e:
-                pass
+            except (ValueError, TypeError, ZeroDivisionError) as e:
+                logger.warning("Failed to calculate FT value for tx %s (symbol=%s, amount=%s): %s", tx_id, symbol, amount_raw, e)
         
         conn.commit()
     

@@ -4,6 +4,7 @@ EVM Indexer using Alchemy API - V2
 Captures ALL transactions including zero-value contract calls with proper gas fee tracking.
 """
 
+import logging
 import os
 import sys
 import json
@@ -12,6 +13,8 @@ import requests
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Set
 from collections import defaultdict
+
+logger = logging.getLogger(__name__)
 
 # Alchemy API configuration
 ALCHEMY_API_KEY = os.environ.get('ALCHEMY_API_KEY', '')
@@ -199,7 +202,8 @@ def process_transfers_and_fees(transfers: List[Dict], wallet_address: str, chain
                 if raw_value:
                     try:
                         value = int(raw_value, 16) / 1e18
-                    except:
+                    except (ValueError, TypeError) as e:
+                        logger.warning("Failed to parse raw hex value %r for tx %s: %s", raw_value, t.get("hash", ""), e)
                         value = 0
                 else:
                     value = 0
@@ -334,12 +338,12 @@ def index_wallet(wallet_id: int, address: str, chain: str) -> Dict[str, int]:
                     from datetime import datetime
                     dt = datetime.fromisoformat(tx["timestamp"].replace("Z", "+00:00"))
                     block_ts = int(dt.timestamp() * 1_000_000_000)  # nanoseconds like NEAR
-                except:
-                    pass
-            
+                except (ValueError, TypeError) as e:
+                    logger.warning("Failed to parse timestamp %r for tx %s: %s", tx.get("timestamp"), tx.get("tx_hash", ""), e)
+
             cursor.execute("""
-                INSERT OR IGNORE INTO transactions 
-                (wallet_id, tx_hash, block_height, block_timestamp, action_type, 
+                INSERT OR IGNORE INTO transactions
+                (wallet_id, tx_hash, block_height, block_timestamp, action_type,
                  direction, counterparty, amount, asset, success, source)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
@@ -377,12 +381,12 @@ def index_wallet(wallet_id: int, address: str, chain: str) -> Dict[str, int]:
                     from datetime import datetime
                     dt = datetime.fromisoformat(tx["timestamp"].replace("Z", "+00:00"))
                     block_ts = int(dt.timestamp() * 1_000_000_000)  # nanoseconds
-                except:
-                    pass
-            
+                except (ValueError, TypeError) as e:
+                    logger.warning("Failed to parse timestamp %r for fee tx %s: %s", tx.get("timestamp"), tx.get("tx_hash", ""), e)
+
             cursor.execute("""
-                INSERT OR IGNORE INTO transactions 
-                (wallet_id, tx_hash, block_height, block_timestamp, action_type, 
+                INSERT OR IGNORE INTO transactions
+                (wallet_id, tx_hash, block_height, block_timestamp, action_type,
                  direction, counterparty, amount, asset, success, source)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (

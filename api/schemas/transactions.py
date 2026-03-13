@@ -12,7 +12,36 @@ Exports:
 
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# All known tax categories used across the Axiom pipeline.
+_VALID_TAX_CATEGORIES = frozenset({
+    # TaxCategory enum values
+    "reward", "airdrop", "mining", "interest", "income", "bounty",
+    "buy", "sell", "trade",
+    "transfer_in", "transfer_out", "deposit", "withdrawal",
+    "stake", "unstake",
+    "liquidity_in", "liquidity_out",
+    "loan_borrow", "loan_repay",
+    "collateral_in", "collateral_out", "liquidation",
+    "fee", "interest_paid",
+    "gift_received", "gift_sent", "donation", "lost", "spam",
+    "nft_mint", "nft_purchase", "nft_sale",
+    "contract_deploy", "account_create", "internal", "unknown",
+    # Additional categories used in scripts / classifiers
+    "capital_gain", "capital_loss",
+    "staking_income", "staking_deposit", "staking_reward",
+    "unstake_return",
+    "defi_deposit", "defi_withdrawal",
+    "non_taxable", "fee_refund",
+    "dao_withdrawal",
+    "swap",
+    "transfer",
+    "loan_received",
+    "liquidity_add", "liquidity_remove",
+    "collateral_out",
+    "delete_account_received",
+})
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +107,15 @@ class TransactionFilters(BaseModel):
     page: int = Field(default=1, ge=1)
     per_page: int = Field(default=50, ge=1, le=200)
 
+    @field_validator("tax_category")
+    @classmethod
+    def validate_tax_category(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in _VALID_TAX_CATEGORIES:
+            raise ValueError(
+                f"Invalid tax_category '{v}'. Must be one of: {sorted(_VALID_TAX_CATEGORIES)}"
+            )
+        return v
+
 
 # ---------------------------------------------------------------------------
 # Classification editing
@@ -94,6 +132,15 @@ class ClassificationUpdate(BaseModel):
     sub_category: Optional[str] = None
     reviewer_notes: Optional[str] = None
     needs_review: Optional[bool] = None
+
+    @field_validator("tax_category")
+    @classmethod
+    def validate_tax_category(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in _VALID_TAX_CATEGORIES:
+            raise ValueError(
+                f"Invalid tax_category '{v}'. Must be one of: {sorted(_VALID_TAX_CATEGORIES)}"
+            )
+        return v
 
 
 # ---------------------------------------------------------------------------

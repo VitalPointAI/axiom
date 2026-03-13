@@ -39,7 +39,7 @@ from collections import defaultdict
 import hashlib
 
 # Configuration
-NEARDATA_BASE = "https://mainnet.neardata.xyz"
+NEARDATA_BASE = os.environ.get("NEARDATA_API_URL", "https://mainnet.neardata.xyz")
 DB_PATH = Path(__file__).parent.parent / "neartax.db"
 WALLETS_PATH = Path(__file__).parent.parent / "wallets.json"
 STATE_PATH = Path(__file__).parent.parent / "indexer_state.json"

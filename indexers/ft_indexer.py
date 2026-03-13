@@ -18,7 +18,7 @@ import config
 from db.init import get_connection
 
 # API Configuration
-NEARBLOCKS_BASE = "https://api.nearblocks.io/v1"
+NEARBLOCKS_BASE = os.environ.get("NEARBLOCKS_API_URL", "https://api.nearblocks.io/v1")
 NEARBLOCKS_API_KEY = getattr(config, 'NEARBLOCKS_API_KEY', None) or os.environ.get("NEARBLOCKS_API_KEY")
 RATE_LIMIT_DELAY = getattr(config, 'RATE_LIMIT_DELAY', 1.0)
 

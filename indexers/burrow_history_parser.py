@@ -16,8 +16,11 @@ Tax implications:
 - Liquidation: Capital loss
 """
 
+import logging
 import psycopg2
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 PG_CONN = 'postgresql://neartax:lqxBcUTkcgZdzrNdqYxcsFVGEwkEldMx@localhost:5432/neartax'
 
@@ -77,7 +80,8 @@ def parse_burrow_history():
         try:
             decimals = token_decimals or get_decimals(token_contract)
             amount_decimal = float(amount) / (10 ** decimals) if amount else 0
-        except:
+        except (ValueError, TypeError, ZeroDivisionError) as e:
+            logger.warning("Failed to parse amount for tx %s (contract %s): %s", tx_hash, token_contract, e)
             amount_decimal = 0
         
         # Determine event type and tax category

@@ -2,11 +2,14 @@
 """Quick backfill for missing transactions since Feb 25, 2026."""
 
 import sqlite3
+import logging
 import requests
 import json
 import time
 from datetime import datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = Path("/home/deploy/neartax/neartax.db")
 NEARBLOCKS_API = "https://api3.nearblocks.io/v1"
@@ -32,8 +35,8 @@ def get_receipt_details(tx_hash):
         r = requests.get(url, timeout=30)
         if r.status_code == 200:
             return r.json().get("txns", [{}])[0]
-    except:
-        pass
+    except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError) as e:
+        logger.warning("Failed to fetch receipt details for tx %s: %s", tx_hash, e)
     return {}
 
 def parse_nearblocks_tx(tx, wallet_id, account_id):
@@ -66,16 +69,16 @@ def parse_nearblocks_tx(tx, wallet_id, account_id):
             deposit = action.get("args", {}).get("deposit", "0")
             try:
                 amount = str(deposit)
-            except:
-                pass
+            except (ValueError, TypeError) as e:
+                logger.warning("Failed to parse deposit amount in TRANSFER action for tx %s: %s", tx_hash, e)
         elif kind == "FUNCTION_CALL":
             action_type = "FUNCTION_CALL"
             method_name = action.get("args", {}).get("method_name", "")
             deposit = action.get("args", {}).get("deposit", "0")
             try:
                 amount = str(deposit)
-            except:
-                pass
+            except (ValueError, TypeError) as e:
+                logger.warning("Failed to parse deposit amount in FUNCTION_CALL action for tx %s: %s", tx_hash, e)
         elif kind == "CREATE_ACCOUNT":
             action_type = "CREATE_ACCOUNT"
         elif kind == "ADD_KEY":
@@ -128,60 +131,58 @@ def save_transaction(conn, tx_data):
         return False  # Duplicate
 
 def main():
-    conn = sqlite3.connect(DB_PATH)
-    
-    # Get active wallets (those with recent activity)
-    wallets = conn.execute("""
-        SELECT w.id, w.account_id 
-        FROM wallets w 
-        WHERE w.chain = 'NEAR'
-        AND w.id IN (
-            SELECT DISTINCT wallet_id FROM transactions 
-            WHERE block_timestamp > 1740355200000000000  -- Feb 24, 2026
-        )
-        ORDER BY w.id
-    """).fetchall()
-    
-    print(f"Checking {len(wallets)} active wallets...")
-    
-    # Feb 25, 2026 00:00 UTC in nanoseconds
-    cutoff_ts = 1740441600000000000
-    total_new = 0
-    
-    for wallet_id, account_id in wallets:
-        print(f"\n[{wallet_id}] {account_id}")
-        
-        # Get latest indexed timestamp for this wallet
-        row = conn.execute(
-            "SELECT MAX(block_timestamp) FROM transactions WHERE wallet_id = ?",
-            (wallet_id,)
-        ).fetchone()
-        last_ts = row[0] if row and row[0] else 0
-        
-        # Fetch recent transactions
-        txns = get_wallet_transactions(account_id, limit=50)
-        new_count = 0
-        
-        for tx in txns:
-            block_ts = int(tx.get("block_timestamp", 0))
-            if block_ts <= last_ts:
-                continue  # Already have this one or older
-            
-            tx_data = parse_nearblocks_tx(tx, wallet_id, account_id)
-            if save_transaction(conn, tx_data):
-                new_count += 1
-                print(f"  + {tx_data['tx_hash'][:20]}... {tx_data['direction']} {tx_data['action_type']}")
-        
-        if new_count > 0:
-            conn.commit()
-            total_new += new_count
-            print(f"  Saved {new_count} new transactions")
-        else:
-            print(f"  No new transactions")
-        
-        time.sleep(0.5)  # Rate limit
-    
-    conn.close()
+    with sqlite3.connect(DB_PATH) as conn:
+        # Get active wallets (those with recent activity)
+        wallets = conn.execute("""
+            SELECT w.id, w.account_id
+            FROM wallets w
+            WHERE w.chain = 'NEAR'
+            AND w.id IN (
+                SELECT DISTINCT wallet_id FROM transactions
+                WHERE block_timestamp > 1740355200000000000  -- Feb 24, 2026
+            )
+            ORDER BY w.id
+        """).fetchall()
+
+        print(f"Checking {len(wallets)} active wallets...")
+
+        # Feb 25, 2026 00:00 UTC in nanoseconds
+        cutoff_ts = 1740441600000000000
+        total_new = 0
+
+        for wallet_id, account_id in wallets:
+            print(f"\n[{wallet_id}] {account_id}")
+
+            # Get latest indexed timestamp for this wallet
+            row = conn.execute(
+                "SELECT MAX(block_timestamp) FROM transactions WHERE wallet_id = ?",
+                (wallet_id,)
+            ).fetchone()
+            last_ts = row[0] if row and row[0] else 0
+
+            # Fetch recent transactions
+            txns = get_wallet_transactions(account_id, limit=50)
+            new_count = 0
+
+            for tx in txns:
+                block_ts = int(tx.get("block_timestamp", 0))
+                if block_ts <= last_ts:
+                    continue  # Already have this one or older
+
+                tx_data = parse_nearblocks_tx(tx, wallet_id, account_id)
+                if save_transaction(conn, tx_data):
+                    new_count += 1
+                    print(f"  + {tx_data['tx_hash'][:20]}... {tx_data['direction']} {tx_data['action_type']}")
+
+            if new_count > 0:
+                conn.commit()
+                total_new += new_count
+                print(f"  Saved {new_count} new transactions")
+            else:
+                print(f"  No new transactions")
+
+            time.sleep(0.5)  # Rate limit
+
     print(f"\n=== Total: {total_new} new transactions ===")
 
 if __name__ == "__main__":

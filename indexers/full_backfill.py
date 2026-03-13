@@ -12,12 +12,15 @@ Processes:
 import os
 import sys
 import json
+import logging
 import requests
 import psycopg2
 from datetime import datetime, timezone, timedelta
-from decimal import Decimal, getcontext
+from decimal import Decimal, getcontext, InvalidOperation
 import time
 import traceback
+
+logger = logging.getLogger(__name__)
 
 getcontext().prec = 50
 
@@ -279,7 +282,8 @@ def calculate_epoch_rewards_backfill(wallet_id, account_id, validator_id, curren
             implied_rate = (current_balance / net_deposits) ** (Decimal('1') / Decimal(num_epochs)) - 1
             if implied_rate < 0:
                 implied_rate = Decimal('0.00005')
-        except:
+        except (InvalidOperation, ZeroDivisionError, ValueError, ArithmeticError) as e:
+            logger.warning("Failed to compute implied rate for wallet %s / validator %s: %s", account_id, validator_id, e)
             implied_rate = Decimal('0.00005')
     
     print(f"  Implied per-epoch rate: {float(implied_rate * 100):.6f}%")

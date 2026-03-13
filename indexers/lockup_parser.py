@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Lockup contract parser for NEAR Foundation grants."""
 
+import logging
 import requests
 import base64
 from pathlib import Path
 import sys
+
+logger = logging.getLogger(__name__)
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -78,9 +81,9 @@ def call_lockup_method(lockup_account, method_name, args="{}"):
         if "error" in response.json():
             return None
             
-    except Exception as e:
-        pass
-    
+    except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError) as e:
+        logger.warning("Failed to call lockup method %s on %s: %s", method_name, lockup_account, e)
+
     return None
 
 
@@ -118,7 +121,8 @@ def get_lockup_summary(lockup_account=LOCKUP_ACCOUNT):
     client = NearBlocksClient()
     try:
         tx_count = client.get_transaction_count(lockup_account)
-    except:
+    except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError) as e:
+        logger.warning("Failed to get transaction count for %s: %s", lockup_account, e)
         tx_count = "unknown"
     
     return {

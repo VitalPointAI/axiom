@@ -10,10 +10,13 @@ Ref Finance is the main DEX on NEAR. Tax implications:
 - REF token rewards: Taxable income at FMV
 """
 
+import logging
 import sys
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
+
+logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -40,7 +43,8 @@ def parse_ref_transactions():
     # Check if defi_events table exists (created by burrow parser)
     try:
         conn.execute("SELECT 1 FROM defi_events LIMIT 1")
-    except:
+    except Exception as e:
+        logger.warning("defi_events table not found, creating it: %s", e)
         from defi.burrow_parser import create_defi_events_table
         create_defi_events_table()
     
@@ -86,7 +90,8 @@ def parse_ref_transactions():
             try:
                 decimals = decimals or 18
                 amount_decimal = float(amount) / (10 ** decimals) if amount else 0
-            except:
+            except (ValueError, TypeError, ZeroDivisionError) as e:
+                logger.warning("Failed to parse amount for tx %s (contract %s): %s", tx_hash, token_contract, e)
                 amount_decimal = 0
             
             # Determine event type

@@ -27,6 +27,7 @@ import asyncio
 import aiohttp
 import argparse
 import json
+import os
 import sqlite3
 import time
 import signal
@@ -43,8 +44,8 @@ LOG_PATH = BASE / "logs" / "hybrid_indexer.log"
 STATE_PATH = BASE / "realtime_state.json"
 
 # APIs
-NEARDATA = "https://mainnet.neardata.xyz"
-FASTNEAR_API = "https://api.fastnear.com"
+NEARDATA = os.environ.get("NEARDATA_API_URL", "https://mainnet.neardata.xyz")
+FASTNEAR_API = os.environ.get("FASTNEAR_API_URL", "https://api.fastnear.com")
 
 # Config
 REALTIME_POLL_INTERVAL = 1.2  # NEAR block time

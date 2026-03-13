@@ -10,14 +10,17 @@ import argparse
 import requests
 import time
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 
 import psycopg2
 from psycopg2.extras import execute_values
 
+logger = logging.getLogger(__name__)
+
 DB_URL = os.environ.get('DATABASE_URL', 'postgresql://neartax:lqxBcUTkcgZdzrNdqYxcsFVGEwkEldMx@localhost:5432/neartax')
-NEAR_RPC = "https://rpc.fastnear.com"
+NEAR_RPC = os.environ.get("NEAR_RPC_URL", "https://rpc.fastnear.com")
 
 def get_connection():
     return psycopg2.connect(DB_URL)
@@ -41,15 +44,16 @@ def fetch_near_balance(account_id: str) -> float:
             return 0.0
         amount = data.get('result', {}).get('amount', '0')
         return int(amount) / 1e24
-    except Exception as e:
-        print(f"  Error: {e}")
+    except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError) as e:
+        logger.warning("Failed to fetch NEAR balance for %s: %s", account_id, e)
         return 0.0
 
 def fetch_ft_balances_nearblocks(account_id: str, retries: int = 3) -> list:
     """Fetch FT balances from NearBlocks with retry/backoff."""
     for attempt in range(retries):
         try:
-            url = f"https://api.nearblocks.io/v1/account/{account_id}/ft"
+            nearblocks_base = os.environ.get("NEARBLOCKS_API_URL", "https://api.nearblocks.io/v1")
+            url = f"{nearblocks_base}/account/{account_id}/ft"
             resp = requests.get(url, timeout=15)
             
             if resp.status_code == 429:
@@ -76,7 +80,8 @@ def fetch_ft_balances_nearblocks(account_id: str, retries: int = 3) -> list:
                 
                 try:
                     balance = float(amount) / (10 ** int(decimals))
-                except:
+                except (ValueError, TypeError, ZeroDivisionError) as e:
+                    logger.warning("Failed to parse FT balance for contract %s: %s", contract, e)
                     balance = 0.0
                 
                 if balance > 0.0001:
@@ -87,7 +92,8 @@ def fetch_ft_balances_nearblocks(account_id: str, retries: int = 3) -> list:
                     })
             
             return result
-        except Exception as e:
+        except (requests.RequestException, ConnectionError, TimeoutError, ValueError) as e:
+            logger.warning("Error fetching FT balances for %s (attempt %d/%d): %s", account_id, attempt + 1, retries, e)
             if attempt < retries - 1:
                 time.sleep(5 * (attempt + 1))
             continue

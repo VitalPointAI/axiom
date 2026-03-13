@@ -388,12 +388,12 @@ async def download_report_file(
     pkg_dir = Path(output_root) / f"{year}_tax_package"
     file_path = pkg_dir / filename
 
-    # Double-check resolved path is inside pkg_dir
-    try:
-        file_path.resolve().relative_to(pkg_dir.resolve())
-    except ValueError:
+    # Double-check resolved path is inside pkg_dir (guards against symlink attacks)
+    real_path = os.path.realpath(str(file_path))
+    real_pkg_dir = os.path.realpath(str(pkg_dir))
+    if not real_path.startswith(real_pkg_dir + os.sep) and real_path != real_pkg_dir:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid filename",
         )
 
