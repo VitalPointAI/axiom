@@ -134,7 +134,7 @@ class TestCapitalGainsReport(unittest.TestCase):
     def _make_pool(self, rows=None, gate_cgl=0, gate_acb=0):
         """
         Build a mock pool. The gate check calls fetchone twice (CGL, ACB counts).
-        Subsequent fetchall() returns the disposal rows.
+        Subsequent fetchall() returns: first call = disposal rows, second = opening ACB rows (empty).
         """
         pool = MagicMock()
         conn = MagicMock()
@@ -143,9 +143,9 @@ class TestCapitalGainsReport(unittest.TestCase):
         conn.cursor.return_value = cur
 
         # Gate fetchone side_effect: (cgl_count,), (acb_count,)
-        # Then fetchall for the disposal query
         cur.fetchone.side_effect = [(gate_cgl,), (gate_acb,)]
-        cur.fetchall.return_value = rows or []
+        # Two fetchall calls: first = disposal rows, second = opening ACB (empty)
+        cur.fetchall.side_effect = [rows or [], []]
         return pool, conn, cur
 
     def _sample_rows(self):
