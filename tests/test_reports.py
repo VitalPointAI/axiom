@@ -902,5 +902,769 @@ class TestSuperficialLossReport(unittest.TestCase):
         self.assertEqual(summary['count'], 0)
 
 
+# ---------------------------------------------------------------------------
+# TestInventoryHoldings
+# ---------------------------------------------------------------------------
+
+class TestInventoryHoldings(unittest.TestCase):
+    """Tests for InventoryHoldingsReport.generate()"""
+
+    def _make_pool(self, holdings_rows=None, gate_cgl=0, gate_acb=0):
+        """Build a mock pool for inventory holdings report.
+
+        Gate check: two fetchone calls.
+        Then: one fetchall for the holdings query.
+        """
+        pool = MagicMock()
+        conn = MagicMock()
+        cur = MagicMock()
+        pool.getconn.return_value = conn
+        conn.cursor.return_value = cur
+        cur.fetchone.side_effect = [(gate_cgl,), (gate_acb,)]
+        cur.fetchall.return_value = holdings_rows or []
+        return pool, conn, cur
+
+    def _sample_holdings_rows(self):
+        """Sample acb_snapshot rows representing current holdings."""
+        return [
+            (
+                'NEAR',                     # token_symbol
+                Decimal('100.00000000'),    # units_after
+                Decimal('4.50000000'),      # acb_per_unit_cad
+                Decimal('450.00000000'),    # total_cost_cad
+            ),
+            (
+                'ETH',
+                Decimal('0.50000000'),
+                Decimal('2500.00000000'),
+                Decimal('1250.00000000'),
+            ),
+        ]
+
+    def test_inventory_shows_acb_per_unit(self):
+        """Test 1: InventoryHoldings shows each token with ACB per unit, total cost, current units."""
+        from reports.inventory import InventoryHoldingsReport
+        rows = self._sample_holdings_rows()
+        pool, conn, cur = self._make_pool(holdings_rows=rows)
+        report = InventoryHoldingsReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            csv_path = os.path.join(tmpdir, 'inventory_holdings_2024.csv')
+            self.assertTrue(os.path.exists(csv_path))
+            with open(csv_path) as f:
+                reader = csv.reader(f)
+                headers = next(reader)
+                data = list(reader)
+        self.assertIn('ACB Per Unit (CAD)', headers)
+        self.assertIn('Total Cost (CAD)', headers)
+        self.assertIn('Units Held', headers)
+        self.assertEqual(len(data), 2)
+        # NEAR row: 100 units at $4.50/unit = $450 total
+        near_row = next(r for r in data if r[0] == 'NEAR')
+        self.assertEqual(near_row[1], '100.00000000')  # Units Held
+        self.assertEqual(near_row[2], '4.50')          # ACB Per Unit
+
+    def test_inventory_includes_unrealized_gain_loss_when_fmv_available(self):
+        """Test 2: InventoryHoldings includes unrealized gain/loss when current FMV available."""
+        from reports.inventory import InventoryHoldingsReport
+        rows = self._sample_holdings_rows()
+        pool, conn, cur = self._make_pool(holdings_rows=rows)
+        report = InventoryHoldingsReport(pool)
+        # Provide current prices: NEAR=$6.00 (above ACB $4.50 = unrealized gain)
+        current_prices = {'NEAR': Decimal('6.00'), 'ETH': Decimal('3000.00')}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(
+                user_id=1, tax_year=2024, output_dir=tmpdir,
+                current_prices=current_prices,
+            )
+            csv_path = os.path.join(tmpdir, 'inventory_holdings_2024.csv')
+            with open(csv_path) as f:
+                reader = csv.reader(f)
+                headers = next(reader)
+                data = list(reader)
+        self.assertIn('Unrealized Gain/Loss (CAD)', headers)
+        near_row = next(r for r in data if r[0] == 'NEAR')
+        # Unrealized = 100 * 6.00 - 450 = 150
+        unrealized_idx = headers.index('Unrealized Gain/Loss (CAD)')
+        self.assertEqual(near_row[unrealized_idx], '150.00')
+
+    def test_inventory_leaves_fmv_columns_blank_when_no_price(self):
+        """Test 3: InventoryHoldings leaves unrealized columns blank when no FMV available."""
+        from reports.inventory import InventoryHoldingsReport
+        rows = self._sample_holdings_rows()
+        pool, conn, cur = self._make_pool(holdings_rows=rows)
+        report = InventoryHoldingsReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            csv_path = os.path.join(tmpdir, 'inventory_holdings_2024.csv')
+            with open(csv_path) as f:
+                reader = csv.reader(f)
+                headers = next(reader)
+                data = list(reader)
+        unrealized_idx = headers.index('Unrealized Gain/Loss (CAD)')
+        near_row = next(r for r in data if r[0] == 'NEAR')
+        # No prices provided -> blank
+        self.assertEqual(near_row[unrealized_idx], '')
+
+    def test_inventory_summary_includes_total_cost(self):
+        """Test 4: Summary dict includes total_cost_cad."""
+        from reports.inventory import InventoryHoldingsReport
+        rows = self._sample_holdings_rows()
+        pool, conn, cur = self._make_pool(holdings_rows=rows)
+        report = InventoryHoldingsReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+        self.assertIn('total_cost_cad', summary)
+        self.assertIn('token_count', summary)
+        # 450 + 1250 = 1700
+        self.assertEqual(summary['total_cost_cad'], Decimal('1700.00000000'))
+
+
+# ---------------------------------------------------------------------------
+# TestCOGS
+# ---------------------------------------------------------------------------
+
+class TestCOGS(unittest.TestCase):
+    """Tests for COGSReport.generate()"""
+
+    def _make_pool_capital(self, opening_rows=None, acquisitions_rows=None, closing_rows=None,
+                           gate_cgl=0, gate_acb=0):
+        """Build a mock pool for capital tax treatment (no FIFO query)."""
+        pool = MagicMock()
+        conn = MagicMock()
+        cur = MagicMock()
+        pool.getconn.return_value = conn
+        conn.cursor.return_value = cur
+        cur.fetchone.side_effect = [(gate_cgl,), (gate_acb,)]
+        cur.fetchall.side_effect = [
+            opening_rows or [],
+            acquisitions_rows or [],
+            closing_rows or [],
+        ]
+        return pool, conn, cur
+
+    def _make_pool_fifo(self, opening_rows=None, acquisitions_rows=None, closing_rows=None,
+                        fifo_rows=None, gate_cgl=0, gate_acb=0):
+        """Build a mock pool for business_inventory tax treatment (includes FIFO replay query)."""
+        pool = MagicMock()
+        conn = MagicMock()
+        cur = MagicMock()
+        pool.getconn.return_value = conn
+        conn.cursor.return_value = cur
+        cur.fetchone.side_effect = [(gate_cgl,), (gate_acb,)]
+        cur.fetchall.side_effect = [
+            opening_rows or [],
+            acquisitions_rows or [],
+            closing_rows or [],
+            fifo_rows or [],   # FIFO snapshot rows for replay
+        ]
+        return pool, conn, cur
+
+    def test_cogs_formula_opening_plus_acquisitions_minus_closing(self):
+        """Test 3: COGS = opening_inventory + acquisitions - closing_inventory for the fiscal year."""
+        from reports.inventory import COGSReport
+        # NEAR: opening=$500, acquisitions=$300, closing=$400
+        # COGS = 500 + 300 - 400 = $400
+        opening = [('NEAR', Decimal('500.00'))]
+        acquisitions = [('NEAR', Decimal('300.00'))]
+        closing = [('NEAR', Decimal('400.00'))]
+        pool, conn, cur = self._make_pool_capital(
+            opening_rows=opening, acquisitions_rows=acquisitions, closing_rows=closing
+        )
+        report = COGSReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(
+                user_id=1, tax_year=2024, output_dir=tmpdir,
+                tax_treatment='capital',
+            )
+        self.assertEqual(summary['total_cogs_cad'], Decimal('400.00'))
+        self.assertIn('method', summary)
+
+    def test_cogs_uses_acb_method_for_capital_treatment(self):
+        """Test 5: COGS uses ACB average cost when tax_treatment='capital'."""
+        from reports.inventory import COGSReport
+        opening = [('NEAR', Decimal('1000.00'))]
+        acquisitions = [('NEAR', Decimal('500.00'))]
+        closing = [('NEAR', Decimal('800.00'))]
+        pool, conn, cur = self._make_pool_capital(
+            opening_rows=opening, acquisitions_rows=acquisitions, closing_rows=closing
+        )
+        report = COGSReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(
+                user_id=1, tax_year=2024, output_dir=tmpdir,
+                tax_treatment='capital',
+            )
+        self.assertEqual(summary['method'], 'acb_average_cost')
+
+    def test_cogs_uses_fifo_method_for_business_inventory(self):
+        """Test 4: COGS uses FIFO when tax_treatment='business_inventory'."""
+        from reports.inventory import COGSReport
+        opening = [('NEAR', Decimal('500.00'))]
+        acquisitions = [('NEAR', Decimal('300.00'))]
+        closing = [('NEAR', Decimal('400.00'))]
+        # FIFO snapshot rows for replay: (token_symbol, event_type, units_delta, cost_cad_delta, block_timestamp)
+        fifo_rows = [
+            ('NEAR', 'acquire', Decimal('10'), Decimal('500.00'), 1704067200),  # 2024-01-01
+            ('NEAR', 'acquire', Decimal('5'), Decimal('300.00'), 1706745600),   # 2024-02-01
+            ('NEAR', 'dispose', Decimal('8'), Decimal('600.00'), 1717200000),   # 2024-06-01
+        ]
+        pool, conn, cur = self._make_pool_fifo(
+            opening_rows=opening, acquisitions_rows=acquisitions, closing_rows=closing,
+            fifo_rows=fifo_rows,
+        )
+        report = COGSReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(
+                user_id=1, tax_year=2024, output_dir=tmpdir,
+                tax_treatment='business_inventory',
+            )
+        self.assertEqual(summary['method'], 'fifo')
+        self.assertIn('total_cogs_cad', summary)
+
+    def test_cogs_csv_has_correct_headers(self):
+        """Test 6: COGS CSV written with correct headers."""
+        from reports.inventory import COGSReport
+        opening = [('NEAR', Decimal('500.00'))]
+        acquisitions = [('NEAR', Decimal('300.00'))]
+        closing = [('NEAR', Decimal('400.00'))]
+        pool, conn, cur = self._make_pool_capital(
+            opening_rows=opening, acquisitions_rows=acquisitions, closing_rows=closing
+        )
+        report = COGSReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(
+                user_id=1, tax_year=2024, output_dir=tmpdir,
+                tax_treatment='capital',
+            )
+            csv_path = os.path.join(tmpdir, 'cogs_2024.csv')
+            self.assertTrue(os.path.exists(csv_path))
+            with open(csv_path) as f:
+                reader = csv.reader(f)
+                headers = next(reader)
+        self.assertIn('Opening Inventory (CAD)', headers)
+        self.assertIn('Acquisitions (CAD)', headers)
+        self.assertIn('Closing Inventory (CAD)', headers)
+        self.assertIn('COGS (CAD)', headers)
+        self.assertIn('Method', headers)
+
+
+# ---------------------------------------------------------------------------
+# TestBusinessIncome
+# ---------------------------------------------------------------------------
+
+class TestBusinessIncome(unittest.TestCase):
+    """Tests for BusinessIncomeStatement.generate()"""
+
+    def _make_pool(self, income_rows=None, gains_rows=None, fiat_rows=None,
+                   gate_cgl=0, gate_acb=0):
+        """Build a mock pool for business income statement (capital treatment, no COGS).
+
+        Gate check: two fetchone calls.
+        Then fetchall for: income_ledger, capital_gains_ledger, exchange_transactions (fiat).
+        """
+        pool = MagicMock()
+        conn = MagicMock()
+        cur = MagicMock()
+        pool.getconn.return_value = conn
+        conn.cursor.return_value = cur
+        cur.fetchone.side_effect = [(gate_cgl,), (gate_acb,)]
+        cur.fetchall.side_effect = [
+            income_rows or [],
+            gains_rows or [],
+            fiat_rows or [],
+        ]
+        return pool, conn, cur
+
+    def _make_pool_with_cogs(self, income_rows=None, gains_rows=None, fiat_rows=None,
+                              cogs_opening=None, cogs_acq=None, cogs_closing=None,
+                              gate_cgl=0, gate_acb=0):
+        """Build pool where COGS report needs extra queries (for hybrid/business_inventory)."""
+        pool = MagicMock()
+        conn = MagicMock()
+        cur = MagicMock()
+        pool.getconn.return_value = conn
+        conn.cursor.return_value = cur
+        # Gate check for BIS + gate check for COGS (inner COGSReport also calls _check_gate)
+        cur.fetchone.side_effect = [
+            (gate_cgl,), (gate_acb,),    # BIS gate check
+            (gate_cgl,), (gate_acb,),    # COGS gate check
+        ]
+        cur.fetchall.side_effect = [
+            cogs_opening or [],
+            cogs_acq or [],
+            cogs_closing or [],
+            income_rows or [],
+            gains_rows or [],
+            fiat_rows or [],
+        ]
+        return pool, conn, cur
+
+    def _sample_income_rows(self):
+        return [(Decimal('1200.00'),)]  # total fmv_cad from income_ledger
+
+    def _sample_gains_rows(self):
+        return [(Decimal('350.00'),)]   # net gain_loss_cad from capital_gains_ledger
+
+    def _sample_fiat_rows(self):
+        return [
+            ('deposit', Decimal('5000.00')),    # fiat_deposit
+            ('withdrawal', Decimal('2000.00')),  # fiat_withdrawal
+        ]
+
+    def test_business_income_includes_crypto_income(self):
+        """Test 6: BusinessIncomeStatement includes crypto income (staking/vesting)."""
+        from reports.business import BusinessIncomeStatement
+        pool, conn, cur = self._make_pool(
+            income_rows=self._sample_income_rows(),
+            gains_rows=self._sample_gains_rows(),
+            fiat_rows=[],
+        )
+        report = BusinessIncomeStatement(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+        self.assertIn('crypto_income_cad', summary)
+        self.assertEqual(summary['crypto_income_cad'], Decimal('1200.00'))
+
+    def test_business_income_includes_capital_gains(self):
+        """Test 6b: BusinessIncomeStatement includes capital gains."""
+        from reports.business import BusinessIncomeStatement
+        pool, conn, cur = self._make_pool(
+            income_rows=self._sample_income_rows(),
+            gains_rows=self._sample_gains_rows(),
+            fiat_rows=[],
+        )
+        report = BusinessIncomeStatement(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+        self.assertIn('capital_gains_net_cad', summary)
+        self.assertEqual(summary['capital_gains_net_cad'], Decimal('350.00'))
+
+    def test_business_income_includes_fiat_deposits_withdrawals(self):
+        """Test 7: BusinessIncomeStatement includes fiat deposits/withdrawals from exchange records."""
+        from reports.business import BusinessIncomeStatement
+        pool, conn, cur = self._make_pool(
+            income_rows=self._sample_income_rows(),
+            gains_rows=self._sample_gains_rows(),
+            fiat_rows=self._sample_fiat_rows(),
+        )
+        report = BusinessIncomeStatement(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+        self.assertIn('fiat_deposits_cad', summary)
+        self.assertIn('fiat_withdrawals_cad', summary)
+        self.assertEqual(summary['fiat_deposits_cad'], Decimal('5000.00'))
+        self.assertEqual(summary['fiat_withdrawals_cad'], Decimal('2000.00'))
+
+    def test_business_income_csv_written(self):
+        """Test 6c: BusinessIncomeStatement writes business_income CSV."""
+        from reports.business import BusinessIncomeStatement
+        pool, conn, cur = self._make_pool(
+            income_rows=self._sample_income_rows(),
+            gains_rows=self._sample_gains_rows(),
+            fiat_rows=self._sample_fiat_rows(),
+        )
+        report = BusinessIncomeStatement(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            csv_path = os.path.join(tmpdir, 'business_income_2024.csv')
+            self.assertTrue(os.path.exists(csv_path))
+            with open(csv_path) as f:
+                reader = csv.reader(f)
+                headers = next(reader)
+                data = list(reader)
+        self.assertIn('Category', headers)
+        self.assertIn('Amount (CAD)', headers)
+        # Should have at least the major categories
+        categories = [row[0] for row in data]
+        self.assertTrue(any('Income' in c or 'Gains' in c or 'Net' in c for c in categories))
+
+    def test_business_income_hybrid_generates_both_views(self):
+        """Test 8: Tax treatment 'hybrid' generates both capital and business views."""
+        from reports.business import BusinessIncomeStatement
+        # For hybrid, BIS creates a COGSReport internally — needs extra pool queries
+        pool, conn, cur = self._make_pool_with_cogs(
+            income_rows=self._sample_income_rows(),
+            gains_rows=self._sample_gains_rows(),
+            fiat_rows=[],
+            cogs_opening=[('NEAR', Decimal('500.00'))],
+            cogs_acq=[('NEAR', Decimal('200.00'))],
+            cogs_closing=[('NEAR', Decimal('300.00'))],
+        )
+        report = BusinessIncomeStatement(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = report.generate(
+                user_id=1, tax_year=2024, output_dir=tmpdir,
+                tax_treatment='hybrid',
+            )
+        # hybrid should include both capital view and business view keys
+        self.assertIn('capital_view', summary)
+        self.assertIn('business_view', summary)
+
+
 if __name__ == '__main__':
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# TestKoinlyExport
+# ---------------------------------------------------------------------------
+
+class TestKoinlyExport(unittest.TestCase):
+    """Tests for KoinlyExport.generate()"""
+
+    YOCTO = Decimal('1000000000000000000000000')  # 1e24
+
+    def _make_pool(self, near_rows=None, exchange_rows=None):
+        pool = MagicMock()
+        conn = MagicMock()
+        cur = MagicMock()
+        pool.getconn.return_value = conn
+        conn.cursor.return_value = cur
+        cur.fetchone.side_effect = [(0,), (0,)]
+        cur.fetchall.side_effect = [near_rows or [], exchange_rows or []]
+        return pool, conn, cur
+
+    def _near_row(self, category='staking_reward', direction='in',
+                  amount=None, fee=None, timestamp_ns=None, tx_hash='abc123',
+                  action_type='FUNCTION_CALL', account_id='wallet.near'):
+        if amount is None:
+            amount = Decimal('10') * self.YOCTO
+        if fee is None:
+            fee = Decimal('0')
+        if timestamp_ns is None:
+            timestamp_ns = 1_705_276_800 * 1_000_000_000  # Jan 15 2024
+        return (category, direction, amount, fee, timestamp_ns,
+                tx_hash, action_type, account_id, 'near')
+
+    def test_koinly_csv_has_12_headers(self):
+        """Test 1: Koinly CSV has correct 12 headers per KOINLY_HEADERS."""
+        from reports.export import KoinlyExport
+        pool, conn, cur = self._make_pool()
+        exporter = KoinlyExport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            import csv as _csv
+            csv_path = os.path.join(tmpdir, 'koinly_export_2024.csv')
+            with open(csv_path) as f:
+                reader = _csv.reader(f)
+                headers = next(reader)
+        self.assertEqual(len(headers), 12)
+        self.assertEqual(headers[0], 'Date')
+        self.assertEqual(headers[-1], 'TxHash')
+
+    def test_staking_reward_maps_to_staking_label(self):
+        """Test 2: Category 'staking_reward' maps to Koinly label 'staking'."""
+        from reports.export import KoinlyExport
+        row = self._near_row(category='staking_reward', direction='in')
+        pool, conn, cur = self._make_pool(near_rows=[row])
+        exporter = KoinlyExport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            import csv as _csv
+            csv_path = os.path.join(tmpdir, 'koinly_export_2024.csv')
+            with open(csv_path) as f:
+                reader = _csv.reader(f)
+                next(reader)
+                data = list(reader)
+        self.assertEqual(len(data), 1)
+        label_idx = 9
+        self.assertEqual(data[0][label_idx], 'staking')
+
+    def test_capital_gain_out_sets_sent_amount(self):
+        """Test 3: Category 'capital_gain' with direction 'out' sets Sent Amount/Currency."""
+        from reports.export import KoinlyExport
+        row = self._near_row(category='capital_gain', direction='out',
+                             amount=Decimal('5') * self.YOCTO)
+        pool, conn, cur = self._make_pool(near_rows=[row])
+        exporter = KoinlyExport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            import csv as _csv
+            csv_path = os.path.join(tmpdir, 'koinly_export_2024.csv')
+            with open(csv_path) as f:
+                reader = _csv.reader(f)
+                next(reader)
+                data = list(reader)
+        self.assertEqual(len(data), 1)
+        self.assertNotEqual(data[0][1], '')
+        self.assertEqual(data[0][2], 'NEAR')
+        self.assertEqual(data[0][3], '')
+
+    def test_income_in_sets_received_amount(self):
+        """Test 4: Category 'income' with direction 'in' sets Received Amount/Currency."""
+        from reports.export import KoinlyExport
+        row = self._near_row(category='income', direction='in',
+                             amount=Decimal('10') * self.YOCTO)
+        pool, conn, cur = self._make_pool(near_rows=[row])
+        exporter = KoinlyExport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            import csv as _csv
+            csv_path = os.path.join(tmpdir, 'koinly_export_2024.csv')
+            with open(csv_path) as f:
+                reader = _csv.reader(f)
+                next(reader)
+                data = list(reader)
+        self.assertEqual(len(data), 1)
+        self.assertNotEqual(data[0][3], '')
+        self.assertEqual(data[0][4], 'NEAR')
+        self.assertEqual(data[0][1], '')
+
+    def test_fee_amount_populated_when_fee_nonzero(self):
+        """Test 5: Fee amount and currency populated when fee > 0."""
+        from reports.export import KoinlyExport
+        row = self._near_row(category='transfer', direction='out',
+                             fee=Decimal('1000000000000000000000'))
+        pool, conn, cur = self._make_pool(near_rows=[row])
+        exporter = KoinlyExport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            import csv as _csv
+            csv_path = os.path.join(tmpdir, 'koinly_export_2024.csv')
+            with open(csv_path) as f:
+                reader = _csv.reader(f)
+                next(reader)
+                data = list(reader)
+        self.assertEqual(len(data), 1)
+        self.assertNotEqual(data[0][5], '')
+        self.assertEqual(data[0][6], 'NEAR')
+
+    def test_year_specific_export_filters_by_fiscal_year(self):
+        """Test 6: Tax-year-specific export filters by fiscal year range."""
+        from reports.export import KoinlyExport
+        ts_in  = 1_705_276_800 * 1_000_000_000  # Jan 15 2024
+        ts_out = 1_673_740_800 * 1_000_000_000  # Jan 15 2023
+        row_in  = self._near_row(timestamp_ns=ts_in,  tx_hash='in2024')
+        row_out = self._near_row(timestamp_ns=ts_out, tx_hash='out2023')
+        pool, conn, cur = self._make_pool(near_rows=[row_in, row_out])
+        exporter = KoinlyExport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            import csv as _csv
+            csv_path = os.path.join(tmpdir, 'koinly_export_2024.csv')
+            with open(csv_path) as f:
+                reader = _csv.reader(f)
+                next(reader)
+                data = list(reader)
+        tx_hashes = [row[11] for row in data]
+        self.assertIn('in2024', tx_hashes)
+        self.assertNotIn('out2023', tx_hashes)
+
+    def test_full_history_includes_all_transactions(self):
+        """Test 7: Full-history export includes all transactions (no date filter)."""
+        from reports.export import KoinlyExport
+        ts_2024 = 1_705_276_800 * 1_000_000_000
+        ts_2023 = 1_673_740_800 * 1_000_000_000
+        row_2024 = self._near_row(timestamp_ns=ts_2024, tx_hash='tx2024')
+        row_2023 = self._near_row(timestamp_ns=ts_2023, tx_hash='tx2023')
+        pool = MagicMock()
+        conn = MagicMock()
+        cur = MagicMock()
+        pool.getconn.return_value = conn
+        conn.cursor.return_value = cur
+        cur.fetchall.side_effect = [[row_2024, row_2023], []]
+        exporter = KoinlyExport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter.generate(user_id=1, tax_year=2024, output_dir=tmpdir,
+                              full_history=True)
+            import csv as _csv
+            csv_path = os.path.join(tmpdir, 'koinly_export_full.csv')
+            self.assertTrue(os.path.exists(csv_path))
+            with open(csv_path) as f:
+                reader = _csv.reader(f)
+                next(reader)
+                data = list(reader)
+        tx_hashes = [row[11] for row in data]
+        self.assertIn('tx2024', tx_hashes)
+        self.assertIn('tx2023', tx_hashes)
+
+    def test_near_yoctonear_converted_to_human_units(self):
+        """Test 8: NEAR amounts converted from yoctoNEAR (divide by 1e24) to human units."""
+        from reports.export import KoinlyExport
+        ten_near_yocto = Decimal('10') * self.YOCTO
+        row = self._near_row(category='income', direction='in',
+                             amount=ten_near_yocto)
+        pool, conn, cur = self._make_pool(near_rows=[row])
+        exporter = KoinlyExport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            import csv as _csv
+            csv_path = os.path.join(tmpdir, 'koinly_export_2024.csv')
+            with open(csv_path) as f:
+                reader = _csv.reader(f)
+                next(reader)
+                data = list(reader)
+        self.assertEqual(len(data), 1)
+        received_amount = Decimal(data[0][3])
+        self.assertEqual(received_amount, Decimal('10'))
+
+
+# ---------------------------------------------------------------------------
+# TestAccountingExports
+# ---------------------------------------------------------------------------
+
+class TestAccountingExports(unittest.TestCase):
+    """Tests for AccountingExporter (QuickBooks, Xero, Sage50, double-entry)."""
+
+    def _make_pool(self, gains_rows=None, income_rows=None):
+        pool = MagicMock()
+        conn = MagicMock()
+        cur = MagicMock()
+        pool.getconn.return_value = conn
+        conn.cursor.return_value = cur
+        cur.fetchone.side_effect = [(0,), (0,)]
+        cur.fetchall.side_effect = [gains_rows or [], income_rows or []]
+        return pool, conn, cur
+
+    def _gains_row(self, disposal_date=None, token='NEAR',
+                   proceeds=Decimal('1500.00'), acb=Decimal('900.00'),
+                   gain_loss=Decimal('600.00'), tx_hash='tx001'):
+        if disposal_date is None:
+            disposal_date = date(2024, 1, 15)
+        return (disposal_date, token, proceeds, acb, gain_loss, tx_hash)
+
+    def _income_row(self, income_date=None, token='NEAR',
+                    fmv_cad=Decimal('200.00'), source_type='staking',
+                    tx_hash='tx002'):
+        if income_date is None:
+            income_date = date(2024, 2, 10)
+        return (income_date, token, fmv_cad, source_type, tx_hash)
+
+    def test_quickbooks_iif_has_header_rows(self):
+        """Test 1: QuickBooks IIF has !TRNS/!SPL/!ENDTRNS header rows."""
+        from reports.export import AccountingExporter
+        pool, conn, cur = self._make_pool()
+        exporter = AccountingExporter(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter.generate_all(user_id=1, tax_year=2024, output_dir=tmpdir)
+            iif_path = os.path.join(tmpdir, 'quickbooks_2024.iif')
+            self.assertTrue(os.path.exists(iif_path))
+            with open(iif_path) as f:
+                content = f.read()
+        self.assertIn('!TRNS', content)
+        self.assertIn('!SPL', content)
+        self.assertIn('!ENDTRNS', content)
+
+    def test_quickbooks_iif_balanced_entry_triplet(self):
+        """Test 2: Each QuickBooks entry has balanced TRNS+SPL+ENDTRNS triplet."""
+        from reports.export import AccountingExporter
+        pool, conn, cur = self._make_pool(gains_rows=[self._gains_row()])
+        exporter = AccountingExporter(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter.generate_all(user_id=1, tax_year=2024, output_dir=tmpdir)
+            iif_path = os.path.join(tmpdir, 'quickbooks_2024.iif')
+            with open(iif_path) as f:
+                lines = [l.rstrip('\n') for l in f.readlines()]
+        trns_count    = sum(1 for l in lines if l.startswith('TRNS\t'))
+        spl_count     = sum(1 for l in lines if l.startswith('SPL\t'))
+        endtrns_count = sum(1 for l in lines if l.strip() == 'ENDTRNS')
+        self.assertEqual(trns_count, spl_count)
+        self.assertEqual(trns_count, endtrns_count)
+        self.assertGreater(trns_count, 0)
+
+    def test_xero_csv_has_required_headers(self):
+        """Test 3: Xero CSV has Date, Description, Reference, Debit, Credit, Account Code, Tax Rate."""
+        from reports.export import AccountingExporter
+        pool, conn, cur = self._make_pool()
+        exporter = AccountingExporter(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter.generate_all(user_id=1, tax_year=2024, output_dir=tmpdir)
+            xero_path = os.path.join(tmpdir, 'xero_2024.csv')
+            self.assertTrue(os.path.exists(xero_path))
+            import csv as _csv
+            with open(xero_path) as f:
+                reader = _csv.reader(f)
+                headers = next(reader)
+        required = {'Date', 'Description', 'Reference', 'Debit', 'Credit',
+                    'Account Code', 'Tax Rate'}
+        self.assertTrue(required.issubset(set(headers)),
+                        f"Missing headers: {required - set(headers)}")
+
+    def test_sage50_csv_has_valid_format(self):
+        """Test 4: Sage 50 CSV produces valid import format."""
+        from reports.export import AccountingExporter
+        pool, conn, cur = self._make_pool(gains_rows=[self._gains_row()])
+        exporter = AccountingExporter(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter.generate_all(user_id=1, tax_year=2024, output_dir=tmpdir)
+            sage_path = os.path.join(tmpdir, 'sage50_2024.csv')
+            self.assertTrue(os.path.exists(sage_path))
+            import csv as _csv
+            with open(sage_path) as f:
+                reader = _csv.reader(f)
+                headers = next(reader)
+        required = {'Date', 'Source', 'Comment', 'Account Number', 'Debit', 'Credit'}
+        self.assertTrue(required.issubset(set(headers)),
+                        f"Missing Sage 50 headers: {required - set(headers)}")
+
+    def test_double_entry_csv_balanced_per_entry(self):
+        """Test 5: Generic double-entry has balanced Debit=Credit per entry."""
+        from reports.export import AccountingExporter
+        pool, conn, cur = self._make_pool(
+            gains_rows=[self._gains_row(
+                proceeds=Decimal('1500.00'),
+                acb=Decimal('900.00'),
+                gain_loss=Decimal('600.00'),
+            )]
+        )
+        exporter = AccountingExporter(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter.generate_all(user_id=1, tax_year=2024, output_dir=tmpdir)
+            de_path = os.path.join(tmpdir, 'double_entry_2024.csv')
+            self.assertTrue(os.path.exists(de_path))
+            import csv as _csv
+            with open(de_path) as f:
+                reader = _csv.reader(f)
+                headers = next(reader)
+                rows = list(reader)
+        debit_idx  = headers.index('Debit')
+        credit_idx = headers.index('Credit')
+        total_debit  = sum(Decimal(r[debit_idx])  for r in rows if r[debit_idx])
+        total_credit = sum(Decimal(r[credit_idx]) for r in rows if r[credit_idx])
+        self.assertEqual(total_debit, total_credit,
+                         f"Unbalanced: debit={total_debit} credit={total_credit}")
+
+    def test_capital_gains_produce_correct_journal_entries(self):
+        """Test 6: Capital gains produce Crypto Assets debit + Capital Gains credit entries."""
+        from reports.export import AccountingExporter
+        pool, conn, cur = self._make_pool(
+            gains_rows=[self._gains_row(
+                proceeds=Decimal('1500.00'),
+                acb=Decimal('900.00'),
+                gain_loss=Decimal('600.00'),
+            )]
+        )
+        exporter = AccountingExporter(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter.generate_all(user_id=1, tax_year=2024, output_dir=tmpdir)
+            de_path = os.path.join(tmpdir, 'double_entry_2024.csv')
+            import csv as _csv
+            with open(de_path) as f:
+                reader = _csv.reader(f)
+                headers = next(reader)
+                rows = list(reader)
+        account_idx = headers.index('Account')
+        accounts = [r[account_idx] for r in rows]
+        self.assertTrue(any('Capital' in a for a in accounts),
+                        f"No Capital Gains account found in: {accounts}")
+
+    def test_income_events_produce_income_account_entries(self):
+        """Test 7: Income events produce Crypto Assets debit + Income credit entries."""
+        from reports.export import AccountingExporter
+        pool, conn, cur = self._make_pool(
+            income_rows=[self._income_row(fmv_cad=Decimal('200.00'))],
+        )
+        exporter = AccountingExporter(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exporter.generate_all(user_id=1, tax_year=2024, output_dir=tmpdir)
+            de_path = os.path.join(tmpdir, 'double_entry_2024.csv')
+            import csv as _csv
+            with open(de_path) as f:
+                reader = _csv.reader(f)
+                headers = next(reader)
+                rows = list(reader)
+        account_idx = headers.index('Account')
+        accounts = [r[account_idx] for r in rows]
+        self.assertTrue(any('Income' in a for a in accounts),
+                        f"No Income account found in: {accounts}")
