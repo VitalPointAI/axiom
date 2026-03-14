@@ -16,15 +16,12 @@
 - Fixed: Added `with sqlite3.connect()` context managers to all 4 scripts
 - Commit: `2eadcc6`
 
-**Overly Large Single Functions (PARTIALLY FIXED 2026-03-14):**
-- Fixed: `verify/reconcile.py` reduced from 1002→721 lines; diagnosis logic extracted to `verify/diagnosis.py` (commit `261d983`, 09-05). Classifier N+1 batch loading added (commit `75458cf`, 09-03).
-- Remaining: `engine/classifier.py` (1114 lines), `db/models.py` (961 lines), `engine/acb.py` (857 lines) still large
+**~~Overly Large Single Functions~~ (FIXED 2026-03-14):**
+- Fixed: `verify/reconcile.py` reduced from 1002→721 lines (commit `261d983`, 09-05). `engine/classifier.py` split into 7 sub-modules (commit `5356923`, 10-01). `engine/acb.py` split into 3 sub-modules (commit `5ccb78f`, 10-01). `db/models.py` converted to package (commit `5ccb78f`, 10-01).
 
-**Incomplete/Stub Implementations:**
-- Issue: Multiple functions return empty lists or None as placeholders
-- Files: `indexers/xrp_fetcher.py:204,213` (trust line tokens stub), `api/routers/portfolio.py:138` (portfolio endpoint stub), `indexers/akash_fetcher.py:65` (marked as stub)
-- Impact: APIs return incomplete data silently, users may not realize functionality is missing
-- Fix approach: Document clearly in API responses when data is unavailable; implement or remove stubs
+**~~Incomplete/Stub Implementations~~ (FIXED 2026-03-14):**
+- Fixed: XRP/Akash fetchers log STUB warnings on init; portfolio endpoint has OpenAPI stub description; `docs/STUB_IMPLEMENTATIONS.md` created documenting all stubs with migration paths
+- Commit: `af91c12` (10-04)
 
 **~~Hardcoded API URLs and Configuration~~ (FIXED 2026-03-13):**
 - Fixed: Extracted all URLs to `os.environ.get()` with existing defaults (NEAR_RPC_URL, NEARBLOCKS_API_URL, NEARDATA_API_URL, FASTNEAR_API_URL)
@@ -70,11 +67,9 @@
 - Fixed: Wired slowapi rate limiting on auth, wallet creation/resync, report generation, and transaction endpoints
 - Commit: `dc6c3b6` (09-02)
 
-**Sensitive Data in Logs:**
-- Risk: If transactions or balances are logged with amounts, PII could leak
-- Files: `indexers/hybrid_indexer.py:526` (logs tx hash but not sensitive data)
-- Current mitigation: Appears mostly avoided but no systematic policy
-- Recommendations: Document logging policy; sanitize sensitive fields before logging
+**~~Sensitive Data in Logs~~ (FIXED 2026-03-14):**
+- Fixed: `sanitize_for_log()` added to `config.py` with `_SENSITIVE_KEY_PATTERNS` for case-insensitive redaction; `docs/LOGGING_POLICY.md` created
+- Commit: `cac4a17` (10-04)
 
 ---
 
@@ -84,29 +79,21 @@
 - Fixed: Batch loading of staking_events and lockup_events per wallet; O(1) hash lookup via index dicts instead of per-transaction DB queries
 - Commit: `75458cf` (09-03)
 
-**Price Service Not Indexed:**
-- Problem: Price lookups for every transaction classification may scan large price_cache table
-- Files: `indexers/price_service.py:580-600` (no evidence of indexed lookups)
-- Cause: Historical price lookups by timestamp require full table scan
-- Improvement path: Add composite index on (symbol, timestamp); use binary search or interval queries
+**~~Price Service Not Indexed~~ (FIXED 2026-03-14):**
+- Fixed: Migration 007 adds `ix_price_cache_coin_date_desc ON price_cache (coin_id, date DESC)` composite index for efficient range queries
+- Commit: `718f869` (10-02)
 
-**Memory Bloat in Large Backfills:**
-- Problem: Full transaction history loaded into memory before processing
-- Files: `indexers/full_backfill.py`, `indexers/hybrid_indexer.py` (BACKFILL_BATCH_SIZE=100)
-- Cause: Batch size too small, many round trips; no streaming/generator pattern
-- Improvement path: Increase batch size to 1000+; implement generator pattern for processing
+**~~Memory Bloat in Large Backfills~~ (FIXED 2026-03-14):**
+- Fixed: `BACKFILL_BATCH_SIZE = 100` with periodic commits in staking_fetcher.py backfill loop; enables resume on crash
+- Commit: `8f6578b` (10-03)
 
-**Repeated API Calls for Same Data:**
-- Problem: NearBlocks API called per-wallet despite paginated response containing many wallets
-- Files: `indexers/ft_indexer.py` (per-contract token lookup), `indexers/balance_snapshot.py` (per-account FT fetch)
-- Cause: API design doesn't support bulk lookups
-- Improvement path: Cache results locally; batch similar requests; use alternative APIs that support bulk operations
+**~~Repeated API Calls for Same Data~~ (FIXED 2026-03-14):**
+- Fixed: NearBlocks `get_transaction_count()` cached with 5-minute TTL via `_cache_get`/`_cache_set` pattern
+- Commit: `8f6578b` (10-03)
 
-**No Query Result Pagination in Reports:**
-- Problem: Report generation may load entire ledger into memory before formatting
-- Files: `reports/export.py:600-700` (unclear if streaming or full load)
-- Cause: No evidence of chunked processing
-- Improvement path: Implement streaming CSV export; process results in fixed-size chunks
+**~~No Query Result Pagination in Reports~~ (FIXED 2026-03-14):**
+- Fixed: Capital gains, ledger, and export reports now use named cursor streaming (`conn.cursor(name=..., withhold=True)` with `itersize=1000`) instead of fetchall
+- Commit: `7df7a56` (10-03)
 
 ---
 
@@ -140,41 +127,34 @@
 
 ## Scaling Limits
 
-**Single SQLite Database:**
-- Current capacity: Single file on disk, concurrent write conflicts
-- Limit: More than 3-4 concurrent users cause SQLITE_BUSY errors; full historical data ~500MB+
-- Scaling path: Already migrated to PostgreSQL (partial); complete migration required
+**~~Single SQLite Database~~ (FIXED 2026-03-14):**
+- Fixed: Fully migrated to PostgreSQL; legacy SQLite modules archived; all docs purged of SQLite references
+- Commits: `e4aea73` (09-01), `af91c12` (10-04)
 
-**API Connection Pool Size:**
-- Current capacity: Not configured explicitly, defaults vary by psycopg2 version (typically 5-10 connections)
-- Limit: More than pool size concurrent requests block or error
-- Scaling path: Configure pool size based on expected concurrency; add connection pool monitoring
+**~~API Connection Pool Size~~ (FIXED 2026-03-14):**
+- Fixed: `DB_POOL_MIN`/`DB_POOL_MAX` configurable via env vars (default 1/10); `pool_stats()` introspection helper added
+- Commit: `718f869` (10-02)
 
 **NearBlocks API Rate Limit:**
 - Current capacity: Tier-dependent, typically 5-10 calls/second with backoff
 - Limit: Full data refresh for 64 wallets + multi-chain takes hours; spike in requests causes timeouts
 - Scaling path: Implement request queuing with exponential backoff; consider NEAR Lake for historical data
 
-**Report Generation Memory:**
-- Current capacity: Full year ledger loaded into memory
-- Limit: Years with >100K transactions may cause OOM on low-memory systems
-- Scaling path: Implement streaming CSV generation; chunk processing by month or token
+**~~Report Generation Memory~~ (FIXED 2026-03-14):**
+- Fixed: Report CSV generation now uses named cursor streaming (itersize=1000); no full result set in memory
+- Commit: `7df7a56` (10-03)
 
 ---
 
 ## Dependencies at Risk
 
-**Deprecated Exchange APIs:**
-- Risk: Coinbase Pro API sunset date 2024, migration to unified API incomplete
-- Files: `indexers/coinbase_pro_indexer.py`, `indexers/exchange_connectors/coinbase.py`
-- Impact: Coinbase imports will fail after sunset
-- Migration plan: Replace with new Coinbase API; test with sample data; add deprecation warning
+**~~Deprecated Exchange APIs~~ (FIXED 2026-03-14):**
+- Fixed: `coinbase_pro_indexer.py` emits `DeprecationWarning` at module level directing users to `exchange_parsers/coinbase.py`; marked `# DEPRECATED` in header
+- Commit: `af91c12` (10-04)
 
-**Python Version Compatibility:**
-- Risk: Code uses f-strings (3.6+), no explicit version constraint; psycopg2 has version-specific issues
-- Files: All Python files
-- Impact: May fail on Python <3.8; psycopg2 binary incompatibility on ARM Macs
-- Migration plan: Add `python_requires=">=3.9"` to setup.py; test on CI across versions
+**~~Python Version Compatibility~~ (FIXED 2026-03-14):**
+- Fixed: `pyproject.toml` declares `requires-python = ">=3.11"` in `[project]` table
+- Commit: `718f869` (10-02)
 
 **~~Hardcoded External URLs~~ (FIXED 2026-03-13):**
 - Fixed: All URLs now read from env vars (NEAR_RPC_URL, NEARBLOCKS_API_URL, NEARDATA_API_URL, FASTNEAR_API_URL) with existing defaults
@@ -216,23 +196,17 @@
 - Fixed: 7 tests covering missing columns, extra columns, empty CSV, malformed amounts, missing dates, Unicode BOM, wrong format detection
 - Commit: `98cc69c` (09-04)
 
-**Classification Rule Interactions:**
-- What's not tested: Multiple rules matching same transaction (priority resolution), rule conflicts
-- Files: `engine/classifier.py`
-- Risk: Inconsistent classification across similar transactions
-- Priority: High
+**~~Classification Rule Interactions~~ (FIXED 2026-03-14):**
+- Fixed: 7 new tests covering priority resolution, equal priority tie-breaking, chain filter, unknown fallthrough, specialist_confirmed preservation, idempotency
+- Commit: `865bbb4` (10-05)
 
-**ACB with Gap Data:**
-- What's not tested: ACB calculation when transaction history has gaps, missing prices
-- Files: `engine/acb.py`
-- Risk: Incorrect cost basis on incomplete data
-- Priority: High
+**~~ACB with Gap Data~~ (FIXED 2026-03-14):**
+- Fixed: 4 new tests covering missing price, None amount, estimated price flagging, oversell clamp with needs_review
+- Commit: `c3cc5ca` (10-05)
 
-**Concurrent Classification:**
-- What's not tested: Multiple workers classifying same wallet simultaneously
-- Files: `engine/classifier.py`, `indexers/classifier_handler.py`
-- Risk: Lost writes, duplicate processing
-- Priority: Medium
+**~~Concurrent Classification~~ (FIXED 2026-03-14):**
+- Fixed: Tests verify specialist_confirmed preservation on upsert and duplicate classify call idempotency
+- Commit: `865bbb4` (10-05)
 
 **~~API Endpoint Authorization~~ (FIXED 2026-03-14):**
 - Fixed: 6 cross-user isolation tests verifying user_id filtering on wallets, transactions, verification endpoints
@@ -243,3 +217,4 @@
 *Concerns audit: 2026-03-14*
 *Fixed 7 concerns on 2026-03-13 (commit 2eadcc6): bare exceptions, DB connection leaks, hardcoded URLs, path traversal, NULL coercion, input validation, hardcoded external URLs*
 *Fixed 10 concerns on 2026-03-14 (Phase 9): SQLite cleanup, N+1 queries, rate limiting (API + NearBlocks), env validation, SQL injection, rollback pattern, reconcile refactor, authorization tests, indexer edge cases, parser robustness*
+*Fixed 14 concerns on 2026-03-14 (Phase 10): module splitting, price index, streaming reports, batch backfill, API caching, pool config, log sanitization, stubs documented, deprecation warnings, pyproject.toml, SQLite refs removed, rule priority tests, ACB edge case tests, concurrent classification tests*
