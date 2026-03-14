@@ -447,13 +447,58 @@ Plans:
 
 ### Phase 11: Robustness & Missing Features — audit log consistency, fragile area hardening, data export validation
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Harden fragile areas across the pipeline, establish a unified audit log for all data mutations, add data export validation with manifest checksums, implement multi-currency swap decomposition for arbitrary multi-hop routes, and add a read-only offline/cached mode for working without live APIs.
+
+**Requirements:**
+- ROB-01: Unified audit log table replacing classification_audit_log (migration 008 + write_audit helper)
+- ROB-02: Audit log wired to all mutation points + queryable via API
+- ROB-03: MANIFEST.json with SHA-256 checksums in tax package
+- ROB-04: Stale report detection via data fingerprint comparison
+- ROB-05: ACB runtime invariant checks (pool consistency, negative detection)
+- ROB-06: Classifier runtime invariant checks (parent classification, leg balance)
+- ROB-07: Reconciler runtime invariant checks (wallet coverage, diagnosis completeness)
+- ROB-08: Exchange parser runtime invariant checks (schema validation, zero-amount detection)
+- ROB-09: Multi-hop swap decomposition (V3 exactInput path decoding)
+- ROB-10: Offline/cached mode (IndexerService gate + API status)
+
 **Depends on:** Phase 10
-**Plans:** 0 plans
+**Plans:** 5 plans in 2 waves
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 11 to break down)
+- [ ] 11-01-PLAN.md — Migration 008 (unified audit_log) + AuditLog model + write_audit() helper (Wave 1) [ROB-01]
+- [ ] 11-02-PLAN.md — MANIFEST.json generation in PackageBuilder + stale report detection (Wave 1) [ROB-03, ROB-04]
+- [ ] 11-03-PLAN.md — Multi-hop swap path decoding + classifier leg decomposition (Wave 1) [ROB-09]
+- [ ] 11-04-PLAN.md — Runtime invariant checks: ACB + classifier + reconciler + exchange parsers (Wave 2) [ROB-05, ROB-06, ROB-07, ROB-08]
+- [ ] 11-05-PLAN.md — Audit wiring to all mutation points + audit API + offline mode (Wave 2) [ROB-02, ROB-10]
+
+**Success Criteria:**
+1. [ ] audit_log table exists with unified schema; classification_audit_log migrated and dropped
+2. [ ] write_audit() called at all mutation points (classifier, ACB, duplicates, manual edits, verification, reports)
+3. [ ] GET /api/audit/history returns filtered audit rows per entity
+4. [ ] MANIFEST.json generated with SHA-256 per file + data fingerprint
+5. [ ] Stale report detection warns when data changed since last generation
+6. [ ] ACB, classifier, reconciler, exchange parsers have runtime invariant checks
+7. [ ] Invariant violations logged to audit_log + needs_review set + pipeline continues
+8. [ ] Multi-hop swaps decoded and decomposed into correct leg structure
+9. [ ] Offline mode gates network-dependent jobs without crashing
+10. [ ] All tests pass (existing + new invariant/manifest/offline tests)
+
+**Deliverables:**
+- `db/migrations/versions/008_unified_audit_log.py` — Unified audit table migration
+- `db/audit.py` — write_audit() helper module
+- `db/models/_all_models.py` — AuditLog model (replaces ClassificationAuditLog)
+- `api/routers/audit.py` — Audit history API endpoint
+- `reports/generate.py` — Extended with MANIFEST.json generation
+- `api/routers/reports.py` — Extended with stale report detection
+- `engine/evm_decoder.py` — Extended with multi-hop path decoding
+- `engine/classifier/core.py` — Extended with multi-hop leg decomposition
+- `engine/acb/pool.py` — ACB invariant checks
+- `engine/classifier/writer.py` — Classifier invariant checks + audit wiring
+- `verify/reconcile.py` — Reconciler invariant checks
+- `indexers/exchange_parsers/base.py` — Exchange parser invariant checks
+- `tests/test_invariants.py` — Integration tests for invariant checks
+- `tests/test_api_audit.py` — Audit API tests
+- `tests/test_offline_mode.py` — Offline mode tests
 
 ---
-*Last updated: 2026-03-14 — Phase 10 complete: 5/5 plans, 14/14 requirements verified.*
+*Last updated: 2026-03-14 — Phase 11 planned: 5 plans in 2 waves, 10 requirements.*
