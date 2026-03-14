@@ -1,11 +1,13 @@
 """Tests for config.py environment validation.
 
 Covers QH-06: Startup fails fast on missing required env vars.
+Covers RC-02: DB_POOL_MIN/MAX configurable via env vars (default 1/10).
+Covers RC-09: pool_stats() returns dict with minconn, maxconn keys.
 """
 import importlib
 import logging
 import os
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 class TestEnvValidation:
@@ -89,3 +91,114 @@ class TestEnvValidation:
         from config import OPTIONAL_ENV_VARS_WARN
         assert "NEARBLOCKS_API_KEY" in OPTIONAL_ENV_VARS_WARN
         assert "COINGECKO_API_KEY" in OPTIONAL_ENV_VARS_WARN
+
+
+class TestDbPoolConfig:
+    """Verify DB_POOL_MIN and DB_POOL_MAX are read from env vars with correct defaults."""
+
+    def test_db_pool_min_default(self):
+        """DB_POOL_MIN defaults to 1 when env var not set."""
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://localhost/test"}, clear=True):
+            import config
+            importlib.reload(config)
+            assert config.DB_POOL_MIN == 1
+
+    def test_db_pool_max_default(self):
+        """DB_POOL_MAX defaults to 10 when env var not set."""
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://localhost/test"}, clear=True):
+            import config
+            importlib.reload(config)
+            assert config.DB_POOL_MAX == 10
+
+    def test_db_pool_min_from_env(self):
+        """DB_POOL_MIN reads from DB_POOL_MIN env var."""
+        with patch.dict(
+            os.environ,
+            {"DATABASE_URL": "postgresql://localhost/test", "DB_POOL_MIN": "2"},
+            clear=True,
+        ):
+            import config
+            importlib.reload(config)
+            assert config.DB_POOL_MIN == 2
+
+    def test_db_pool_max_from_env(self):
+        """DB_POOL_MAX reads from DB_POOL_MAX env var."""
+        with patch.dict(
+            os.environ,
+            {"DATABASE_URL": "postgresql://localhost/test", "DB_POOL_MAX": "20"},
+            clear=True,
+        ):
+            import config
+            importlib.reload(config)
+            assert config.DB_POOL_MAX == 20
+
+    def test_pool_size_validation_min_exceeds_max_raises(self):
+        """validate_env() raises ValueError when DB_POOL_MIN > DB_POOL_MAX."""
+        with patch.dict(
+            os.environ,
+            {
+                "DATABASE_URL": "postgresql://localhost/test",
+                "DB_POOL_MIN": "10",
+                "DB_POOL_MAX": "5",
+            },
+            clear=True,
+        ):
+            import config
+            importlib.reload(config)
+            import pytest
+            with pytest.raises((ValueError, RuntimeError)):
+                config.validate_env()
+
+    def test_pool_size_validation_zero_min_raises(self):
+        """validate_env() raises when DB_POOL_MIN is 0."""
+        with patch.dict(
+            os.environ,
+            {
+                "DATABASE_URL": "postgresql://localhost/test",
+                "DB_POOL_MIN": "0",
+                "DB_POOL_MAX": "10",
+            },
+            clear=True,
+        ):
+            import config
+            importlib.reload(config)
+            import pytest
+            with pytest.raises((ValueError, RuntimeError)):
+                config.validate_env()
+
+
+class TestPoolStats:
+    """Verify pool_stats() returns expected dict keys from indexers.db."""
+
+    def test_pool_stats_returns_expected_keys(self):
+        """pool_stats() returns dict with minconn, maxconn, available, in_use keys."""
+        from indexers.db import pool_stats
+
+        mock_pool = MagicMock()
+        mock_pool.minconn = 1
+        mock_pool.maxconn = 10
+        mock_pool._pool = [MagicMock(), MagicMock()]   # 2 idle connections
+        mock_pool._used = {MagicMock()}                # 1 in-use connection
+
+        result = pool_stats(mock_pool)
+
+        assert isinstance(result, dict)
+        assert result["minconn"] == 1
+        assert result["maxconn"] == 10
+        assert "available" in result
+        assert "in_use" in result
+
+    def test_pool_stats_counts_connections(self):
+        """pool_stats() counts _pool (available) and _used (in_use) accurately."""
+        from indexers.db import pool_stats
+
+        mock_pool = MagicMock()
+        mock_pool.minconn = 2
+        mock_pool.maxconn = 8
+        mock_pool._pool = [MagicMock(), MagicMock(), MagicMock()]  # 3 available
+        mock_pool._used = {MagicMock(), MagicMock()}               # 2 in_use
+
+        result = pool_stats(mock_pool)
+
+        assert result["available"] == 3
+        assert result["in_use"] == 2
