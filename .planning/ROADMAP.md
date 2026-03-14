@@ -462,7 +462,7 @@ Plans:
 - ROB-10: Offline/cached mode (IndexerService gate + API status)
 
 **Depends on:** Phase 10
-**Plans:** 1/5 plans executed
+**Plans:** 2/5 plans executed
 
 Plans:
 - [ ] 11-01-PLAN.md — Migration 008 (unified audit_log) + AuditLog model + write_audit() helper (Wave 1) [ROB-01]
