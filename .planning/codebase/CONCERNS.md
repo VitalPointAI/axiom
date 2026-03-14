@@ -99,29 +99,21 @@
 
 ## Fragile Areas
 
-**Transaction Classification Engine:**
-- Files: `engine/classifier.py` (1114 lines), `engine/evm_decoder.py`
-- Why fragile: Complex state machine with multiple branching paths; heavy reliance on rule priority ordering; linkage to staking/lockup events can silently fail if relationships broken
-- Safe modification: Add comprehensive unit tests for each rule type; test classification matrix (every input→output combination); verify linkage integrity before writing
-- Test coverage: `tests/test_classifier.py` exists but only 722 lines for 1114-line module; gaps likely in complex multi-leg transactions
+**~~Transaction Classification Engine~~ (HARDENED 2026-03-14):**
+- Fixed: `check_classifier_invariants_batch()` detects missing/duplicate parent classifications and swap leg imbalances; all violations log to `audit_log` and set `needs_review=True` without halting pipeline
+- Commits: `3f9c4c8` (11-04)
 
-**Cost Basis Calculation (ACB):**
-- Files: `engine/acb.py` (857 lines)
-- Why fragile: Financial calculation with no reconciliation; rounding errors accumulate; depends on correct transaction ordering
-- Safe modification: Test with known scenarios (FIFO, LIFO, AVG); verify against manual calculations; add comprehensive audit trail
-- Test coverage: `tests/test_acb.py` exists but integration with real price data unclear
+**~~Cost Basis Calculation (ACB)~~ (HARDENED 2026-03-14):**
+- Fixed: `check_acb_pool_invariants()` detects negative balance/cost after every acquire/dispose; violations log to `audit_log` and flag for review without halting
+- Commits: `3f9c4c8` (11-04)
 
-**Balance Reconciliation Process:**
-- Files: `verify/reconcile.py` (1002 lines), `verify/duplicates.py` (885 lines)
-- Why fragile: Reconciliation logic compares calculated vs on-chain; any indexer miss or price data gap breaks it; manual fixups bypass logic
-- Safe modification: Add immutable audit log for all corrections; implement strict mode that fails on mismatch; separate reporting from fixing
-- Test coverage: Unknown if test suite covers gap scenarios
+**~~Balance Reconciliation Process~~ (HARDENED 2026-03-14):**
+- Fixed: Wallet coverage check verifies all user wallets are reconciled; undiagnosed discrepancy check flags open results with no diagnosis; both log to `audit_log`
+- Commits: `9235658` (11-04)
 
-**Exchange Integration:**
-- Files: `indexers/exchange_parsers/`, multiple connector implementations
-- Why fragile: Each exchange has different CSV format; no validation of data completeness; silent drops of unrecognized fields
-- Safe modification: Add schema validation per exchange; log dropped fields; implement test with real sample CSV files
-- Test coverage: `tests/test_api_auth.py` but no exchange parser tests visible
+**~~Exchange Integration~~ (HARDENED 2026-03-14):**
+- Fixed: `validate_parsed_row()` in `BaseExchangeParser` validates non-zero amount, parseable date, and non-empty asset after every `parse_row()`; violations set `needs_review=True` with `_invariant_violations` list
+- Commits: `9235658` (11-04)
 
 ---
 
@@ -164,25 +156,21 @@
 
 ## Missing Critical Features
 
-**No Transaction Audit Log:**
-- Problem: Changes to transaction classification not tracked; impossible to audit who changed what when
-- Blocks: Full compliance with financial audit trails; forensic investigation of discrepancies
-- Status: Partially addressed with `classification_audit_log` table but not consistently used
+**~~No Transaction Audit Log~~ (FIXED 2026-03-14):**
+- Fixed: Unified `audit_log` table (migration 008) replaces `classification_audit_log`; `write_audit()` helper wired into all mutation points (classifier, ACB, duplicates, manual edits, verification, reports); `GET /api/audit/history` endpoint with entity_type/entity_id filters
+- Commits: `130e420`, `fbc5962` (11-01), `86ff6e0`, `445ec54` (11-05)
 
-**No Multi-Currency Support:**
-- Problem: Amount field assumes single token type; multi-asset swaps need decomposition
-- Blocks: Accurate reporting on multi-leg transactions (e.g., swap A→B→C)
-- Status: Decomposition logic exists but may not cover all cases
+**~~No Multi-Currency Support~~ (FIXED 2026-03-14):**
+- Fixed: `EVMDecoder.decode_multihop_path()` parses packed Uniswap V3 path encoding; `_decompose_swap()` produces intermediate legs for multi-hop swaps (A→B→C→D); `evm_classifier.py` forwards `token_path`/`hop_count` from swap detection
+- Commits: `673e319`, `43b3da0` (11-03), `da054a5` (11 fix)
 
-**No Offline Mode:**
-- Problem: All indexers require live API access; no way to work with cached data
-- Blocks: Development/testing without API calls; reduced API usage for cost savings
-- Status: Caching partially implemented but incomplete
+**~~No Offline Mode~~ (FIXED 2026-03-14):**
+- Fixed: `OFFLINE_MODE` config with `_detect_offline_mode()` auto-detection; network-dependent jobs requeued with backoff; health and status endpoints expose offline state
+- Commits: `9f75958` (11-05)
 
-**No Data Export Validation:**
-- Problem: Reports generated but no checksum/signature verification
-- Blocks: Detecting if exported data was modified post-generation
-- Status: Not implemented
+**~~No Data Export Validation~~ (FIXED 2026-03-14):**
+- Fixed: `MANIFEST.json` with SHA-256 per file + source data fingerprint generated by PackageBuilder; stale report detection via `_check_staleness()` on list endpoint
+- Commits: `ca10d95`, `b01df2b` (11-02)
 
 ---
 
@@ -218,3 +206,4 @@
 *Fixed 7 concerns on 2026-03-13 (commit 2eadcc6): bare exceptions, DB connection leaks, hardcoded URLs, path traversal, NULL coercion, input validation, hardcoded external URLs*
 *Fixed 10 concerns on 2026-03-14 (Phase 9): SQLite cleanup, N+1 queries, rate limiting (API + NearBlocks), env validation, SQL injection, rollback pattern, reconcile refactor, authorization tests, indexer edge cases, parser robustness*
 *Fixed 14 concerns on 2026-03-14 (Phase 10): module splitting, price index, streaming reports, batch backfill, API caching, pool config, log sanitization, stubs documented, deprecation warnings, pyproject.toml, SQLite refs removed, rule priority tests, ACB edge case tests, concurrent classification tests*
+*Fixed 8 concerns on 2026-03-14 (Phase 11): unified audit log, audit wiring + API, multi-hop swap decomposition, data export validation (MANIFEST.json), offline mode, ACB/classifier/reconciler/exchange parser invariant hardening*
