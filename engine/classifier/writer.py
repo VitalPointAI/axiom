@@ -5,11 +5,13 @@ Contains:
   - make_record(): build a classification record dict
   - write_records(): write classification records to DB
   - upsert_classification(): INSERT ... ON CONFLICT for transaction_classifications
-  - write_audit_log(): insert into classification_audit_log
+  - write_audit_log(): insert into audit_log (via unified write_audit())
 """
 
 import logging
 from decimal import Decimal
+
+from db.audit import write_audit
 
 logger = logging.getLogger(__name__)
 
@@ -154,33 +156,121 @@ def write_audit_log(
 ) -> None:
     """Write audit log entry for a classification change.
 
-    change_reason: 'initial' for new, 'rule_update' for re-classification.
+    Delegates to the unified write_audit() helper (db/audit.py).
+    Keeps function name for backward compatibility.
     """
     if not classification_id:
         return
 
-    cur = conn.cursor()
     old_category = old_record["category"] if old_record else None
     old_confidence = old_record["confidence"] if old_record else None
-    change_reason = "rule_update" if old_record else "initial"
 
-    cur.execute(
-        """
-        INSERT INTO classification_audit_log
-            (classification_id, changed_by_user_id, changed_by_type,
-             old_category, new_category, old_confidence, new_confidence,
-             change_reason, rule_id, notes, created_at)
-        VALUES
-            (%s, NULL, 'system', %s, %s, %s, %s, %s, %s, %s, NOW())
-        """,
-        (
-            classification_id,
-            old_category,
-            record["category"],
-            old_confidence,
-            record["confidence"],
-            change_reason,
-            record.get("rule_id"),
-            record.get("notes", ""),
+    write_audit(
+        conn,
+        user_id=record.get("user_id", 0),
+        entity_type="transaction_classification",
+        entity_id=classification_id,
+        action="initial_classify" if not old_record else "reclassify",
+        old_value=(
+            {"category": old_category, "confidence": float(old_confidence)}
+            if old_record else None
         ),
+        new_value={
+            "category": record["category"],
+            "confidence": float(record["confidence"]),
+        },
+        actor_type="system",
+        notes=record.get("notes", ""),
     )
+
+
+def check_classifier_invariants_batch(conn, user_id: int) -> list:
+    """Detect transactions with missing or duplicate parent classifications.
+
+    Runs a single GROUP BY query — call once at end of a classify job.
+    Returns list of violation dicts. Never raises.
+    """
+    violations = []
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT t.id, COUNT(tc.id) as parent_count
+            FROM transactions t
+            LEFT JOIN transaction_classifications tc
+                ON tc.transaction_id = t.id AND tc.user_id = %s AND tc.leg_type = 'parent'
+            WHERE t.user_id = %s
+            GROUP BY t.id
+            HAVING COUNT(tc.id) != 1
+            LIMIT 100
+            """,
+            (user_id, user_id),
+        )
+        for row in cur.fetchall():
+            tx_id, parent_count = row[0], row[1]
+            violation = {"transaction_id": tx_id, "parent_count": parent_count}
+            violations.append(violation)
+            logger.warning(
+                "Classifier invariant: tx_id=%s has %d parent classifications (expected 1)",
+                tx_id, parent_count,
+            )
+            write_audit(
+                conn,
+                user_id=user_id,
+                entity_type="transaction_classification",
+                entity_id=tx_id,
+                action="invariant_violation",
+                new_value={"issue": "parent_count_mismatch", "parent_count": parent_count},
+                actor_type="system",
+            )
+        cur.close()
+
+        # Swap leg balance check
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT tc_parent.id, tc_parent.transaction_id,
+                   COUNT(CASE WHEN tc_child.leg_type = 'sell_leg' THEN 1 END) as sell_count,
+                   COUNT(CASE WHEN tc_child.leg_type = 'buy_leg' THEN 1 END) as buy_count,
+                   COUNT(CASE WHEN tc_child.leg_type = 'fee_leg' THEN 1 END) as fee_count
+            FROM transaction_classifications tc_parent
+            LEFT JOIN transaction_classifications tc_child
+                ON tc_child.parent_classification_id = tc_parent.id
+            WHERE tc_parent.user_id = %s
+              AND tc_parent.leg_type = 'parent'
+              AND tc_parent.category IN ('capital_gain', 'capital_loss')
+            GROUP BY tc_parent.id, tc_parent.transaction_id
+            HAVING COUNT(CASE WHEN tc_child.leg_type = 'sell_leg' THEN 1 END) != 1
+                OR COUNT(CASE WHEN tc_child.leg_type = 'buy_leg' THEN 1 END) != 1
+            LIMIT 100
+            """,
+            (user_id,),
+        )
+        for row in cur.fetchall():
+            cls_id, tx_id, sell_count, buy_count, fee_count = row
+            violation = {
+                "classification_id": cls_id,
+                "transaction_id": tx_id,
+                "sell_legs": sell_count,
+                "buy_legs": buy_count,
+                "fee_legs": fee_count,
+            }
+            violations.append(violation)
+            logger.warning(
+                "Classifier invariant: swap cls_id=%s has %d sell, %d buy legs",
+                cls_id, sell_count, buy_count,
+            )
+            write_audit(
+                conn,
+                user_id=user_id,
+                entity_type="transaction_classification",
+                entity_id=cls_id,
+                action="invariant_violation",
+                new_value={"issue": "swap_leg_imbalance", **violation},
+                actor_type="system",
+            )
+        cur.close()
+    except Exception:
+        logger.warning("Failed to run classifier invariant batch check", exc_info=True)
+
+    return violations

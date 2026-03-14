@@ -13,8 +13,9 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 import logging
 
-from engine.acb.pool import ACBPool
+from engine.acb.pool import ACBPool, check_acb_pool_invariants
 from engine.acb.symbols import resolve_token_symbol, normalize_timestamp, to_human_units
+from db.audit import write_audit
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +129,23 @@ class ACBEngine:
                     user_id, len(superficial_losses),
                 )
             stats["superficial_losses"] = len(superficial_losses)
+
+            # Write one audit row per token after the full replay (not per-transaction).
+            # This prevents audit table bloat while still recording the final ACB state.
+            for symbol, pool in pools.items():
+                write_audit(
+                    conn,
+                    user_id=user_id,
+                    entity_type="acb_snapshot",
+                    entity_id=None,
+                    action="acb_calculation",
+                    new_value={
+                        "symbol": symbol,
+                        "total_units": str(pool.total_units),
+                        "total_cost_cad": str(pool.total_cost_cad),
+                    },
+                    actor_type="system",
+                )
 
             conn.commit()
             stats["tokens_processed"] = len(stats["tokens_processed"])
@@ -254,6 +272,7 @@ class ACBEngine:
         fmv_cad = price_cad or Decimal("0")
         cost_cad = units * fmv_cad
         snap = pool.acquire(units, cost_cad)
+        check_acb_pool_invariants(pool, conn=conn, user_id=user_id, context=f"income:{row.id}")
 
         self._persist_snapshot(
             conn=conn, user_id=user_id, symbol=symbol, classification_id=row.id,
@@ -281,6 +300,7 @@ class ACBEngine:
             proceeds_cad = units * (price_cad or Decimal("0"))
         fee_cad = fee_human * (price_cad or Decimal("0"))
         snap = pool.dispose(units, proceeds_cad, fee_cad=fee_cad)
+        check_acb_pool_invariants(pool, conn=conn, user_id=user_id, context=f"disposal:{row.id}")
 
         snap_id = self._persist_snapshot(
             conn=conn, user_id=user_id, symbol=symbol, classification_id=row.id,
@@ -316,6 +336,7 @@ class ACBEngine:
         _, sell_price_cad, sell_is_est = self._resolve_fmv_cad(sell_leg, unix_ts, sell_symbol)
         sell_proceeds_cad = sell_units * (sell_price_cad or Decimal("0"))
         sell_snap = sell_pool.dispose(sell_units, sell_proceeds_cad)
+        check_acb_pool_invariants(sell_pool, conn=conn, user_id=user_id, context=f"swap-sell:{sell_leg.id}")
         sell_snap_id = self._persist_snapshot(
             conn=conn, user_id=user_id, symbol=sell_symbol, classification_id=sell_leg.id,
             block_timestamp=raw_ts, snap=sell_snap, proceeds_cad=sell_snap["net_proceeds_cad"],
@@ -360,6 +381,7 @@ class ACBEngine:
         _, buy_price_cad, buy_is_est = self._resolve_fmv_cad(buy_leg, unix_ts, buy_symbol)
         buy_cost_cad = buy_units * (buy_price_cad or Decimal("0"))
         buy_snap = buy_pool.acquire(buy_units, buy_cost_cad, fee_cad=fee_cad)
+        check_acb_pool_invariants(buy_pool, conn=conn, user_id=user_id, context=f"swap-buy:{buy_leg.id}")
         self._persist_snapshot(
             conn=conn, user_id=user_id, symbol=buy_symbol, classification_id=buy_leg.id,
             block_timestamp=raw_ts, snap=buy_snap, proceeds_cad=None, gain_loss_cad=None,

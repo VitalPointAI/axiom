@@ -652,3 +652,70 @@ class TestACBGapDataEdgeCases:
         assert pool.total_cost_cad == Decimal("0"), (
             "Pool total_cost_cad should remain 0 after empty-pool disposal"
         )
+
+
+# ---------------------------------------------------------------------------
+# ACB Pool Invariant Checks
+# ---------------------------------------------------------------------------
+
+
+class TestACBPoolInvariants:
+    """Tests for check_acb_pool_invariants — runtime invariant detection."""
+
+    def test_invariant_clean_pool(self):
+        """Normal pool with positive balance passes invariant check."""
+        from engine.acb.pool import ACBPool, check_acb_pool_invariants
+
+        pool = ACBPool("NEAR")
+        pool.acquire(Decimal("100"), Decimal("500"))
+        assert check_acb_pool_invariants(pool) is True
+
+    def test_invariant_negative_balance(self):
+        """Pool with negative total_units is detected as violation."""
+        from engine.acb.pool import ACBPool, check_acb_pool_invariants
+
+        pool = ACBPool("NEAR")
+        # Force negative state (shouldn't happen in normal operation)
+        pool.total_units = Decimal("-1")
+        pool.total_cost_cad = Decimal("100")
+        assert check_acb_pool_invariants(pool) is False
+
+    def test_invariant_negative_cost(self):
+        """Pool with negative total_cost_cad is detected as violation."""
+        from engine.acb.pool import ACBPool, check_acb_pool_invariants
+
+        pool = ACBPool("NEAR")
+        pool.total_units = Decimal("10")
+        pool.total_cost_cad = Decimal("-50")
+        assert check_acb_pool_invariants(pool) is False
+
+    def test_invariant_writes_audit(self):
+        """Invariant violation calls write_audit when conn is provided."""
+        from engine.acb.pool import ACBPool, check_acb_pool_invariants
+
+        pool = ACBPool("NEAR")
+        pool.total_units = Decimal("-1")
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("db.audit.write_audit") as mock_audit:
+            result = check_acb_pool_invariants(pool, conn=mock_conn, user_id=1, context="test")
+            assert result is False
+            mock_audit.assert_called_once()
+            call_kwargs = mock_audit.call_args[1]
+            assert call_kwargs["action"] == "invariant_violation"
+            assert call_kwargs["entity_type"] == "acb_pool"
+            assert call_kwargs["user_id"] == 1
+
+    def test_invariant_no_audit_without_conn(self):
+        """Invariant violation without conn skips audit write."""
+        from engine.acb.pool import ACBPool, check_acb_pool_invariants
+
+        pool = ACBPool("NEAR")
+        pool.total_units = Decimal("-1")
+
+        # No conn passed — write_audit should not be called
+        result = check_acb_pool_invariants(pool)
+        assert result is False

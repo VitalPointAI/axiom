@@ -1168,3 +1168,68 @@ class TestMultiHopSwapDecomposition:
         assert "sell_leg" in leg_types
         assert "buy_leg" in leg_types
         assert not any("intermediate" in lt for lt in leg_types)
+
+
+# ---------------------------------------------------------------------------
+# Classifier Invariant Batch Checks
+# ---------------------------------------------------------------------------
+
+
+class TestClassifierInvariants:
+    """Tests for check_classifier_invariants_batch — detect structural issues."""
+
+    def test_invariant_missing_parent(self):
+        """Transaction with 0 parent classifications is detected."""
+        from engine.classifier.writer import check_classifier_invariants_batch
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        # First query (parent count): tx_id=42 with 0 parents
+        # Second query (swap leg balance): no results
+        mock_cursor.fetchall.side_effect = [[(42, 0)], []]
+        mock_conn.cursor.return_value = mock_cursor
+
+        violations = check_classifier_invariants_batch(mock_conn, user_id=1)
+        assert len(violations) >= 1
+        assert violations[0]["transaction_id"] == 42
+        assert violations[0]["parent_count"] == 0
+
+    def test_invariant_duplicate_parent(self):
+        """Transaction with 2 parent classifications is detected."""
+        from engine.classifier.writer import check_classifier_invariants_batch
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.side_effect = [[(99, 2)], []]
+        mock_conn.cursor.return_value = mock_cursor
+
+        violations = check_classifier_invariants_batch(mock_conn, user_id=1)
+        assert len(violations) >= 1
+        assert violations[0]["parent_count"] == 2
+
+    def test_invariant_clean_state(self):
+        """No violations returns empty list."""
+        from engine.classifier.writer import check_classifier_invariants_batch
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.side_effect = [[], []]
+        mock_conn.cursor.return_value = mock_cursor
+
+        violations = check_classifier_invariants_batch(mock_conn, user_id=1)
+        assert violations == []
+
+    def test_invariant_swap_leg_imbalance(self):
+        """Swap with missing buy_leg is detected."""
+        from engine.classifier.writer import check_classifier_invariants_batch
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        # First query (parent count): clean
+        # Second query (swap legs): cls_id=50, tx_id=10, 1 sell, 0 buy, 0 fee
+        mock_cursor.fetchall.side_effect = [[], [(50, 10, 1, 0, 0)]]
+        mock_conn.cursor.return_value = mock_cursor
+
+        violations = check_classifier_invariants_batch(mock_conn, user_id=1)
+        assert len(violations) >= 1
+        assert violations[0]["buy_legs"] == 0
