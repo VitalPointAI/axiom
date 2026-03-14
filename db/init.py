@@ -31,25 +31,25 @@ def get_connection():
 def init_db():
     """Initialize database with all schemas."""
     db_path = get_db_path()
-    
+
     print(f"Initializing database: {db_path}")
-    
+
     conn = sqlite3.connect(db_path)
-    
+
     # Load base schema
     schema_path = PROJECT_ROOT / "db" / "schema.sql"
     with open(schema_path, 'r') as f:
         conn.executescript(f.read())
-    
+
     # Load EVM schema if exists
     evm_schema_path = PROJECT_ROOT / "db" / "schema_evm.sql"
     if evm_schema_path.exists():
         with open(evm_schema_path, 'r') as f:
             conn.executescript(f.read())
-    
+
     conn.commit()
     conn.close()
-    
+
     print("Database initialized successfully")
     return db_path
 

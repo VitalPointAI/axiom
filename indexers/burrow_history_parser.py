@@ -4,7 +4,7 @@ Burrow Finance Historical Transaction Parser
 
 Parses FT transactions involving Burrow to track:
 - Supply/Withdraw events
-- Borrow/Repay events  
+- Borrow/Repay events
 - BRRR reward income
 - Liquidations
 
@@ -46,10 +46,10 @@ def parse_burrow_history():
     """Parse all Burrow-related FT transactions into defi_events."""
     conn = psycopg2.connect(PG_CONN)
     cur = conn.cursor()
-    
+
     # Get all FT transactions involving Burrow
     cur.execute("""
-        SELECT 
+        SELECT
             ft.id, ft.wallet_id, ft.token_contract, ft.token_symbol,
             ft.amount, ft.counterparty, ft.direction, ft.cause,
             ft.tx_hash, ft.block_timestamp, ft.token_decimals,
@@ -60,21 +60,21 @@ def parse_burrow_history():
            OR ft.token_contract = 'token.burrow.near'
         ORDER BY ft.block_timestamp
     """)
-    
+
     transactions = cur.fetchall()
     print(f"Found {len(transactions)} Burrow-related FT transactions")
-    
+
     # Clear existing burrow events from defi_events (we'll rebuild)
     cur.execute("DELETE FROM defi_events WHERE protocol = 'burrow' AND event_type NOT IN ('supply', 'collateral', 'borrow')")
-    
+
     events = []
     processed_count = 0
-    
+
     for row in transactions:
         (ft_id, wallet_id, token_contract, token_symbol, amount,
-         counterparty, direction, cause, tx_hash, timestamp, 
+         counterparty, direction, cause, tx_hash, timestamp,
          token_decimals, account_id) = row
-        
+
         # Parse amount
         try:
             decimals = token_decimals or get_decimals(token_contract)
@@ -82,16 +82,16 @@ def parse_burrow_history():
         except (ValueError, TypeError, ZeroDivisionError) as e:
             logger.warning("Failed to parse amount for tx %s (contract %s): %s", tx_hash, token_contract, e)
             amount_decimal = 0
-        
+
         # Determine event type and tax category
         event_type = None
         tax_category = None
         tax_notes = None
         needs_review = 0
-        
+
         counterparty_lower = (counterparty or '').lower()
         is_burrow = 'burrow' in counterparty_lower
-        
+
         # BRRR token rewards
         if token_contract == BRRR_CONTRACT or token_symbol == 'BRRR':
             if direction == 'in':
@@ -102,13 +102,13 @@ def parse_burrow_history():
                 event_type = 'brrr_transfer'
                 tax_category = 'transfer'
                 tax_notes = 'BRRR transferred out'
-        
+
         # Supply (sending tokens TO Burrow)
         elif is_burrow and direction == 'out':
             event_type = 'supply'
             tax_category = 'collateral_in'
             tax_notes = 'Supplied to Burrow lending - non-taxable deposit'
-        
+
         # Withdraw (receiving tokens FROM Burrow)
         elif is_burrow and direction == 'in':
             # Check if it might be a liquidation
@@ -132,7 +132,7 @@ def parse_burrow_history():
                 event_type = 'withdraw'
                 tax_category = 'collateral_out'
                 tax_notes = 'Withdrawn from Burrow - non-taxable'
-        
+
         if event_type:
             events.append({
                 'wallet_id': wallet_id,
@@ -152,11 +152,11 @@ def parse_burrow_history():
                 'needs_review': needs_review,
             })
             processed_count += 1
-    
+
     # Insert events
     for e in events:
         cur.execute("""
-            INSERT INTO defi_events 
+            INSERT INTO defi_events
             (wallet_id, protocol, event_type, token_contract, token_symbol,
              amount, amount_decimal, counterparty, tx_hash, block_timestamp,
              price_usd, value_usd, tax_category, tax_notes, needs_review)
@@ -167,18 +167,18 @@ def parse_burrow_history():
             e['tx_hash'], e['block_timestamp'], e['price_usd'], e['value_usd'],
             e['tax_category'], e['tax_notes'], e['needs_review']
         ))
-    
+
     conn.commit()
-    
+
     # Summary
     cur.execute("""
         SELECT event_type, tax_category, COUNT(*), SUM(amount_decimal)
-        FROM defi_events 
+        FROM defi_events
         WHERE protocol = 'burrow'
         GROUP BY event_type, tax_category
         ORDER BY count DESC
     """)
-    
+
     print("\n=== Burrow Events Summary ===")
     print(f"{'Event':<20} {'Tax Category':<20} {'Count':>8} {'Total Amount':>15}")
     print("-" * 70)
@@ -186,10 +186,10 @@ def parse_burrow_history():
         event, category, count, total = row
         total = total or 0
         print(f"{event:<20} {category:<20} {count:>8} {total:>15,.4f}")
-    
+
     cur.close()
     conn.close()
-    
+
     print(f"\nCreated {len(events)} Burrow DeFi events")
     return events
 
@@ -198,86 +198,86 @@ def auto_categorize_flagged():
     """Auto-categorize the 974 flagged transactions that need review."""
     conn = psycopg2.connect(PG_CONN)
     cur = conn.cursor()
-    
+
     # Get counts before
     cur.execute("SELECT COUNT(*) FROM defi_events WHERE needs_review = 1")
     before = cur.fetchone()[0]
     print(f"\nTransactions needing review before: {before}")
-    
+
     # Meta Pool unstakes - these are taxable disposals
     # Selling stNEAR for NEAR is a taxable event
     cur.execute("""
-        UPDATE defi_events 
+        UPDATE defi_events
         SET needs_review = 0,
             tax_category = 'trade',
             tax_notes = 'Unstaking stNEAR - taxable disposal, gain/loss based on stNEAR cost basis'
-        WHERE protocol = 'meta_pool' 
+        WHERE protocol = 'meta_pool'
         AND event_type = 'liquid_unstake'
         AND needs_review = 1
     """)
     mp_unstakes = cur.rowcount
     print(f"  Meta Pool unstakes categorized as trades: {mp_unstakes}")
-    
+
     # Ref Finance LP additions - non-taxable (adding liquidity)
     cur.execute("""
-        UPDATE defi_events 
+        UPDATE defi_events
         SET needs_review = 0,
             tax_category = 'liquidity_add',
             tax_notes = 'LP deposit - track cost basis of tokens added'
-        WHERE protocol = 'ref_finance' 
+        WHERE protocol = 'ref_finance'
         AND event_type IN ('lp_add', 'liquidity_in')
         AND needs_review = 1
     """)
     lp_adds = cur.rowcount
     print(f"  Ref LP additions categorized: {lp_adds}")
-    
+
     # Ref Finance LP removals - may have gains if IL occurred
     cur.execute("""
-        UPDATE defi_events 
+        UPDATE defi_events
         SET needs_review = 0,
             tax_category = 'liquidity_remove',
             tax_notes = 'LP withdrawal - compare to original deposit for IL gains/losses'
-        WHERE protocol = 'ref_finance' 
+        WHERE protocol = 'ref_finance'
         AND event_type IN ('lp_remove', 'liquidity_out')
         AND needs_review = 1
     """)
     lp_removes = cur.rowcount
     print(f"  Ref LP removals categorized: {lp_removes}")
-    
+
     # Ref swaps - taxable trades
     cur.execute("""
-        UPDATE defi_events 
+        UPDATE defi_events
         SET needs_review = 0,
             tax_category = 'trade',
             tax_notes = 'DEX swap - taxable disposal, calculate gain/loss'
-        WHERE protocol = 'ref_finance' 
+        WHERE protocol = 'ref_finance'
         AND event_type IN ('swap', 'swap_out', 'swap_in', 'trade')
         AND needs_review = 1
     """)
     swaps = cur.rowcount
     print(f"  Ref swaps categorized as trades: {swaps}")
-    
+
     conn.commit()
-    
+
     # Get counts after
     cur.execute("SELECT COUNT(*) FROM defi_events WHERE needs_review = 1")
     after = cur.fetchone()[0]
     print(f"\nTransactions still needing review: {after}")
     print(f"Auto-categorized: {before - after}")
-    
+
     # Show remaining by type
     if after > 0:
         cur.execute("""
-            SELECT protocol, event_type, COUNT(*) 
-            FROM defi_events 
-            WHERE needs_review = 1 
-            GROUP BY protocol, event_type 
+            SELECT protocol, event_type, COUNT(*)
+            FROM defi_events
+            WHERE needs_review = 1
+            GROUP BY protocol, event_type
             ORDER BY count DESC
         """)
         print("\nRemaining uncategorized:")
         for row in cur.fetchall():
             print(f"  {row[0]}: {row[1]} ({row[2]})")
-    
+
     cur.close()
     conn.close()
 
@@ -285,6 +285,6 @@ def auto_categorize_flagged():
 if __name__ == '__main__':
     print("=== Parsing Burrow History ===")
     parse_burrow_history()
-    
+
     print("\n=== Auto-categorizing Flagged Transactions ===")
     auto_categorize_flagged()

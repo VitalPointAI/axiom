@@ -30,7 +30,7 @@ while pages < 30:
     url = f"https://api.nearblocks.io/v1/account/{wallet}/txns?per_page=100"
     if cursor:
         url += f"&cursor={cursor}"
-    
+
     try:
         resp = requests.get(url, timeout=30)
         data = resp.json()
@@ -38,11 +38,11 @@ while pages < 30:
         print(f"  Error on page {pages}: {e}")
         time.sleep(2)
         continue
-    
+
     txns = data.get("txns", [])
     if not txns:
         break
-    
+
     pages += 1
     for tx in txns:
         tx_hash = tx.get("transaction_hash", "")
@@ -50,13 +50,13 @@ while pages < 30:
             nb_hashes.add(tx_hash)
             if tx_hash not in nb_txns:
                 nb_txns[tx_hash] = tx
-    
+
     cursor = data.get("cursor")
     print(f"  Page {pages}: fetched {len(txns)} txns, total unique: {len(nb_hashes)}")
-    
+
     if not cursor:
         break
-    
+
     time.sleep(0.3)  # Rate limit
 
 print(f"\nNearBlocks has {len(nb_hashes)} unique tx_hashes")
@@ -72,13 +72,13 @@ if missing:
     print("\n" + "="*70)
     print("MISSING TRANSACTIONS (need to index these):")
     print("="*70)
-    
+
     for tx_hash in sorted(missing):
         tx = nb_txns.get(tx_hash, {})
         predecessor = tx.get("predecessor_account_id", "?")
         receiver = tx.get("receiver_account_id", "?")
         actions = tx.get("actions", [])
-        
+
         # Get deposit and action type
         action_info = []
         total_deposit = 0
@@ -88,11 +88,11 @@ if missing:
                 deposit = (a.get("deposit") or 0) / 1e24
                 total_deposit += deposit
                 action_info.append(f"{action_type}({deposit:.4f})")
-        
+
         # Check receipt status
         receipt_outcome = tx.get("receipt_outcome", {})
         status = receipt_outcome.get("status", "?")
-        
+
         print(f"\n  TX: {tx_hash}")
         print(f"    From: {predecessor} -> To: {receiver}")
         print(f"    Actions: {', '.join(action_info) if action_info else 'N/A'}")

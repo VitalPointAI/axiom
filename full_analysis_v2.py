@@ -44,17 +44,17 @@ internal_txs = response.json().get('result', []) if response.json().get('status'
 print(f"   Internal txs: {len(internal_txs)}")
 
 # Calculate
-eth_in_normal = sum(int(tx['value']) / 1e18 for tx in normal_txs 
+eth_in_normal = sum(int(tx['value']) / 1e18 for tx in normal_txs
                     if tx['to'].lower() == address and tx.get('isError', '0') == '0')
-eth_out_normal = sum(int(tx['value']) / 1e18 for tx in normal_txs 
+eth_out_normal = sum(int(tx['value']) / 1e18 for tx in normal_txs
                      if tx['from'].lower() == address and tx.get('isError', '0') == '0')
-eth_in_internal = sum(int(tx['value']) / 1e18 for tx in internal_txs 
+eth_in_internal = sum(int(tx['value']) / 1e18 for tx in internal_txs
                       if tx['to'].lower() == address and tx.get('isError', '0') == '0')
-eth_out_internal = sum(int(tx['value']) / 1e18 for tx in internal_txs 
+eth_out_internal = sum(int(tx['value']) / 1e18 for tx in internal_txs
                        if tx['from'].lower() == address and tx.get('isError', '0') == '0')
 
 # Gas fees - only for txs we initiated
-gas_fees = sum((int(tx['gasUsed']) * int(tx['gasPrice'])) / 1e18 
+gas_fees = sum((int(tx['gasUsed']) * int(tx['gasPrice'])) / 1e18
                for tx in normal_txs if tx['from'].lower() == address)
 
 print(f"\n   Normal IN:    {eth_in_normal:.6f} ETH")
@@ -101,7 +101,7 @@ response = requests.post(url, json={
 }, timeout=120)
 
 alchemy_traces_in = response.json().get('result', [])
-alchemy_in_value = sum(int(t.get('action', {}).get('value', '0x0'), 16) / 1e18 
+alchemy_in_value = sum(int(t.get('action', {}).get('value', '0x0'), 16) / 1e18
                        for t in alchemy_traces_in)
 print(f"   Alchemy trace IN: {alchemy_in_value:.6f} ETH ({len(alchemy_traces_in)} traces)")
 

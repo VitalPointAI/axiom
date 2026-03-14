@@ -70,12 +70,12 @@ def create_defi_events_table():
 def parse_burrow_transactions():
     """Parse all Burrow-related FT transactions."""
     create_defi_events_table()
-    
+
     conn = get_connection()
-    
+
     # Find all FT transactions involving Burrow
     cur = conn.execute("""
-        SELECT ft.id, ft.wallet_id, ft.token_contract, ft.token_symbol, 
+        SELECT ft.id, ft.wallet_id, ft.token_contract, ft.token_symbol,
                ft.amount, ft.counterparty, ft.direction, ft.cause,
                ft.tx_hash, ft.block_timestamp, ft.token_decimals,
                w.account_id
@@ -85,16 +85,16 @@ def parse_burrow_transactions():
            OR ft.token_contract = 'token.burrow.near'
         ORDER BY ft.block_timestamp
     """)
-    
+
     transactions = cur.fetchall()
     print(f"Found {len(transactions)} Burrow-related FT transactions")
-    
+
     events = []
-    
+
     for row in transactions:
-        (ft_id, wallet_id, token_contract, token_symbol, amount, 
+        (ft_id, wallet_id, token_contract, token_symbol, amount,
          counterparty, direction, cause, tx_hash, timestamp, decimals, account_id) = row
-        
+
         # Parse amount
         try:
             decimals = decimals or 18
@@ -102,13 +102,13 @@ def parse_burrow_transactions():
         except (ValueError, TypeError, ZeroDivisionError) as e:
             logger.warning("Failed to parse amount for tx %s (contract %s): %s", tx_hash, token_contract, e)
             amount_decimal = 0
-        
+
         # Determine event type and tax category
         event_type = None
         tax_category = None
         tax_notes = None
         needs_review = 0
-        
+
         # BRRR rewards
         if token_contract == BRRR_CONTRACT:
             if direction == "in":
@@ -119,7 +119,7 @@ def parse_burrow_transactions():
                 event_type = "brrr_transfer"
                 tax_category = "transfer"
                 tax_notes = "BRRR transfer out"
-        
+
         # Supply/Withdraw
         elif "burrow" in (counterparty or "").lower():
             if direction == "out":
@@ -130,18 +130,18 @@ def parse_burrow_transactions():
                 event_type = "withdraw"
                 tax_category = "collateral_out"
                 tax_notes = "Withdrawn from Burrow - non-taxable"
-                
+
                 # Check if this might be liquidation (need more context)
                 if cause and "liquidat" in cause.lower():
                     event_type = "liquidation"
                     tax_category = "capital_loss"
                     tax_notes = "Liquidation - may be capital loss"
                     needs_review = 1
-        
+
         # Get price at time of transaction
         price_usd = None
         value_usd = None
-        
+
         if token_symbol in ["USDC", "USDT", "USN", "DAI"]:
             price_usd = 1.0
             value_usd = amount_decimal
@@ -149,7 +149,7 @@ def parse_burrow_transactions():
             price_usd = get_hourly_price("NEAR", timestamp)
             if price_usd:
                 value_usd = amount_decimal * price_usd
-        
+
         if event_type:
             events.append({
                 "wallet_id": wallet_id,
@@ -168,11 +168,11 @@ def parse_burrow_transactions():
                 "tax_notes": tax_notes,
                 "needs_review": needs_review,
             })
-    
+
     # Insert events
     for e in events:
         conn.execute("""
-            INSERT INTO defi_events 
+            INSERT INTO defi_events
             (wallet_id, protocol, event_type, token_contract, token_symbol,
              amount, amount_decimal, counterparty, tx_hash, block_timestamp,
              price_usd, value_usd, tax_category, tax_notes, needs_review)
@@ -183,10 +183,10 @@ def parse_burrow_transactions():
             e["tx_hash"], e["block_timestamp"], e["price_usd"], e["value_usd"],
             e["tax_category"], e["tax_notes"], e["needs_review"]
         ))
-    
+
     conn.commit()
     conn.close()
-    
+
     print(f"Created {len(events)} Burrow DeFi events")
     return events
 
@@ -194,9 +194,9 @@ def parse_burrow_transactions():
 def get_burrow_summary():
     """Get summary of Burrow activity."""
     conn = get_connection()
-    
+
     cur = conn.execute("""
-        SELECT 
+        SELECT
             event_type,
             token_symbol,
             SUM(amount_decimal) as total_amount,
@@ -207,34 +207,34 @@ def get_burrow_summary():
         GROUP BY event_type, token_symbol
         ORDER BY total_usd DESC NULLS LAST
     """)
-    
+
     print("\n=== Burrow Activity Summary ===")
     print(f"{'Event':<20} {'Token':<10} {'Amount':>15} {'USD':>15} {'Count':>8}")
     print("-" * 70)
-    
+
     total_income = 0
-    
+
     for row in cur.fetchall():
         event, token, amount, usd, count = row
         amount = amount or 0
         usd = usd or 0
         print(f"{event:<20} {token or '?':<10} {amount:>15,.2f} {usd:>15,.2f} {count:>8}")
-        
+
         if event == "brrr_reward":
             total_income += usd
-    
+
     print("-" * 70)
     print(f"Total BRRR Rewards (Taxable Income): ${total_income:,.2f}")
-    
+
     conn.close()
 
 
 def get_burrow_tax_summary_by_year():
     """Get Burrow taxable events by year."""
     conn = get_connection()
-    
+
     cur = conn.execute("""
-        SELECT 
+        SELECT
             strftime('%Y', datetime(block_timestamp/1000000000, 'unixepoch')) as year,
             tax_category,
             SUM(value_usd) as total_usd,
@@ -246,13 +246,13 @@ def get_burrow_tax_summary_by_year():
         GROUP BY year, tax_category
         ORDER BY year, tax_category
     """)
-    
+
     print("\n=== Burrow Tax Events by Year ===")
     for row in cur.fetchall():
         year, category, usd, events = row
         usd = usd or 0
         print(f"  {year} - {category}: ${usd:,.2f} ({events} events)")
-    
+
     conn.close()
 
 

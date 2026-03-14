@@ -11,7 +11,7 @@ def fetch_all_traces(direction):
     """Fetch all traces with pagination"""
     all_traces = []
     after = None
-    
+
     while True:
         params = {
             f'{direction}Address': [address],
@@ -21,26 +21,26 @@ def fetch_all_traces(direction):
         }
         if after:
             params['after'] = after
-            
+
         response = requests.post(url, json={
             'jsonrpc': '2.0',
             'id': 1,
             'method': 'trace_filter',
             'params': [params]
         }, timeout=60)
-        
+
         data = response.json()
         if 'error' in data:
             print(f"Error: {data['error']}")
             break
-            
+
         traces = data.get('result', [])
         all_traces.extend(traces)
-        
+
         if len(traces) < 1000:
             break
         after = len(all_traces)
-    
+
     return all_traces
 
 print(f"Analyzing traces for {address[:16]}...")
@@ -51,7 +51,7 @@ print("\nFetching incoming traces...")
 incoming = fetch_all_traces('to')
 print(f"Got {len(incoming)} incoming traces")
 
-# Fetch outgoing traces  
+# Fetch outgoing traces
 print("\nFetching outgoing traces...")
 outgoing = fetch_all_traces('from')
 print(f"Got {len(outgoing)} outgoing traces")
@@ -67,7 +67,7 @@ incoming_total = 0
 for t in incoming:
     trace_type = t.get('type', 'unknown')
     action = t.get('action', {})
-    
+
     # Get value depending on type
     if trace_type == 'suicide':
         value = int(action.get('balance', '0x0'), 16) / 1e18
@@ -75,7 +75,7 @@ for t in incoming:
         value = int(action.get('value', '0x0'), 16) / 1e18
     else:
         value = int(action.get('value', '0x0'), 16) / 1e18
-    
+
     if trace_type not in incoming_by_type:
         incoming_by_type[trace_type] = {'count': 0, 'value': 0}
     incoming_by_type[trace_type]['count'] += 1
@@ -98,12 +98,12 @@ outgoing_total = 0
 for t in outgoing:
     trace_type = t.get('type', 'unknown')
     action = t.get('action', {})
-    
+
     if trace_type == 'suicide':
         value = int(action.get('balance', '0x0'), 16) / 1e18
     else:
         value = int(action.get('value', '0x0'), 16) / 1e18
-    
+
     if trace_type not in outgoing_by_type:
         outgoing_by_type[trace_type] = {'count': 0, 'value': 0}
     outgoing_by_type[trace_type]['count'] += 1

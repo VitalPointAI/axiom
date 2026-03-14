@@ -11,7 +11,7 @@ url = f'https://eth-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}'
 conn = sqlite3.connect('/home/deploy/neartax/neartax.db')
 cursor = conn.cursor()
 cursor.execute("""
-    SELECT tx_hash FROM transactions 
+    SELECT tx_hash FROM transactions
     WHERE wallet_id = 75 AND action_type = 'TRANSFER' AND direction = 'IN'
     LIMIT 5
 """)
@@ -28,7 +28,7 @@ for tx_hash in tx_hashes:
         'method': 'trace_transaction',
         'params': [tx_hash]
     })
-    
+
     data = response.json()
     if 'error' in data:
         print(f"  Error: {data['error']}")
@@ -36,7 +36,7 @@ for tx_hash in tx_hashes:
     else:
         traces = data.get('result', [])
         print(f"  Got {len(traces)} traces")
-        
+
         # Look for suicide (SELFDESTRUCT)
         for t in traces:
             if t.get('type') == 'suicide':

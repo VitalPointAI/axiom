@@ -9,7 +9,7 @@ wallet_id = cur.fetchone()[0]
 
 # Check for tx hashes that have both IN and OUT
 cur.execute("""
-    SELECT tx_hash, 
+    SELECT tx_hash,
            SUM(CASE WHEN direction = 'in' THEN 1 ELSE 0 END) as in_cnt,
            SUM(CASE WHEN direction = 'out' THEN 1 ELSE 0 END) as out_cnt,
            SUM(CASE WHEN direction = 'in' THEN CAST(amount AS REAL) ELSE 0 END)/1e24 as in_near,

@@ -41,12 +41,12 @@ def fetch_asset_transfers(chain: str, address: str, direction: str = 'both') -> 
     """
     url = get_alchemy_url(chain)
     all_transfers = []
-    
+
     categories = ["external", "internal", "erc20"]
-    
+
     for from_to in ['from', 'to'] if direction == 'both' else [direction]:
         page_key = None
-        
+
         while True:
             params = {
                 "jsonrpc": "2.0",
@@ -60,38 +60,38 @@ def fetch_asset_transfers(chain: str, address: str, direction: str = 'both') -> 
                     "maxCount": "0x3e8",
                 }]
             }
-            
+
             if page_key:
                 params["params"][0]["pageKey"] = page_key
-            
+
             try:
                 response = requests.post(url, json=params, timeout=30)
                 data = response.json()
-                
+
                 if "error" in data:
                     print(f"Alchemy API error: {data['error']}")
                     break
-                
+
                 result = data.get("result", {})
                 transfers = result.get("transfers", [])
                 all_transfers.extend(transfers)
-                
+
                 page_key = result.get("pageKey")
                 if not page_key:
                     break
-                    
+
                 print(f"  Fetched {len(transfers)} transfers, continuing...")
-                
+
             except Exception as e:
                 print(f"Error fetching transfers: {e}")
                 break
-    
+
     return all_transfers
 
 def get_transaction_receipt(chain: str, tx_hash: str) -> Optional[Dict]:
     """Fetch transaction receipt to get gas used and effective gas price."""
     url = get_alchemy_url(chain)
-    
+
     try:
         response = requests.post(url, json={
             "jsonrpc": "2.0",
@@ -99,7 +99,7 @@ def get_transaction_receipt(chain: str, tx_hash: str) -> Optional[Dict]:
             "method": "eth_getTransactionReceipt",
             "params": [tx_hash]
         }, timeout=10)
-        
+
         data = response.json()
         return data.get("result")
     except Exception as e:
@@ -109,7 +109,7 @@ def get_transaction_receipt(chain: str, tx_hash: str) -> Optional[Dict]:
 def get_transaction(chain: str, tx_hash: str) -> Optional[Dict]:
     """Fetch transaction details to get 'from' address."""
     url = get_alchemy_url(chain)
-    
+
     try:
         response = requests.post(url, json={
             "jsonrpc": "2.0",
@@ -117,7 +117,7 @@ def get_transaction(chain: str, tx_hash: str) -> Optional[Dict]:
             "method": "eth_getTransactionByHash",
             "params": [tx_hash]
         }, timeout=10)
-        
+
         data = response.json()
         return data.get("result")
     except Exception as e:
@@ -128,12 +128,12 @@ def batch_get_receipts(chain: str, tx_hashes: List[str]) -> Dict[str, Dict]:
     """Batch fetch receipts using JSON-RPC batch call."""
     url = get_alchemy_url(chain)
     receipts = {}
-    
+
     # Process in batches of 100
     batch_size = 100
     for i in range(0, len(tx_hashes), batch_size):
         batch = tx_hashes[i:i+batch_size]
-        
+
         requests_batch = [
             {
                 "jsonrpc": "2.0",
@@ -143,11 +143,11 @@ def batch_get_receipts(chain: str, tx_hashes: List[str]) -> Dict[str, Dict]:
             }
             for idx, tx_hash in enumerate(batch)
         ]
-        
+
         try:
             response = requests.post(url, json=requests_batch, timeout=60)
             results = response.json()
-            
+
             for idx, result in enumerate(results):
                 if "result" in result and result["result"]:
                     tx_hash = batch[idx]
@@ -159,7 +159,7 @@ def batch_get_receipts(chain: str, tx_hashes: List[str]) -> Dict[str, Dict]:
                 receipt = get_transaction_receipt(chain, tx_hash)
                 if receipt:
                     receipts[tx_hash] = receipt
-    
+
     return receipts
 
 def process_transfers_and_fees(transfers: List[Dict], wallet_address: str, chain: str) -> tuple:
@@ -169,20 +169,20 @@ def process_transfers_and_fees(transfers: List[Dict], wallet_address: str, chain
     """
     wallet_lower = wallet_address.lower()
     value_txs = []
-    
+
     # Group transfers by tx_hash to handle multi-transfer txs
     by_hash = defaultdict(list)
     for t in transfers:
         by_hash[t.get("hash", "")].append(t)
-    
+
     # Track which tx_hashes WE sent (we pay the fee)
     our_sent_hashes: Set[str] = set()
-    
+
     for tx_hash, tx_transfers in by_hash.items():
         for t in tx_transfers:
             from_addr = t.get("from", "").lower()
             to_addr = t.get("to", "").lower()
-            
+
             # Determine direction
             if from_addr == wallet_lower:
                 direction = "OUT"
@@ -193,7 +193,7 @@ def process_transfers_and_fees(transfers: List[Dict], wallet_address: str, chain
                 counterparty = from_addr
             else:
                 continue  # Not related
-            
+
             # Get value
             value = t.get("value")
             if value is None:
@@ -206,11 +206,11 @@ def process_transfers_and_fees(transfers: List[Dict], wallet_address: str, chain
                         value = 0
                 else:
                     value = 0
-            
+
             # Get asset info
             asset = t.get("asset", "ETH")
             category = t.get("category", "external")
-            
+
             # Map category to action type
             if category == "internal":
                 action_type = "INTERNAL_TRANSFER"
@@ -218,17 +218,17 @@ def process_transfers_and_fees(transfers: List[Dict], wallet_address: str, chain
                 action_type = "FT_TRANSFER"
             else:
                 action_type = "TRANSFER"
-            
+
             # Get timestamp from metadata
             block_timestamp = None
             metadata = t.get("metadata", {})
             if "blockTimestamp" in metadata:
                 block_timestamp = metadata["blockTimestamp"]
-            
+
             # Only skip if truly zero value AND not an ERC20 (ERC20 has its own value)
             if value == 0 and category != "erc20":
                 continue
-            
+
             value_txs.append({
                 "tx_hash": tx_hash,
                 "block_num": int(t.get("blockNum", "0x0"), 16),
@@ -240,13 +240,13 @@ def process_transfers_and_fees(transfers: List[Dict], wallet_address: str, chain
                 "action_type": action_type,
                 "category": category,
             })
-    
+
     return value_txs, list(our_sent_hashes)
 
 def calculate_gas_fee(receipt: Dict) -> float:
     """Calculate gas fee from receipt."""
     gas_used = int(receipt.get("gasUsed", "0x0"), 16)
-    
+
     # Try effectiveGasPrice first (EIP-1559), fall back to gasPrice
     effective_gas_price = receipt.get("effectiveGasPrice")
     if effective_gas_price:
@@ -255,32 +255,32 @@ def calculate_gas_fee(receipt: Dict) -> float:
         # For older transactions, we'd need to fetch the transaction itself
         # For now, estimate with a typical gas price
         gas_price = int(receipt.get("gasPrice", "0x0"), 16) if "gasPrice" in receipt else 0
-    
+
     if gas_price == 0:
         return 0
-    
+
     fee_wei = gas_used * gas_price
     fee_eth = fee_wei / 1e18
     return fee_eth
 
 def index_wallet(wallet_id: int, address: str, chain: str) -> Dict[str, int]:
     """Index all transactions for a wallet using Alchemy with proper fee tracking."""
-    
+
     print(f"Indexing {chain} wallet: {address[:10]}...")
-    
+
     # Fetch all transfers (including zero-value)
     transfers = fetch_asset_transfers(chain, address)
     print(f"  Found {len(transfers)} total transfers")
-    
+
     # Process transfers
     value_txs, our_sent_hashes = process_transfers_and_fees(transfers, address, chain)
     print(f"  {len(value_txs)} value transactions, {len(our_sent_hashes)} sent txs (we pay fees)")
-    
+
     # Fetch receipts for transactions we sent (to get gas fees)
     print("  Fetching receipts for fee calculation...")
     receipts = batch_get_receipts(chain, our_sent_hashes)
     print(f"  Got {len(receipts)} receipts")
-    
+
     # Create fee transactions
     fee_txs = []
     total_fees = 0
@@ -290,21 +290,21 @@ def index_wallet(wallet_id: int, address: str, chain: str) -> Dict[str, int]:
             fee = calculate_gas_fee(receipt)
             if fee > 0:
                 total_fees += fee
-                
+
                 # Get block info from receipt
                 block_num = int(receipt.get("blockNumber", "0x0"), 16)
-                
+
                 # Find timestamp from value_txs or fetch it
                 timestamp = None
                 for vtx in value_txs:
                     if vtx["tx_hash"] == tx_hash:
                         timestamp = vtx.get("timestamp")
                         break
-                
+
                 # Determine native token based on chain
                 chain_lower = chain.lower()
                 native_token = "ETH" if chain_lower in ('ethereum', 'eth') else "MATIC"
-                
+
                 fee_txs.append({
                     "tx_hash": tx_hash,
                     "block_num": block_num,
@@ -316,17 +316,17 @@ def index_wallet(wallet_id: int, address: str, chain: str) -> Dict[str, int]:
                     "action_type": "FEE",
                     "category": "fee",
                 })
-    
+
     print(f"  Total gas fees: {total_fees:.6f} ETH across {len(fee_txs)} transactions")
-    
+
     # Insert into database
     conn = get_db()
     cursor = conn.cursor()
-    
+
     inserted = 0
     skipped = 0
     fees_inserted = 0
-    
+
     # Insert value transactions
     for tx in value_txs:
         try:
@@ -358,21 +358,21 @@ def index_wallet(wallet_id: int, address: str, chain: str) -> Dict[str, int]:
                 1,
                 f"alchemy_{chain}"  # Track source
             ))
-            
+
             if cursor.rowcount > 0:
                 inserted += 1
             else:
                 skipped += 1
-                
+
         except Exception as e:
             print(f"  Error inserting tx {tx['tx_hash'][:16]}: {e}")
             skipped += 1
-    
+
     # Insert fee transactions with unique hash suffix
     for tx in fee_txs:
         try:
             fee_hash = tx["tx_hash"] + "_fee"  # Make unique for fee entry
-            
+
             # Convert ISO timestamp to Unix timestamp if present
             block_ts = None
             if tx.get("timestamp"):
@@ -401,51 +401,51 @@ def index_wallet(wallet_id: int, address: str, chain: str) -> Dict[str, int]:
                 1,
                 f"alchemy_{chain}"
             ))
-            
+
             if cursor.rowcount > 0:
                 fees_inserted += 1
-                
+
         except Exception as e:
             print(f"  Error inserting fee for {tx['tx_hash'][:16]}: {e}")
-    
+
     conn.commit()
     conn.close()
-    
+
     print(f"  Inserted: {inserted} transfers, {fees_inserted} fees | Skipped: {skipped}")
     return {"inserted": inserted, "fees": fees_inserted, "skipped": skipped, "total_fees": total_fees}
 
 def index_all_evm_wallets():
     """Index all EVM wallets in the database."""
-    
+
     if not ALCHEMY_API_KEY:
         print("ERROR: ALCHEMY_API_KEY environment variable not set")
         print("Get a free key at: https://dashboard.alchemy.com/")
         sys.exit(1)
-    
+
     conn = get_db()
     cursor = conn.cursor()
-    
+
     cursor.execute("""
-        SELECT id, account_id, chain FROM wallets 
+        SELECT id, account_id, chain FROM wallets
         WHERE chain IN ('ethereum', 'polygon', 'ETH', 'POLYGON', 'cronos', 'CRONOS')
     """)
     wallets = cursor.fetchall()
     conn.close()
-    
+
     print(f"Found {len(wallets)} EVM wallets to index")
-    
+
     total_inserted = 0
     total_fees = 0
     total_skipped = 0
     grand_total_fees = 0
-    
+
     for wallet_id, address, chain in wallets:
         result = index_wallet(wallet_id, address, chain)
         total_inserted += result["inserted"]
         total_fees += result["fees"]
         total_skipped += result["skipped"]
         grand_total_fees += result["total_fees"]
-    
+
     print(f"\n{'='*50}")
     print(f"Total: {total_inserted} transfers, {total_fees} fees inserted")
     print(f"Total gas fees tracked: {grand_total_fees:.6f} ETH")
@@ -453,9 +453,9 @@ def index_all_evm_wallets():
 
 def verify_wallet_balance(address: str, chain: str) -> Dict:
     """Verify wallet balance matches computed from transactions."""
-    
+
     url = get_alchemy_url(chain)
-    
+
     # Get on-chain balance
     response = requests.post(url, json={
         "jsonrpc": "2.0",
@@ -463,20 +463,20 @@ def verify_wallet_balance(address: str, chain: str) -> Dict:
         "method": "eth_getBalance",
         "params": [address, "latest"]
     })
-    
+
     data = response.json()
     on_chain = int(data.get("result", "0x0"), 16) / 1e18
-    
+
     # Compute from our transactions
     conn = get_db()
     cursor = conn.cursor()
-    
+
     # Get native token only (ETH for ethereum, MATIC for polygon)
     chain_lower = chain.lower()
     native_token = "ETH" if chain_lower in ('ethereum', 'eth') else "MATIC"
-    
+
     cursor.execute("""
-        SELECT 
+        SELECT
             SUM(CASE WHEN direction = 'IN' THEN CAST(amount AS REAL) ELSE 0 END) as total_in,
             SUM(CASE WHEN direction = 'OUT' THEN CAST(amount AS REAL) ELSE 0 END) as total_out
         FROM transactions
@@ -484,16 +484,16 @@ def verify_wallet_balance(address: str, chain: str) -> Dict:
         AND (asset = ? OR asset IS NULL OR asset = '')
         AND action_type != 'FT_TRANSFER'
     """, (address, chain, native_token))
-    
+
     row = cursor.fetchone()
     conn.close()
-    
+
     total_in = row[0] or 0
     total_out = row[1] or 0
     computed = total_in - total_out
-    
+
     diff = on_chain - computed
-    
+
     return {
         "address": address,
         "chain": chain,
@@ -514,7 +514,7 @@ if __name__ == "__main__":
         elif sys.argv[1] == "index" and len(sys.argv) >= 4:
             conn = get_db()
             cursor = conn.cursor()
-            cursor.execute("SELECT id FROM wallets WHERE LOWER(account_id) = LOWER(?) AND LOWER(chain) = LOWER(?)", 
+            cursor.execute("SELECT id FROM wallets WHERE LOWER(account_id) = LOWER(?) AND LOWER(chain) = LOWER(?)",
                           (sys.argv[2], sys.argv[3]))
             row = cursor.fetchone()
             conn.close()
@@ -537,9 +537,9 @@ CRONOSCAN_URL = 'https://cronos.org/explorer/api'
 def fetch_cronos_transactions(address: str) -> List[Dict]:
     """Fetch transactions from Cronos using Cronoscan API"""
     import requests
-    
+
     all_txs = []
-    
+
     # Normal transactions
     params = {
         'module': 'account',
@@ -550,7 +550,7 @@ def fetch_cronos_transactions(address: str) -> List[Dict]:
         'sort': 'desc',
         'apikey': CRONOSCAN_API_KEY
     }
-    
+
     try:
         resp = requests.get(CRONOSCAN_URL, params=params, timeout=30)
         data = resp.json()
@@ -558,7 +558,7 @@ def fetch_cronos_transactions(address: str) -> List[Dict]:
             all_txs.extend(data.get('result', []))
     except Exception as e:
         print(f'Cronos txlist error: {e}')
-    
+
     # Token transfers
     params['action'] = 'tokentx'
     try:
@@ -568,18 +568,18 @@ def fetch_cronos_transactions(address: str) -> List[Dict]:
             all_txs.extend(data.get('result', []))
     except Exception as e:
         print(f'Cronos tokentx error: {e}')
-    
+
     return all_txs
 
 def index_cronos_wallet(wallet_id: int, address: str) -> Dict:
     """Index a Cronos wallet using Cronoscan API"""
     print(f'Indexing Cronos wallet: {address[:12]}...')
-    
+
     txs = fetch_cronos_transactions(address)
     if not txs:
         print('  No Cronos transactions found')
         return {'inserted': 0, 'skipped': 0}
-    
+
     print(f'  Found {len(txs)} Cronos transactions')
     # TODO: Insert into evm_transactions with chain='cronos'
     return {'inserted': 0, 'skipped': 0, 'total': len(txs)}

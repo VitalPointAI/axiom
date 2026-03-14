@@ -17,7 +17,7 @@ def get_wallet_transactions(account_id, limit=100):
     """Fetch recent transactions from NearBlocks."""
     url = f"{NEARBLOCKS_API}/account/{account_id}/txns"
     params = {"page": 1, "per_page": limit, "order": "desc"}
-    
+
     try:
         r = requests.get(url, params=params, timeout=30)
         if r.status_code == 200:
@@ -43,10 +43,10 @@ def parse_nearblocks_tx(tx, wallet_id, account_id):
     tx_hash = tx.get("transaction_hash", "")
     block_ts = int(tx.get("block_timestamp", 0))
     block_height = tx.get("block", {}).get("block_height", 0)
-    
+
     signer = tx.get("signer_account_id", "")
     receiver = tx.get("receiver_account_id", "")
-    
+
     # Determine direction
     if receiver.lower() == account_id.lower():
         direction = "in"
@@ -54,13 +54,13 @@ def parse_nearblocks_tx(tx, wallet_id, account_id):
     else:
         direction = "out"
         counterparty = receiver
-    
+
     # Get actions
     actions = tx.get("actions", [])
     action_type = "TRANSFER"
     amount = None
     method_name = None
-    
+
     for action in actions:
         kind = action.get("action", "")
         if kind == "TRANSFER":
@@ -82,7 +82,7 @@ def parse_nearblocks_tx(tx, wallet_id, account_id):
             action_type = "CREATE_ACCOUNT"
         elif kind == "ADD_KEY":
             action_type = "ADD_KEY"
-    
+
     return {
         "wallet_id": wallet_id,
         "tx_hash": tx_hash,
@@ -104,7 +104,7 @@ def save_transaction(conn, tx_data):
     """Insert transaction into database."""
     try:
         conn.execute("""
-            INSERT INTO transactions 
+            INSERT INTO transactions
             (wallet_id, tx_hash, receipt_id, block_height, block_timestamp,
              direction, counterparty, action_type, method_name, amount, fee,
              success, raw_json, asset)

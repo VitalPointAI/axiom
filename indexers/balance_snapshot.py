@@ -139,7 +139,7 @@ def get_price(symbol: str, conn) -> float:
     """Get most recent price."""
     cur = conn.cursor()
     cur.execute("""
-        SELECT price FROM price_cache 
+        SELECT price FROM price_cache
         WHERE UPPER(coin_id) = UPPER(%s) AND currency = 'USD'
         ORDER BY date DESC LIMIT 1
     """, (symbol,))
@@ -151,35 +151,35 @@ def run_snapshot(snapshot_date: str = None, skip_ft: bool = False):
     """Run balance snapshot."""
     if snapshot_date is None:
         snapshot_date = datetime.now().strftime('%Y-%m-%d')
-    
+
     print("=" * 60)
     print(f"Balance Snapshot: {snapshot_date}")
     print("=" * 60)
-    
+
     conn = get_connection()
     cur = conn.cursor()
-    
+
     # Get NEAR wallets
     cur.execute("SELECT id, account_id FROM wallets WHERE chain = 'NEAR'")
     wallets = cur.fetchall()
-    
+
     print(f"\nSnapshotting {len(wallets)} NEAR wallets...")
-    
+
     snapshots = []
     near_price = get_price('NEAR', conn)
-    
+
     for wallet_id, account_id in wallets:
         print(f"  {account_id}...", end=" ", flush=True)
-        
+
         # Native NEAR
         near_balance = fetch_near_balance(account_id)
         if near_balance > 0.0001:
             snapshots.append((
-                wallet_id, snapshot_date, 'NEAR', None, 
+                wallet_id, snapshot_date, 'NEAR', None,
                 near_balance, near_balance * near_price, near_price, 'NEAR'
             ))
             print(f"{near_balance:.4f} NEAR", end="", flush=True)
-        
+
         # FT tokens (with rate limiting)
         if not skip_ft:
             ft_balances = fetch_ft_balances_nearblocks(account_id)
@@ -192,42 +192,42 @@ def run_snapshot(snapshot_date: str = None, skip_ft: bool = False):
             if ft_balances:
                 print(f" + {len(ft_balances)} tokens", end="", flush=True)
             time.sleep(2)  # Rate limit: ~30 calls/min
-        
+
         print(flush=True)
-    
+
     # EVM wallets (calculated from transactions)
     cur.execute("SELECT id, address, chain FROM evm_wallets WHERE is_owned = true")
     evm_wallets = cur.fetchall()
-    
+
     if evm_wallets:
         print(f"\nSnapshotting {len(evm_wallets)} EVM wallets...")
-        
+
         for wallet_id, address, chain in evm_wallets:
-            native_symbol = {'ethereum': 'ETH', 'ETH': 'ETH', 'polygon': 'MATIC', 
+            native_symbol = {'ethereum': 'ETH', 'ETH': 'ETH', 'polygon': 'MATIC',
                            'Polygon': 'MATIC', 'cronos': 'CRO', 'Cronos': 'CRO'}.get(chain, 'ETH')
             price = get_price(native_symbol, conn)
-            
+
             cur.execute("""
-                SELECT SUM(CASE 
+                SELECT SUM(CASE
                     WHEN LOWER(from_address) = LOWER(%s) THEN -CAST(value AS NUMERIC) / 1e18
                     WHEN LOWER(to_address) = LOWER(%s) THEN CAST(value AS NUMERIC) / 1e18
                     ELSE 0 END) as balance
-                FROM evm_transactions 
+                FROM evm_transactions
                 WHERE wallet_id = %s AND tx_type IN ('transfer', 'internal')
             """, (address, address, wallet_id))
             row = cur.fetchone()
             balance = float(row[0]) if row and row[0] else 0.0
-            
+
             if balance > 0.0001:
                 snapshots.append((
                     wallet_id, snapshot_date, native_symbol, None,
                     balance, balance * price, price, chain
                 ))
                 print(f"  {address[:10]}...{address[-6:]}: {balance:.4f} {native_symbol}")
-    
+
     # XRP wallets
     cur.execute("""
-        SELECT w.id, w.address, 
+        SELECT w.id, w.address,
             COALESCE(SUM(CASE WHEN t.is_outgoing THEN -t.amount ELSE t.amount END), 0) as balance
         FROM xrp_wallets w
         LEFT JOIN xrp_transactions t ON w.id = t.wallet_id
@@ -235,11 +235,11 @@ def run_snapshot(snapshot_date: str = None, skip_ft: bool = False):
         HAVING COALESCE(SUM(CASE WHEN t.is_outgoing THEN -t.amount ELSE t.amount END), 0) > 0.0001
     """)
     xrp_wallets = cur.fetchall()
-    
+
     if xrp_wallets:
         print(f"\nSnapshotting {len(xrp_wallets)} XRP wallets...")
         xrp_price = get_price('XRP', conn)
-        
+
         for wallet_id, address, balance in xrp_wallets:
             balance = float(balance)
             snapshots.append((
@@ -247,21 +247,21 @@ def run_snapshot(snapshot_date: str = None, skip_ft: bool = False):
                 balance, balance * xrp_price, xrp_price, 'xrp'
             ))
             print(f"  {address[:10]}...{address[-6:]}: {balance:.4f} XRP")
-    
+
     # Save all snapshots
     if snapshots:
         execute_values(cur, """
-            INSERT INTO balance_snapshots 
+            INSERT INTO balance_snapshots
                 (wallet_id, snapshot_date, token_symbol, token_contract, balance, balance_usd, price_usd, chain)
             VALUES %s
-            ON CONFLICT (wallet_id, snapshot_date, token_symbol, token_contract) 
+            ON CONFLICT (wallet_id, snapshot_date, token_symbol, token_contract)
             DO UPDATE SET balance = EXCLUDED.balance, balance_usd = EXCLUDED.balance_usd, price_usd = EXCLUDED.price_usd
         """, snapshots)
         conn.commit()
-    
+
     cur.close()
     conn.close()
-    
+
     print(f"\n✅ Snapshot complete: {len(snapshots)} balance records saved")
     return len(snapshots)
 

@@ -33,7 +33,7 @@ def get_headers():
 def create_ft_tables():
     """Create FT transactions table."""
     conn = get_connection()
-    
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS ft_transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,7 +57,7 @@ def create_ft_tables():
             FOREIGN KEY (wallet_id) REFERENCES wallets(id)
         )
     """)
-    
+
     # Indexing progress for FT transactions
     conn.execute("""
         CREATE TABLE IF NOT EXISTS ft_indexing_progress (
@@ -74,7 +74,7 @@ def create_ft_tables():
             FOREIGN KEY (wallet_id) REFERENCES wallets(id)
         )
     """)
-    
+
     # Create indexes
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ft_wallet ON ft_transactions(wallet_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ft_contract ON ft_transactions(token_contract)")
@@ -82,7 +82,7 @@ def create_ft_tables():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ft_timestamp ON ft_transactions(block_timestamp)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ft_direction ON ft_transactions(direction)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ft_tx_hash ON ft_transactions(tx_hash)")
-    
+
     conn.commit()
     conn.close()
     print("FT tables created/verified")
@@ -91,11 +91,11 @@ def create_ft_tables():
 def fetch_ft_txns_count(account_id: str) -> int:
     """Get total FT transaction count for an account."""
     url = f"{NEARBLOCKS_BASE}/account/{account_id}/ft-txns/count"
-    
+
     resp = requests.get(url, headers=get_headers(), timeout=30)
     resp.raise_for_status()
     data = resp.json()
-    
+
     return int(data.get("txns", [{}])[0].get("count", 0))
 
 
@@ -105,7 +105,7 @@ def fetch_ft_txns(account_id: str, cursor: str = None, per_page: int = 25) -> di
     params = {"per_page": per_page}
     if cursor:
         params["cursor"] = cursor
-    
+
     resp = requests.get(url, headers=get_headers(), params=params, timeout=30)
     resp.raise_for_status()
     return resp.json()
@@ -115,12 +115,12 @@ def get_ft_indexing_status(wallet_id: int) -> dict:
     """Get current FT indexing progress."""
     conn = get_connection()
     row = conn.execute(
-        """SELECT last_cursor, total_fetched, total_expected, status 
+        """SELECT last_cursor, total_fetched, total_expected, status
            FROM ft_indexing_progress WHERE wallet_id = ?""",
         (wallet_id,)
     ).fetchone()
     conn.close()
-    
+
     if row:
         return {
             "cursor": row[0],
@@ -131,12 +131,12 @@ def get_ft_indexing_status(wallet_id: int) -> dict:
     return {"cursor": None, "fetched": 0, "expected": None, "status": "pending"}
 
 
-def update_ft_progress(wallet_id: int, cursor: str, fetched: int, status: str, 
+def update_ft_progress(wallet_id: int, cursor: str, fetched: int, status: str,
                        expected: int = None, error: str = None):
     """Update FT indexing progress."""
     conn = get_connection()
     conn.execute("""
-        INSERT INTO ft_indexing_progress 
+        INSERT INTO ft_indexing_progress
             (wallet_id, last_cursor, total_fetched, total_expected, status, error_message, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(wallet_id) DO UPDATE SET
@@ -157,24 +157,24 @@ def parse_ft_transaction(tx: dict, account_id: str, wallet_id: int) -> dict | No
     ft_info = tx.get("ft", {})
     if not ft_info:
         return None
-    
+
     # Determine direction based on delta_amount
     delta = tx.get("delta_amount", "0")
     try:
         delta_int = int(delta)
     except (ValueError, TypeError):
         delta_int = 0
-    
+
     if delta_int > 0:
         direction = "in"
         amount = str(delta_int)
     else:
         direction = "out"
         amount = str(abs(delta_int))
-    
+
     # Counterparty
     involved = tx.get("involved_account_id", "")
-    
+
     return {
         "wallet_id": wallet_id,
         "token_contract": ft_info.get("contract", ""),
@@ -199,7 +199,7 @@ def index_wallet_ft(wallet_id: int, account_id: str, force: bool = False) -> int
     """
     # Get current status
     status = get_ft_indexing_status(wallet_id)
-    
+
     if status["status"] == "complete" and not force:
         # Check for new transactions
         try:
@@ -214,7 +214,7 @@ def index_wallet_ft(wallet_id: int, account_id: str, force: bool = False) -> int
         except Exception as e:
             print(f"  {account_id}: Error checking for new FT txs - {e}")
             return status["fetched"]
-    
+
     # Get total count
     try:
         time.sleep(RATE_LIMIT_DELAY)
@@ -222,40 +222,40 @@ def index_wallet_ft(wallet_id: int, account_id: str, force: bool = False) -> int
     except Exception as e:
         print(f"  {account_id}: Error getting FT tx count - {e}")
         total_expected = status.get("expected") or 0
-    
+
     if total_expected == 0:
         print(f"  {account_id}: No FT transactions")
         update_ft_progress(wallet_id, None, 0, "complete", 0)
         return 0
-    
+
     print(f"  {account_id}: {total_expected} FT transactions")
-    
+
     cursor = status["cursor"]
     fetched = status["fetched"]
-    
+
     update_ft_progress(wallet_id, cursor, fetched, "in_progress", total_expected)
-    
+
     conn = get_connection()
-    
+
     try:
         while True:
             time.sleep(RATE_LIMIT_DELAY)
             result = fetch_ft_txns(account_id, cursor=cursor, per_page=25)
             txns = result.get("txns", [])
-            
+
             if not txns:
                 break
-            
+
             for tx in txns:
                 parsed = parse_ft_transaction(tx, account_id, wallet_id)
                 if not parsed:
                     continue
-                
+
                 try:
                     conn.execute("""
-                        INSERT OR IGNORE INTO ft_transactions 
+                        INSERT OR IGNORE INTO ft_transactions
                         (wallet_id, token_contract, token_symbol, token_name, token_decimals,
-                         amount, counterparty, direction, cause, tx_hash, 
+                         amount, counterparty, direction, cause, tx_hash,
                          block_height, block_timestamp, event_index)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
@@ -275,26 +275,26 @@ def index_wallet_ft(wallet_id: int, account_id: str, force: bool = False) -> int
                     ))
                 except Exception as e:
                     print(f"    Warning: Error inserting FT tx: {e}")
-            
+
             conn.commit()
-            
+
             fetched += len(txns)
             cursor = result.get("cursor")
-            
+
             update_ft_progress(wallet_id, cursor, fetched, "in_progress", total_expected)
-            
+
             # Progress display
             if total_expected > 0:
                 pct = fetched / total_expected * 100
                 print(f"    Progress: {fetched}/{total_expected} ({pct:.1f}%)")
-            
+
             if not cursor:
                 break
-        
+
         update_ft_progress(wallet_id, None, fetched, "complete", total_expected)
         print(f"  {account_id}: Complete! {fetched} FT transactions indexed")
         return fetched
-        
+
     except KeyboardInterrupt:
         print(f"\n  {account_id}: Interrupted at {fetched} FT txs. Progress saved.")
         update_ft_progress(wallet_id, cursor, fetched, "in_progress", total_expected)
@@ -312,18 +312,18 @@ def index_wallet_ft(wallet_id: int, account_id: str, force: bool = False) -> int
 def index_all_ft(force: bool = False):
     """Index FT transactions for all wallets."""
     create_ft_tables()
-    
+
     conn = get_connection()
     wallets = conn.execute("SELECT id, account_id FROM wallets").fetchall()
     conn.close()
-    
+
     print(f"Indexing FT transactions for {len(wallets)} wallets...")
     print(f"API Key: {'✓ present' if NEARBLOCKS_API_KEY else '✗ missing (will be rate limited)'}")
     print(f"Rate limit delay: {RATE_LIMIT_DELAY}s")
     print("-" * 50)
-    
+
     total_txns = 0
-    
+
     for wallet_id, account_id in wallets:
         try:
             count = index_wallet_ft(wallet_id, account_id, force=force)
@@ -335,22 +335,22 @@ def index_all_ft(force: bool = False):
         except Exception as e:
             print(f"  Error: {e}")
             continue
-    
+
     print("-" * 50)
     print(f"Done! Total FT transactions indexed: {total_txns}")
-    
+
     # Summary of tokens found
     print_token_summary()
-    
+
     return total_txns
 
 
 def print_token_summary():
     """Print summary of all tokens found."""
     conn = get_connection()
-    
+
     summary = conn.execute("""
-        SELECT 
+        SELECT
             token_symbol,
             token_name,
             token_contract,
@@ -363,17 +363,17 @@ def print_token_summary():
         GROUP BY token_contract
         ORDER BY tx_count DESC
     """).fetchall()
-    
+
     conn.close()
-    
+
     if not summary:
         print("\nNo FT transactions found.")
         return
-    
+
     print("\n" + "=" * 60)
     print("TOKEN SUMMARY")
     print("=" * 60)
-    
+
     for row in summary:
         symbol, name, contract, decimals, tx_count, wallet_count, inbound, outbound = row
         print(f"\n{symbol} ({name})")
@@ -381,23 +381,23 @@ def print_token_summary():
         print(f"  Decimals: {decimals}")
         print(f"  Transactions: {tx_count} ({inbound} in, {outbound} out)")
         print(f"  Wallets: {wallet_count}")
-    
+
     print("\n" + "=" * 60)
 
 
 def get_ft_transactions_for_wallet(wallet_id: int = None, account_id: str = None):
     """Get FT transactions for a specific wallet."""
     conn = get_connection()
-    
+
     if account_id and not wallet_id:
         row = conn.execute(
             "SELECT id FROM wallets WHERE account_id = ?", (account_id,)
         ).fetchone()
         if row:
             wallet_id = row[0]
-    
+
     query = """
-        SELECT 
+        SELECT
             ft.token_symbol,
             ft.token_name,
             ft.amount,
@@ -412,26 +412,26 @@ def get_ft_transactions_for_wallet(wallet_id: int = None, account_id: str = None
         FROM ft_transactions ft
         JOIN wallets w ON ft.wallet_id = w.id
     """
-    
+
     if wallet_id:
         query += f" WHERE ft.wallet_id = {wallet_id}"
-    
+
     query += " ORDER BY ft.block_timestamp DESC"
-    
+
     txns = conn.execute(query).fetchall()
     conn.close()
-    
+
     return txns
 
 
 def get_defi_activity_summary():
     """Analyze DeFi activity based on counterparties."""
     conn = get_connection()
-    
+
     # Common DeFi contract patterns
     defi_patterns = conn.execute("""
-        SELECT 
-            CASE 
+        SELECT
+            CASE
                 WHEN counterparty LIKE '%burrow%' THEN 'Burrow (Lending)'
                 WHEN counterparty LIKE '%ref-finance%' OR counterparty LIKE '%v2.ref%' THEN 'Ref Finance (DEX)'
                 WHEN counterparty LIKE '%aurora%' THEN 'Aurora'
@@ -452,32 +452,32 @@ def get_defi_activity_summary():
         GROUP BY protocol, token_symbol, direction
         ORDER BY tx_count DESC
     """).fetchall()
-    
+
     conn.close()
-    
+
     print("\n" + "=" * 60)
     print("DEFI ACTIVITY SUMMARY")
     print("=" * 60)
-    
+
     for row in defi_patterns[:20]:
         protocol, token, direction, count, wallets = row
         arrow = "→" if direction == "out" else "←"
         print(f"{protocol}: {token} {arrow} {count} txs ({wallets} wallets)")
-    
+
     return defi_patterns
 
 
 if __name__ == "__main__":
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="FT Transaction Indexer")
     parser.add_argument("--force", action="store_true", help="Force re-index all wallets")
     parser.add_argument("--summary", action="store_true", help="Print token summary only")
     parser.add_argument("--defi", action="store_true", help="Print DeFi activity summary")
     parser.add_argument("--wallet", type=str, help="Index specific wallet only")
-    
+
     args = parser.parse_args()
-    
+
     if args.summary:
         print_token_summary()
     elif args.defi:
@@ -489,7 +489,7 @@ if __name__ == "__main__":
             "SELECT id FROM wallets WHERE account_id = ?", (args.wallet,)
         ).fetchone()
         conn.close()
-        
+
         if row:
             index_wallet_ft(row[0], args.wallet, force=args.force)
         else:

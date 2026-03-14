@@ -85,21 +85,21 @@ class FastIndexer:
         self.session: Optional[aiohttp.ClientSession] = None
         self.shutdown = False
         self.stats = {'blocks': 0, 'txs': 0, 'errors': 0, 'start': time.time()}
-        
+
         signal.signal(signal.SIGINT, lambda s,f: setattr(self, 'shutdown', True))
         signal.signal(signal.SIGTERM, lambda s,f: setattr(self, 'shutdown', True))
-    
+
     async def __aenter__(self):
         self.session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=20),
             connector=aiohttp.TCPConnector(limit=self.workers * 2)
         )
         return self
-    
+
     async def __aexit__(self, *args):
         if self.session:
             await self.session.close()
-    
+
     async def get_latest_block(self) -> int:
         for attempt in range(5):  # More retries with longer waits
             try:
@@ -107,7 +107,7 @@ class FastIndexer:
                 if attempt > 0:
                     log.warning(f"Rate limited, waiting {wait_time}s (attempt {attempt+1}/5)")
                     await asyncio.sleep(wait_time)
-                
+
                 async with self.session.get(f"{NEARDATA}/v0/last_block/final", allow_redirects=True) as r:
                     if r.status == 200:
                         data = await r.json()
@@ -116,11 +116,11 @@ class FastIndexer:
                         log.error(f"Unexpected status {r.status}")
             except Exception as e:
                 log.error(f"Error getting latest block: {e}")
-        
+
         # If all else fails, use a recent known block
         log.warning("Using fallback block height 187000000")
         return 187000000
-    
+
     async def fetch_block(self, height: int) -> Optional[dict]:
         for attempt in range(MAX_RETRIES):
             try:
@@ -135,34 +135,34 @@ class FastIndexer:
                     self.stats['errors'] += 1
                 await asyncio.sleep(1)
         return None
-    
+
     def extract_txs(self, block: dict) -> List[dict]:
         if not block:
             return []
-        
+
         txs = []
         height = block.get('block', {}).get('header', {}).get('height', 0)
         ts = block.get('block', {}).get('header', {}).get('timestamp', 0)
         if ts:
             ts = ts // 1_000_000_000
-        
+
         seen = set()
-        
+
         for shard in block.get('shards', []):
             chunk = shard.get('chunk')
             if not chunk:
                 continue
-            
+
             # Direct transactions
             for tx in chunk.get('transactions', []):
                 txd = tx.get('transaction', {})
                 h = txd.get('hash', '')
                 if h in seen:
                     continue
-                
+
                 signer = txd.get('signer_id', '').lower()
                 receiver = txd.get('receiver_id', '').lower()
-                
+
                 if signer in self.wallets or receiver in self.wallets:
                     seen.add(h)
                     txs.append({
@@ -172,17 +172,17 @@ class FastIndexer:
                         'actions': json.dumps(txd.get('actions', [])),
                         'outcome': json.dumps(tx.get('outcome', {}))
                     })
-            
+
             # Receipt outcomes (indirect)
             for ro in shard.get('receipt_execution_outcomes', []):
                 rcpt = ro.get('receipt', {})
                 h = ro.get('tx_hash', '')
                 if not h or h in seen:
                     continue
-                
+
                 pred = rcpt.get('predecessor_id', '').lower()
                 recv = rcpt.get('receiver_id', '').lower()
-                
+
                 if pred in self.wallets or recv in self.wallets:
                     seen.add(h)
                     txs.append({
@@ -192,17 +192,17 @@ class FastIndexer:
                         'actions': '[]',
                         'outcome': json.dumps(ro.get('execution_outcome', {}))
                     })
-        
+
         return txs
-    
+
     def save_txs(self, txs: List[dict]):
         if not txs:
             return 0
-        
+
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         saved = 0
-        
+
         for tx in txs:
             # Find wallet
             wid = None
@@ -212,12 +212,12 @@ class FastIndexer:
                 if row:
                     wid = row[0]
                     break
-            
+
             if wid:
                 try:
                     cur.execute("""
-                        INSERT INTO transactions 
-                        (wallet_id, tx_hash, block_height, timestamp, tx_type, 
+                        INSERT INTO transactions
+                        (wallet_id, tx_hash, block_height, timestamp, tx_type,
                          from_account, to_account, amount, token, raw_data)
                         VALUES (?, ?, ?, ?, 'transfer', ?, ?, NULL, 'NEAR', ?)
                     """, (wid, tx['hash'], tx['height'],
@@ -227,39 +227,39 @@ class FastIndexer:
                     log.info(f"TX {tx['hash'][:12]}... block {tx['height']} | {tx['signer'][:20]} → {tx['receiver'][:20]}")
                 except sqlite3.IntegrityError:
                     pass  # Duplicate
-        
+
         conn.commit()
         conn.close()
         return saved
-    
+
     async def scan(self, start: int, end: int):
         log.info(f"Fast scan: {start:,} → {end:,} ({end-start:,} blocks) with {self.workers} workers")
-        
+
         pos = start
         last_checkpoint = start
-        
+
         while pos < end and not self.shutdown:
             # Fetch batch
             batch_end = min(pos + self.workers, end)
             heights = list(range(pos, batch_end))
-            
+
             # Parallel fetch
             tasks = [self.fetch_block(h) for h in heights]
             blocks = await asyncio.gather(*tasks)
-            
+
             # Extract and save transactions
             all_txs = []
             for block in blocks:
                 txs = self.extract_txs(block)
                 all_txs.extend(txs)
                 self.stats['blocks'] += 1
-            
+
             if all_txs:
                 saved = self.save_txs(all_txs)
                 self.stats['txs'] += saved
-            
+
             pos = batch_end
-            
+
             # Progress
             if self.stats['blocks'] % PROGRESS_INTERVAL == 0:
                 elapsed = time.time() - self.stats['start']
@@ -271,15 +271,15 @@ class FastIndexer:
                       f"TXs: {self.stats['txs']:,} | "
                       f"Rate: {rate:.0f}/s | "
                       f"ETA: {eta:.1f}h", end='', flush=True)
-            
+
             # Checkpoint
             if pos - last_checkpoint >= CHECKPOINT_INTERVAL:
                 save_state(pos, self.stats['txs'], 'scanning')
                 last_checkpoint = pos
-        
+
         print()
         save_state(pos, self.stats['txs'], 'paused' if self.shutdown else 'done')
-        
+
         elapsed = time.time() - self.stats['start']
         log.info(f"{'PAUSED' if self.shutdown else 'COMPLETE'}: "
                  f"{self.stats['blocks']:,} blocks, {self.stats['txs']:,} txs, "
@@ -293,10 +293,10 @@ async def main():
     p.add_argument('--workers', type=int, default=50, help='Parallel workers')
     p.add_argument('--resume', action='store_true', help='Resume from checkpoint')
     args = p.parse_args()
-    
+
     wallets = load_wallets()
     log.info(f"Loaded {len(wallets)} wallets")
-    
+
     async with FastIndexer(wallets, args.workers) as idx:
         # Determine range
         if args.resume:
@@ -312,9 +312,9 @@ async def main():
                 log.error("Need --start or --resume")
                 return
             start = args.start
-        
+
         end = args.end or await idx.get_latest_block()
-        
+
         await idx.scan(start, end)
 
 

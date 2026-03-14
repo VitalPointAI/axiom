@@ -15,16 +15,16 @@ print("="*60)
 
 # IN (excluding self)
 cur.execute("""
-    SELECT COALESCE(SUM(CAST(amount AS REAL)/1e24), 0) 
-    FROM transactions 
+    SELECT COALESCE(SUM(CAST(amount AS REAL)/1e24), 0)
+    FROM transactions
     WHERE wallet_id = ? AND direction = 'in' AND counterparty != ?
 """, (wallet_id, wallet))
 total_in = cur.fetchone()[0]
 
 # OUT (excluding self)
 cur.execute("""
-    SELECT COALESCE(SUM(CAST(amount AS REAL)/1e24), 0) 
-    FROM transactions 
+    SELECT COALESCE(SUM(CAST(amount AS REAL)/1e24), 0)
+    FROM transactions
     WHERE wallet_id = ? AND direction = 'out' AND counterparty != ?
 """, (wallet_id, wallet))
 total_out = cur.fetchone()[0]
@@ -33,7 +33,7 @@ total_out = cur.fetchone()[0]
 cur.execute("""
     SELECT COALESCE(SUM(max_fee), 0) FROM (
         SELECT MAX(CAST(fee AS REAL)/1e24) as max_fee
-        FROM transactions 
+        FROM transactions
         WHERE wallet_id = ? AND direction = 'out'
         GROUP BY tx_hash
     )
@@ -44,7 +44,7 @@ old_fees = cur.fetchone()[0]
 cur.execute("""
     SELECT COALESCE(SUM(max_fee), 0) FROM (
         SELECT MAX(CAST(fee AS REAL)/1e24) as max_fee
-        FROM transactions 
+        FROM transactions
         WHERE wallet_id = ? AND direction = 'out' AND counterparty != ?
         GROUP BY tx_hash
     )
@@ -85,14 +85,14 @@ print("Verifying fee attribution:")
 
 # Get tx_hashes where this wallet initiated (direction=out to external)
 cur.execute("""
-    SELECT DISTINCT tx_hash FROM transactions 
+    SELECT DISTINCT tx_hash FROM transactions
     WHERE wallet_id = ? AND direction = 'out' AND counterparty != ?
 """, (wallet_id, wallet))
 our_initiated_txs = set(r[0] for r in cur.fetchall())
 
 # Now check: how many unique tx_hashes have fees attributed to us?
 cur.execute("""
-    SELECT COUNT(DISTINCT tx_hash) FROM transactions 
+    SELECT COUNT(DISTINCT tx_hash) FROM transactions
     WHERE wallet_id = ? AND direction = 'out' AND CAST(fee AS REAL) > 0
 """, (wallet_id,))
 total_fee_txs = cur.fetchone()[0]

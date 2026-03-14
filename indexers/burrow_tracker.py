@@ -50,13 +50,13 @@ def get_symbol(token_id):
 
 def convert_supply_borrow_balance(balance, token_id):
     """Convert supplied/borrowed balance to actual amount.
-    
+
     Based on observed data, Burrow uses:
     - 12 extra decimal places for all sub-18-decimal tokens
     - Native decimals for 18+ decimal tokens
     """
     native_decimals = TOKEN_DECIMALS.get(token_id, 18)
-    
+
     if native_decimals >= 18:
         # For 18+ decimal tokens, stored at native decimals
         return balance / (10 ** native_decimals)
@@ -67,12 +67,12 @@ def convert_supply_borrow_balance(balance, token_id):
 
 def convert_collateral_balance(balance, token_id):
     """Convert collateral balance to actual amount.
-    
+
     Collateral is stored at 18 decimals for most tokens,
     except 24-decimal tokens which use 24 decimals.
     """
     native_decimals = TOKEN_DECIMALS.get(token_id, 18)
-    
+
     if native_decimals >= 24:
         return balance / (10 ** 24)
     else:
@@ -82,7 +82,7 @@ def get_burrow_account(account_id):
     try:
         args = json.dumps({"account_id": account_id})
         args_b64 = base64.b64encode(args.encode()).decode()
-        
+
         resp = requests.post(RPC_URL, json={
             "jsonrpc": "2.0", "id": "1", "method": "query",
             "params": {
@@ -93,7 +93,7 @@ def get_burrow_account(account_id):
                 "args_base64": args_b64
             }
         }, timeout=10)
-        
+
         if resp.ok:
             result = resp.json().get("result", {}).get("result")
             if result:
@@ -106,53 +106,53 @@ def get_burrow_account(account_id):
 def sync_burrow_positions(user_id=None):
     conn = psycopg2.connect(PG_CONN)
     cursor = conn.cursor()
-    
+
     if user_id:
         cursor.execute("SELECT id, account_id FROM wallets WHERE user_id = %s AND chain = 'NEAR'", (user_id,))
     else:
         cursor.execute("SELECT id, account_id FROM wallets WHERE chain = 'NEAR'")
     wallets = cursor.fetchall()
-    
+
     wallet_ids = [w[0] for w in wallets]
     if wallet_ids:
         cursor.execute("DELETE FROM defi_events WHERE wallet_id = ANY(%s) AND protocol = 'burrow'", (wallet_ids,))
-    
+
     print(f"Syncing Burrow for {len(wallets)} wallets...")
     total = 0
-    
+
     for wallet_id, account_id in wallets:
         data = get_burrow_account(account_id)
         if not data:
             continue
-        
+
         # Supply positions
         for pos in data.get('supplied', []):
             token_id = pos['token_id']
             balance = int(pos['balance'])
             symbol = get_symbol(token_id)
             amount = convert_supply_borrow_balance(balance, token_id)
-            
+
             if amount >= 0.0001:
                 cursor.execute("""
-                    INSERT INTO defi_events 
-                        (wallet_id, protocol, event_type, token_contract, token_symbol, 
+                    INSERT INTO defi_events
+                        (wallet_id, protocol, event_type, token_contract, token_symbol,
                          amount, amount_decimal, counterparty, block_timestamp)
                     VALUES (%s, 'burrow', 'supply', %s, %s, %s, %s, 'contract.main.burrow.near',
                             EXTRACT(EPOCH FROM NOW())::BIGINT * 1000000000)
                 """, (wallet_id, token_id, symbol, str(amount), amount))
                 print(f"  {account_id}: Supply {amount:.4f} {symbol}")
                 total += 1
-        
+
         # Collateral positions - use different decimal conversion
         for pos in data.get('collateral', []):
             token_id = pos['token_id']
             balance = int(pos['balance'])
             symbol = get_symbol(token_id)
             amount = convert_collateral_balance(balance, token_id)
-            
+
             if amount >= 0.0001:
                 cursor.execute("""
-                    INSERT INTO defi_events 
+                    INSERT INTO defi_events
                         (wallet_id, protocol, event_type, token_contract, token_symbol,
                          amount, amount_decimal, counterparty, block_timestamp)
                     VALUES (%s, 'burrow', 'collateral', %s, %s, %s, %s, 'contract.main.burrow.near',
@@ -160,17 +160,17 @@ def sync_burrow_positions(user_id=None):
                 """, (wallet_id, token_id, symbol, str(amount), amount))
                 print(f"  {account_id}: Collateral {amount:.4f} {symbol}")
                 total += 1
-        
+
         # Borrowed positions
         for pos in data.get('borrowed', []):
             token_id = pos['token_id']
             balance = int(pos['balance'])
             symbol = get_symbol(token_id)
             amount = convert_supply_borrow_balance(balance, token_id)
-            
+
             if amount >= 0.0001:
                 cursor.execute("""
-                    INSERT INTO defi_events 
+                    INSERT INTO defi_events
                         (wallet_id, protocol, event_type, token_contract, token_symbol,
                          amount, amount_decimal, counterparty, block_timestamp)
                     VALUES (%s, 'burrow', 'borrow', %s, %s, %s, %s, 'contract.main.burrow.near',
@@ -178,7 +178,7 @@ def sync_burrow_positions(user_id=None):
                 """, (wallet_id, token_id, symbol, str(amount), amount))
                 print(f"  {account_id}: Borrow {amount:.4f} {symbol}")
                 total += 1
-    
+
     conn.commit()
     conn.close()
     print(f"\nDone! {total} positions.")

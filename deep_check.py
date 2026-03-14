@@ -28,17 +28,17 @@ while True:
     }
     if page_key:
         params['pageKey'] = page_key
-        
+
     response = requests.post(url, json={
         'jsonrpc': '2.0', 'id': 1,
         'method': 'alchemy_getAssetTransfers',
         'params': [params]
     })
-    
+
     result = response.json().get('result', {})
     transfers = result.get('transfers', [])
     all_in.extend(transfers)
-    
+
     page_key = result.get('pageKey')
     if not page_key:
         break

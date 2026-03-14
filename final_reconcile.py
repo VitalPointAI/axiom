@@ -29,10 +29,10 @@ eth_in_value = 0
 for tx in eth_txs:
     is_error = tx.get('isError', '0') == '1'
     val = int(tx['value']) / 1e18
-    
+
     if tx['to'].lower() == address and not is_error:
         eth_in_value += val
-    
+
     if tx['from'].lower() == address:
         if not is_error:
             eth_out_value += val
@@ -52,9 +52,9 @@ response = requests.get('https://api.etherscan.io/v2/api', params={
 })
 eth_internal = response.json().get('result', []) if response.json().get('status') == '1' else []
 
-int_in = sum(int(tx['value']) / 1e18 for tx in eth_internal 
+int_in = sum(int(tx['value']) / 1e18 for tx in eth_internal
              if tx['to'].lower() == address and tx.get('isError', '0') == '0')
-int_out = sum(int(tx['value']) / 1e18 for tx in eth_internal 
+int_out = sum(int(tx['value']) / 1e18 for tx in eth_internal
               if tx['from'].lower() == address and tx.get('isError', '0') == '0')
 
 print(f"\nETHERSCAN Internal Transactions ({len(eth_internal)} txs):")
@@ -88,8 +88,8 @@ conn = sqlite3.connect('/home/deploy/neartax/neartax.db')
 cursor = conn.cursor()
 
 cursor.execute('''
-    SELECT direction, SUM(CAST(amount AS REAL)) 
-    FROM transactions 
+    SELECT direction, SUM(CAST(amount AS REAL))
+    FROM transactions
     WHERE wallet_id = 75 AND asset = 'ETH'
     GROUP BY direction
 ''')

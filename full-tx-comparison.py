@@ -38,7 +38,7 @@ while True:
     url = f"https://api.nearblocks.io/v1/account/{wallet}/txns?per_page=100"
     if cursor:
         url += f"&cursor={cursor}"
-    
+
     try:
         resp = requests.get(url, timeout=30)
         data = resp.json()
@@ -46,21 +46,21 @@ while True:
         print(f"  Error: {e}")
         time.sleep(2)
         continue
-    
+
     txns = data.get("txns", [])
     if not txns:
         break
-    
+
     pages += 1
     all_nb_receipts.extend(txns)
     cursor = data.get("cursor")
-    
+
     if pages % 5 == 0:
         print(f"  Fetched {len(all_nb_receipts)} receipts...")
-    
+
     if not cursor:
         break
-    
+
     time.sleep(0.2)
 
 print(f"\nTotal NearBlocks receipts fetched: {len(all_nb_receipts)}")
@@ -74,9 +74,9 @@ for tx in all_nb_receipts:
     tx_hash = tx.get("transaction_hash", "")
     receipt_outcome = tx.get("receipt_outcome", {})
     status = receipt_outcome.get("status", True)
-    
+
     nb_tx_hashes.add(tx_hash)
-    
+
     if status is False:
         failed_receipts.append(tx)
     else:

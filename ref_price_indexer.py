@@ -66,15 +66,15 @@ class RefPriceIndexer:
         self.db_path = db_path
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
-        
+
         # Cache for current token prices
         self.current_prices: Dict[str, float] = {}
         self.pool_data: Dict[str, dict] = {}
-        
+
         # Load current prices from Ref API
         self._load_current_prices()
         self._load_pool_data()
-    
+
     def _load_current_prices(self):
         """Load current token prices from Ref Finance indexer"""
         try:
@@ -90,7 +90,7 @@ class RefPriceIndexer:
                 print(f"Loaded {len(self.current_prices)} current token prices from Ref")
         except Exception as e:
             print(f"Warning: Could not load current prices: {e}")
-    
+
     def _load_pool_data(self):
         """Load pool data from Ref Finance API"""
         try:
@@ -104,11 +104,11 @@ class RefPriceIndexer:
                 print(f"Loaded {len(self.pool_data)} pools from Ref")
         except Exception as e:
             print(f"Warning: Could not load pool data: {e}")
-    
+
     def get_near_price_at_time(self, timestamp_ns: int) -> Optional[float]:
         """Get NEAR price in USD at a specific timestamp using CryptoCompare"""
         timestamp_s = timestamp_ns // 1_000_000_000
-        
+
         # Use CryptoCompare historical price API
         url = "https://min-api.cryptocompare.com/data/pricehistorical"
         params = {
@@ -116,7 +116,7 @@ class RefPriceIndexer:
             "tsyms": "USD",
             "ts": timestamp_s
         }
-        
+
         try:
             resp = requests.get(url, params=params, timeout=10)
             if resp.status_code == 200:
@@ -124,9 +124,9 @@ class RefPriceIndexer:
                 return data.get("NEAR", {}).get("USD")
         except Exception as e:
             print(f"Warning: Could not get NEAR price: {e}")
-        
+
         return None
-    
+
     def get_token_price_from_swap(self, tx_hash: str, token_contract: str) -> Optional[Tuple[float, str]]:
         """
         Derive token price from a swap transaction.
@@ -144,12 +144,12 @@ class RefPriceIndexer:
                 },
                 timeout=30
             )
-            
+
             if result.status_code != 200:
                 return None
-            
+
             tx_data = result.json().get("result", {})
-            
+
             # Parse receipts for swap events
             for receipt in tx_data.get("receipts_outcome", []):
                 logs = receipt.get("outcome", {}).get("logs", [])
@@ -165,12 +165,12 @@ class RefPriceIndexer:
                                 # ... parsing logic here
                         except Exception:
                             pass
-            
+
         except Exception as e:
             print(f"Warning: Could not parse swap tx {tx_hash}: {e}")
-        
+
         return None
-    
+
     def estimate_price_from_pool(self, token_contract: str, near_price: float) -> Optional[float]:
         """
         Estimate token price based on pool ratio with wNEAR.
@@ -178,16 +178,16 @@ class RefPriceIndexer:
         for pool_id, pool in self.pool_data.items():
             tokens = pool.get("token_account_ids", [])
             amounts = pool.get("amounts", [])
-            
+
             if len(tokens) == 2 and len(amounts) == 2:
                 if token_contract in tokens and WNEAR in tokens:
                     token_idx = tokens.index(token_contract)
                     near_idx = tokens.index(WNEAR)
-                    
+
                     try:
                         token_amount = float(amounts[token_idx])
                         near_amount = float(amounts[near_idx])
-                        
+
                         if token_amount > 0 and near_amount > 0:
                             # Price = (NEAR_amount / token_amount) * NEAR_price
                             # Need to account for decimals
@@ -196,15 +196,15 @@ class RefPriceIndexer:
                             return price
                     except (ValueError, ZeroDivisionError):
                         pass
-        
+
         return None
-    
+
     def price_ft_transactions(self, limit: int = None):
         """
         Price all FT transactions that are missing prices.
         """
         cur = self.conn.cursor()
-        
+
         # Get transactions needing prices
         query = """
             SELECT id, token_contract, token_symbol, amount, block_timestamp, tx_hash
@@ -213,12 +213,12 @@ class RefPriceIndexer:
         """
         if limit:
             query += f" LIMIT {limit}"
-        
+
         cur.execute(query)
         rows = cur.fetchall()
-        
+
         print(f"Found {len(rows)} transactions needing prices")
-        
+
         priced = 0
         for row in rows:
             tx_id = row["id"]
@@ -227,17 +227,17 @@ class RefPriceIndexer:
             amount_raw = row["amount"]
             timestamp = row["block_timestamp"]
             row["tx_hash"]
-            
+
             price_usd = None
-            
+
             # 1. Stablecoins = $1
             if contract in STABLECOINS:
                 price_usd = 1.0
-            
+
             # 2. Use current price as approximation (for recent txs)
             elif contract in self.current_prices:
                 price_usd = self.current_prices[contract]
-            
+
             # 3. Try to estimate from pool ratio
             elif timestamp:
                 near_price = self.get_near_price_at_time(timestamp)
@@ -245,7 +245,7 @@ class RefPriceIndexer:
                     estimated = self.estimate_price_from_pool(contract, near_price)
                     if estimated:
                         price_usd = estimated
-            
+
             if price_usd is not None:
                 # Calculate value
                 try:
@@ -255,34 +255,34 @@ class RefPriceIndexer:
                         decimals = 6  # USDC
                     elif contract.endswith(".factory.bridge.near"):
                         decimals = 18  # Most bridged tokens
-                    
+
                     amount_decimal = float(amount_raw) / (10 ** decimals)
                     value_usd = amount_decimal * price_usd
-                    
+
                     cur.execute("""
-                        UPDATE ft_transactions 
+                        UPDATE ft_transactions
                         SET price_usd = ?, value_usd = ?
                         WHERE id = ?
                     """, (price_usd, value_usd, tx_id))
-                    
+
                     priced += 1
                     if priced % 100 == 0:
                         print(f"Priced {priced} transactions...")
                         self.conn.commit()
-                        
+
                 except Exception as e:
                     print(f"Error pricing tx {tx_id}: {e}")
-        
+
         self.conn.commit()
         print(f"Successfully priced {priced} transactions")
         return priced
-    
+
     def get_price_summary(self):
         """Show pricing status summary"""
         cur = self.conn.cursor()
-        
+
         cur.execute("""
-            SELECT token_symbol, 
+            SELECT token_symbol,
                    COUNT(*) as total,
                    SUM(CASE WHEN price_usd IS NOT NULL AND price_usd > 0 THEN 1 ELSE 0 END) as priced,
                    SUM(CASE WHEN price_usd IS NULL OR price_usd = 0 THEN 1 ELSE 0 END) as missing
@@ -290,32 +290,32 @@ class RefPriceIndexer:
             GROUP BY token_symbol
             ORDER BY missing DESC
         """)
-        
+
         print("\nToken Pricing Summary:")
         print("-" * 60)
         print(f"{'Token':<20} {'Total':<10} {'Priced':<10} {'Missing':<10}")
         print("-" * 60)
-        
+
         for row in cur.fetchall():
             print(f"{row[0] or 'Unknown':<20} {row[1]:<10} {row[2]:<10} {row[3]:<10}")
 
 
 def main():
     db_path = sys.argv[1] if len(sys.argv) > 1 else "neartax.db"
-    
+
     print("Ref.Finance Price Indexer")
     print(f"Database: {db_path}")
     print("=" * 60)
-    
+
     indexer = RefPriceIndexer(db_path)
-    
+
     # Show current status
     indexer.get_price_summary()
-    
+
     # Price transactions
     print("\nPricing transactions...")
     indexer.price_ft_transactions()
-    
+
     # Show updated status
     indexer.get_price_summary()
 

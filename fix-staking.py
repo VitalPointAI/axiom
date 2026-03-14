@@ -54,7 +54,7 @@ def main():
 
     print(f"Checking {len(wallets)} wallets against {len(pools)} staking pools...")
     print()
-    
+
     total_staked = 0
     updates = []
 
@@ -68,7 +68,7 @@ def main():
                 total_staked += staked_near
                 account_total += staked_near
                 updates.append((wid, pool, str(staked)))
-        
+
         if account_total > 0:
             print(f"  {account} TOTAL: {account_total:.2f} NEAR")
             print()
@@ -79,13 +79,13 @@ def main():
 
     # Insert new positions
     for wid, pool, amount in updates:
-        c.execute("INSERT INTO staking_positions (wallet_id, validator, staked_amount) VALUES (?, ?, ?)", 
+        c.execute("INSERT INTO staking_positions (wallet_id, validator, staked_amount) VALUES (?, ?, ?)",
                  (wid, pool, amount))
-    
+
     conn.commit()
     print(f"\nInserted {len(updates)} staking positions")
     print(f"Total staked: {total_staked:.2f} NEAR")
-    
+
     conn.close()
 
 if __name__ == "__main__":

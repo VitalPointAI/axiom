@@ -16,5 +16,5 @@ for i, (account_id,) in enumerate(wallets):
         print(f"  -> {count} transactions")
     except Exception as e:
         print(f"  -> Error: {e}")
-        
+
 print("Done!")

@@ -33,53 +33,53 @@ total_added = 0
 
 for idx, (wallet_id, account_id) in enumerate(wallets):
     print(f"\n[{idx+1}/{len(wallets)}] Processing {account_id}...", flush=True)
-    
+
     conn = get_connection()
     cursor = None
     added = 0
     pages = 0
-    
+
     while True:
         try:
             result = client.fetch_receipts(account_id, cursor=cursor, per_page=100)
         except Exception as e:
             print(f"    API error: {e}", flush=True)
             break
-            
+
         receipts = result.get("txns", [])
         if not receipts:
             break
-        
+
         pages += 1
-        
+
         for r in receipts:
             if r.get("predecessor_account_id") != account_id:
                 continue
-            
+
             for action in r.get("actions", []):
                 if action.get("action") != "TRANSFER":
                     continue
-                
+
                 deposit = action.get("deposit", 0)
                 if not deposit or float(deposit) < 1e18:
                     continue
-                
+
                 tx_hash = r.get("transaction_hash", "")
                 receipt_id = r.get("receipt_id", "")
                 receiver = r.get("receiver_account_id", "")
-                
+
                 existing = conn.execute(
                     "SELECT 1 FROM transactions WHERE wallet_id = ? AND receipt_id = ?",
                     (wallet_id, receipt_id)
                 ).fetchone()
-                
+
                 if existing:
                     continue
-                
+
                 try:
                     conn.execute("""
-                        INSERT INTO transactions 
-                        (tx_hash, receipt_id, wallet_id, direction, counterparty, 
+                        INSERT INTO transactions
+                        (tx_hash, receipt_id, wallet_id, direction, counterparty,
                          action_type, amount, fee, block_height, block_timestamp, success)
                         VALUES (?, ?, ?, 'out', ?, 'TRANSFER', ?, '0', ?, ?, 1)
                     """, (
@@ -94,14 +94,14 @@ for idx, (wallet_id, account_id) in enumerate(wallets):
                     added += 1
                 except Exception as e:
                     print(f"    Insert error: {e}", flush=True)
-        
+
         cursor = result.get("cursor")
         if not cursor:
             break
-    
+
     conn.commit()
     conn.close()
-    
+
     if added > 0:
         print(f"  ✓ Added {added} transfers ({pages} pages)", flush=True)
         total_added += added

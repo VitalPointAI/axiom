@@ -28,11 +28,11 @@ def get_status_summary():
     conn = get_connection()
     rows = conn.execute("""
         SELECT status, COUNT(*), SUM(total_fetched)
-        FROM indexing_progress 
+        FROM indexing_progress
         GROUP BY status
     """).fetchall()
     conn.close()
-    
+
     summary = {}
     for row in rows:
         summary[row[0] or 'unknown'] = {
@@ -45,17 +45,17 @@ def get_status_summary():
 def print_status():
     """Print detailed status."""
     summary = get_status_summary()
-    
+
     print("\n" + "="*50)
     print("INDEXING STATUS")
     print("="*50)
-    
+
     total_wallets = sum(s['count'] for s in summary.values())
     total_txs = sum(s['transactions'] for s in summary.values())
-    
+
     for status, data in sorted(summary.items()):
         print(f"  {status:12}: {data['count']:3} wallets, {data['transactions']:,} txs")
-    
+
     print("-"*50)
     print(f"  {'TOTAL':12}: {total_wallets:3} wallets, {total_txs:,} txs")
     print("="*50 + "\n")
@@ -66,22 +66,22 @@ def main():
         description="Index NEAR transactions for all wallets"
     )
     parser.add_argument(
-        "--account", 
+        "--account",
         help="Index single account"
     )
     parser.add_argument(
-        "--status", 
-        action="store_true", 
+        "--status",
+        action="store_true",
         help="Show status only"
     )
     parser.add_argument(
-        "--force", 
-        action="store_true", 
+        "--force",
+        action="store_true",
         help="Re-index complete accounts"
     )
     parser.add_argument(
-        "--limit", 
-        type=int, 
+        "--limit",
+        type=int,
         help="Max accounts to process"
     )
     parser.add_argument(
@@ -89,42 +89,42 @@ def main():
         action="store_true",
         help="Continue on errors (don't stop)"
     )
-    
+
     args = parser.parse_args()
-    
+
     if args.status:
         print_status()
         return
-    
+
     if args.account:
         try:
             index_account(args.account, force=args.force)
         except KeyboardInterrupt:
             print("\nInterrupted - progress saved")
         return
-    
+
     # Batch mode - index all pending/error accounts
     wallets = get_all_wallets()
     processed = 0
     errors = 0
-    
+
     print(f"\nBatch indexing {len(wallets)} wallets")
     print(f"Limit: {args.limit or 'none'}")
     print(f"Force: {args.force}")
     print()
-    
+
     for i, account_id in enumerate(wallets):
         wallet_id = get_wallet_id(account_id)
         status = get_indexing_status(wallet_id)
-        
+
         # Skip complete unless force
         if status["status"] == "complete" and not args.force:
             continue
-        
+
         print(f"\n{'='*60}")
         print(f"[{i+1}/{len(wallets)}] Processing: {account_id}")
         print(f"{'='*60}")
-        
+
         try:
             index_account(account_id, force=args.force)
             processed += 1
@@ -137,17 +137,17 @@ def main():
             if not args.skip_errors:
                 print("Use --skip-errors to continue despite errors")
                 break
-        
+
         if args.limit and processed >= args.limit:
             print(f"\nLimit reached ({args.limit} accounts)")
             break
-    
+
     print(f"\n{'='*60}")
     print("BATCH COMPLETE")
     print(f"  Processed: {processed}")
     print(f"  Errors: {errors}")
     print(f"{'='*60}")
-    
+
     print_status()
 
 

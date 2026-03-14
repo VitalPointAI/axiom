@@ -31,7 +31,7 @@ def get_validator_info(pool_id: str) -> Dict:
     }
     resp = requests.post(NEAR_RPC, json=payload)
     data = resp.json()
-    
+
     for validator in data.get("result", {}).get("current_validators", []):
         if validator["account_id"] == pool_id:
             return validator
@@ -86,12 +86,12 @@ def estimate_staking_rewards(
     1. Deposit transactions
     2. Current staked balance
     3. Historical APY (~9-11% for NEAR)
-    
+
     For 100% accuracy, use NEAR Lake indexer.
     This is an approximation based on available data.
     """
     rewards = []
-    
+
     # Get current staked balance via RPC
     payload = {
         "jsonrpc": "2.0",
@@ -107,7 +107,7 @@ def estimate_staking_rewards(
             ).decode()
         }
     }
-    
+
     try:
         resp = requests.post(NEAR_RPC, json=payload, timeout=30)
         data = resp.json()
@@ -119,18 +119,18 @@ def estimate_staking_rewards(
     except Exception as e:
         print(f"Could not fetch staked balance: {e}", file=sys.stderr)
         staked_balance = 0
-    
+
     # Get deposit history
     deposits = get_account_staking_deposits(staker_account, pool_id)
     print(f"Found {len(deposits)} deposit transactions", file=sys.stderr)
-    
+
     # For accurate rewards, we need NEAR Lake
     # This provides an estimate based on typical APY
-    
+
     if staked_balance > 0:
         # Estimate daily rewards at ~10% APY
         daily_rate = 0.10 / 365
-        
+
         current = start_date
         while current <= end_date:
             daily_reward = staked_balance * daily_rate
@@ -143,20 +143,20 @@ def estimate_staking_rewards(
                 "note": "Estimated at 10% APY - verify with NEAR Lake for exact amounts"
             })
             current += timedelta(days=1)
-    
+
     return rewards
 
 def export_to_koinly_csv(rewards: List[Dict], output_file: str, consolidate: str = "daily"):
     """
     Export rewards to Koinly-compatible CSV
-    
+
     Consolidation options:
     - none: One row per reward event
     - daily: Aggregate by day (recommended)
     - weekly: Aggregate by week
     - monthly: Aggregate by month
     """
-    
+
     if consolidate == "daily":
         # Already daily
         consolidated = rewards
@@ -185,17 +185,17 @@ def export_to_koinly_csv(rewards: List[Dict], output_file: str, consolidate: str
         ]
     else:
         consolidated = rewards
-    
+
     # Write Koinly CSV format
     with open(output_file, "w", newline="") as f:
         writer = csv.writer(f)
         # Koinly Universal Format headers
         writer.writerow([
-            "Date", "Sent Amount", "Sent Currency", "Received Amount", 
-            "Received Currency", "Fee Amount", "Fee Currency", 
+            "Date", "Sent Amount", "Sent Currency", "Received Amount",
+            "Received Currency", "Fee Amount", "Fee Currency",
             "Net Worth Amount", "Net Worth Currency", "Label", "Description", "TxHash"
         ])
-        
+
         for r in consolidated:
             writer.writerow([
                 r["date"] + " 00:00:00 UTC",  # Date
@@ -211,7 +211,7 @@ def export_to_koinly_csv(rewards: List[Dict], output_file: str, consolidate: str
                 f"Staking reward from {r['pool']}",  # Description
                 ""  # TxHash
             ])
-    
+
     print(f"Exported {len(consolidated)} rows to {output_file}", file=sys.stderr)
     return len(consolidated)
 
@@ -224,24 +224,24 @@ def main():
     parser.add_argument("--output", default="staking_rewards.csv", help="Output CSV file")
     parser.add_argument("--consolidate", choices=["none", "daily", "weekly", "monthly"], default="daily", help="Consolidation level")
     parser.add_argument("--json", action="store_true", help="Output JSON instead of CSV")
-    
+
     args = parser.parse_args()
-    
+
     start = datetime.strptime(args.start_date, "%Y-%m-%d")
     end = datetime.strptime(args.end_date, "%Y-%m-%d")
-    
+
     print(f"Indexing staking rewards for {args.pool_id}", file=sys.stderr)
     print(f"Period: {args.start_date} to {args.end_date}", file=sys.stderr)
-    
+
     # Get validator info
     validator_info = get_validator_info(args.pool_id)
     if validator_info:
         stake = int(validator_info.get("stake", 0)) / 1e24
         print(f"Validator total stake: {stake:,.0f} NEAR", file=sys.stderr)
-    
+
     if args.staker:
         rewards = estimate_staking_rewards(args.staker, args.pool_id, start, end)
-        
+
         if args.json:
             print(json.dumps(rewards, indent=2))
         else:

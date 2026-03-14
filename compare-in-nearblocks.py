@@ -16,7 +16,7 @@ print("="*60)
 # Get our IN totals by counterparty
 cur.execute("""
     SELECT counterparty, SUM(CAST(amount AS REAL)/1e24) as total
-    FROM transactions 
+    FROM transactions
     WHERE wallet_id = ? AND direction = 'in' AND counterparty != ?
     GROUP BY counterparty
     ORDER BY total DESC
@@ -39,11 +39,11 @@ for _ in range(20):
     txns = data.get("txns", [])
     if not txns:
         break
-    
+
     for tx in txns:
         receiver = tx.get("receiver_account_id", "")
         predecessor = tx.get("predecessor_account_id", "")
-        
+
         # Only count IN to this wallet from external sources
         if receiver == wallet and predecessor != wallet:
             actions = tx.get("actions", []) or []
@@ -51,7 +51,7 @@ for _ in range(20):
                 if isinstance(a, dict):
                     deposit = (a.get("deposit") or 0) / 1e24
                     nb_in_total += deposit
-    
+
     cursor = data.get("cursor")
     if not cursor:
         break

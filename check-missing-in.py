@@ -40,7 +40,7 @@ for r in cur.fetchall():
 # Check the very first transactions chronologically
 print("\nFirst 5 transactions (chronological):")
 cur.execute("""
-    SELECT tx_hash, action_type, direction, counterparty, CAST(amount AS REAL)/1e24, 
+    SELECT tx_hash, action_type, direction, counterparty, CAST(amount AS REAL)/1e24,
            datetime(block_timestamp/1000000000, 'unixepoch')
     FROM transactions
     WHERE wallet_id = ?
@@ -68,7 +68,7 @@ for r in cur.fetchall()[:15]:
 print("\n" + "="*60)
 print("Diagnosis:")
 
-# All IN 
+# All IN
 cur.execute("""
     SELECT SUM(CAST(amount AS REAL)/1e24) FROM transactions
     WHERE wallet_id = ? AND direction = 'in'

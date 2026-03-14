@@ -24,7 +24,7 @@ if 'error' in data:
 else:
     traces = data.get('result', [])
     print(f'Outgoing traces: {len(traces)}')
-    
+
     by_type = {}
     for t in traces:
         tt = t.get('type', 'unknown')
@@ -33,10 +33,10 @@ else:
             by_type[tt] = {'count': 0, 'value': 0}
         by_type[tt]['count'] += 1
         by_type[tt]['value'] += val
-    
+
     for t, d in by_type.items():
         print(f'  {t}: {d["count"]} traces, {d["value"]:.6f} ETH')
-    
+
     # Show first few with value
     print("\nSample traces with value:")
     shown = 0

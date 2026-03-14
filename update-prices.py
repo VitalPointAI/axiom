@@ -36,14 +36,14 @@ missing_price = 0
 for tx_id, timestamp_ns, amount in transactions:
     if not timestamp_ns or not amount:
         continue
-    
+
     # Convert nanoseconds to date
     try:
         dt = datetime.utcfromtimestamp(timestamp_ns / 1_000_000_000)
         date_str = dt.strftime("%Y-%m-%d")
     except Exception:
         continue
-    
+
     price = price_map.get(date_str)
     if not price:
         # Try nearby dates
@@ -52,21 +52,21 @@ for tx_id, timestamp_ns, amount in transactions:
             if prev_date in price_map:
                 price = price_map[prev_date]
                 break
-    
+
     if not price:
         missing_price += 1
         continue
-    
+
     cost_usd = amount * price
     cost_cad = cost_usd * DEFAULT_CAD_RATE
-    
+
     cur.execute("""
-        UPDATE transactions 
+        UPDATE transactions
         SET cost_basis_usd = ?, cost_basis_cad = ?
         WHERE id = ?
     """, (cost_usd, cost_cad, tx_id))
     updated += 1
-    
+
     if updated % 10000 == 0:
         print(f"Updated {updated} transactions...")
         conn.commit()

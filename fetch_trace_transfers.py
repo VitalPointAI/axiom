@@ -52,7 +52,7 @@ inserted = 0
 for t in traces:
     trace_type = t.get('type', '')
     action = t.get('action', {})
-    
+
     # Get value
     if trace_type == 'suicide':
         value = int(action.get('balance', '0x0'), 16) / 1e18
@@ -60,10 +60,10 @@ for t in traces:
     else:
         value = int(action.get('value', '0x0'), 16) / 1e18
         from_addr = action.get('from', '')
-    
+
     if value == 0:
         continue
-    
+
     tx_hash = t.get('transactionHash', '')
     block_raw = t.get('blockNumber')
     if isinstance(block_raw, int):
@@ -72,21 +72,21 @@ for t in traces:
         block_num = int(block_raw, 16) if block_raw.startswith('0x') else int(block_raw)
     else:
         block_num = 0
-    
+
     # Get timestamp
     block_ts = get_block_timestamp(hex(block_num)) if block_num else None
-    
+
     # Create unique hash for trace (include trace position)
     trace_addr = t.get('traceAddress', [])
     trace_suffix = '_trace_' + '_'.join(map(str, trace_addr)) if trace_addr else '_trace_0'
     unique_hash = tx_hash + trace_suffix
-    
+
     print(f"  {trace_type}: {value:.6f} ETH from {from_addr[:16]}... (block {block_num})")
-    
+
     try:
         cursor.execute("""
-            INSERT OR IGNORE INTO transactions 
-            (wallet_id, tx_hash, block_height, block_timestamp, action_type, 
+            INSERT OR IGNORE INTO transactions
+            (wallet_id, tx_hash, block_height, block_timestamp, action_type,
              direction, counterparty, amount, asset, success, source)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
@@ -102,7 +102,7 @@ for t in traces:
             1,
             'alchemy_trace'
         ))
-        
+
         if cursor.rowcount > 0:
             inserted += 1
     except Exception as e:

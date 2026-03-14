@@ -45,18 +45,18 @@ def get_usd_price(symbol: str, timestamp_ns: int) -> Optional[float]:
     """Get USD price for a token at a specific timestamp."""
     # Convert nanoseconds to seconds
     ts_sec = timestamp_ns // 1_000_000_000
-    
+
     # Round to hour for caching
     hour_ts = (ts_sec // 3600) * 3600
     cache_key = f"{symbol}:{hour_ts}"
-    
+
     if cache_key in price_cache:
         return price_cache[cache_key]
-    
+
     # Skip if symbol not in supported list
     if symbol not in ['NEAR', 'BTC', 'ETH', 'USDT', 'USDC', 'AURORA', 'REF']:
         return None
-    
+
     try:
         params = {
             'fsym': symbol,
@@ -66,7 +66,7 @@ def get_usd_price(symbol: str, timestamp_ns: int) -> Optional[float]:
         }
         resp = requests.get(CC_API_URL, params=params, timeout=10)
         data = resp.json()
-        
+
         if data.get('Response') == 'Success' and data.get('Data', {}).get('Data'):
             price_data = data['Data']['Data']
             if price_data:
@@ -75,7 +75,7 @@ def get_usd_price(symbol: str, timestamp_ns: int) -> Optional[float]:
                 return price
     except Exception as e:
         print(f"Error fetching price for {symbol}: {e}")
-    
+
     return None
 
 
@@ -83,7 +83,7 @@ def get_cad_rate(date_str: str) -> float:
     """Get USD to CAD exchange rate for a date."""
     if date_str in cad_rate_cache:
         return cad_rate_cache[date_str]
-    
+
     try:
         params = {
             'start_date': date_str,
@@ -91,7 +91,7 @@ def get_cad_rate(date_str: str) -> float:
         }
         resp = requests.get(BOC_API_URL, params=params, timeout=10)
         data = resp.json()
-        
+
         observations = data.get('observations', [])
         if observations:
             rate = float(observations[0].get('FXUSDCAD', {}).get('v', 1.35))
@@ -99,7 +99,7 @@ def get_cad_rate(date_str: str) -> float:
             return rate
     except Exception as e:
         print(f"Error fetching CAD rate for {date_str}: {e}")
-    
+
     return 1.35  # Default fallback
 
 
@@ -108,7 +108,7 @@ def backfill_transaction_prices(db_path: str = 'neartax.db', limit: int = 1000):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    
+
     # Get transactions missing prices (with significant amounts)
     cur.execute('''
         SELECT id, tx_hash, block_timestamp, amount, direction, tax_category
@@ -119,32 +119,32 @@ def backfill_transaction_prices(db_path: str = 'neartax.db', limit: int = 1000):
         ORDER BY block_timestamp DESC
         LIMIT ?
     ''', (limit,))
-    
+
     transactions = cur.fetchall()
     print(f"Found {len(transactions)} transactions to price")
-    
+
     updated = 0
     for i, tx in enumerate(transactions):
         if i % 100 == 0:
             print(f"Processing {i}/{len(transactions)}...")
             time.sleep(0.5)  # Rate limit
-        
+
         amount_near = float(tx['amount']) / 1e24
         timestamp = tx['block_timestamp']
-        
+
         # Get NEAR price
         price_usd = get_usd_price('NEAR', timestamp)
         if price_usd is None:
             continue
-        
+
         value_usd = amount_near * price_usd
-        
+
         # Get CAD rate
         dt = datetime.fromtimestamp(timestamp / 1_000_000_000, tz=timezone.utc)
         date_str = dt.strftime('%Y-%m-%d')
         cad_rate = get_cad_rate(date_str)
         value_cad = value_usd * cad_rate
-        
+
         # Update transaction
         cur.execute('''
             UPDATE transactions
@@ -154,19 +154,19 @@ def backfill_transaction_prices(db_path: str = 'neartax.db', limit: int = 1000):
                 price_resolved = 1
             WHERE id = ?
         ''', (value_usd, value_cad, tx['id']))
-        
+
         updated += 1
-        
+
         # Batch commit
         if updated % 50 == 0:
             conn.commit()
-    
+
     conn.commit()
     print(f"Updated {updated} transactions with prices")
-    
+
     # Now do FT transactions
     cur.execute('''
-        SELECT id, tx_hash, block_timestamp, token_symbol, token_contract, 
+        SELECT id, tx_hash, block_timestamp, token_symbol, token_contract,
                amount, token_decimals
         FROM ft_transactions
         WHERE value_usd IS NULL
@@ -175,40 +175,40 @@ def backfill_transaction_prices(db_path: str = 'neartax.db', limit: int = 1000):
         ORDER BY block_timestamp DESC
         LIMIT ?
     ''', (limit,))
-    
+
     ft_transactions = cur.fetchall()
     print(f"Found {len(ft_transactions)} FT transactions to price")
-    
+
     ft_updated = 0
     for i, tx in enumerate(ft_transactions):
         if i % 100 == 0:
             print(f"Processing FT {i}/{len(ft_transactions)}...")
             time.sleep(0.5)
-        
+
         decimals = tx['token_decimals'] or 18
         amount = float(tx['amount']) / (10 ** decimals)
         timestamp = tx['block_timestamp']
-        
+
         # Map token to symbol
         contract = tx['token_contract'] or ''
         symbol = TOKEN_MAP.get(contract.lower(), tx['token_symbol'])
-        
+
         if not symbol or symbol in ['BRRR', '$META', 'CAT', 'BLACKDRAGON', 'BABYBLACKDRAGON']:
             # Skip tokens without reliable price feeds or spam
             continue
-        
+
         price_usd = get_usd_price(symbol, timestamp)
         if price_usd is None:
             continue
-        
+
         value_usd = amount * price_usd
-        
+
         # Get CAD rate
         dt = datetime.fromtimestamp(timestamp / 1_000_000_000, tz=timezone.utc)
         date_str = dt.strftime('%Y-%m-%d')
         cad_rate = get_cad_rate(date_str)
         value_cad = value_usd * cad_rate
-        
+
         # Update
         cur.execute('''
             UPDATE ft_transactions
@@ -217,17 +217,17 @@ def backfill_transaction_prices(db_path: str = 'neartax.db', limit: int = 1000):
                 value_cad = ?
             WHERE id = ?
         ''', (price_usd, value_usd, value_cad, tx['id']))
-        
+
         ft_updated += 1
-        
+
         if ft_updated % 50 == 0:
             conn.commit()
-    
+
     conn.commit()
     print(f"Updated {ft_updated} FT transactions with prices")
-    
+
     conn.close()
-    
+
     return {
         'transactions_updated': updated,
         'ft_updated': ft_updated,
@@ -239,10 +239,10 @@ def backfill_transaction_prices(db_path: str = 'neartax.db', limit: int = 1000):
 if __name__ == '__main__':
     db_path = sys.argv[1] if len(sys.argv) > 1 else 'neartax.db'
     limit = int(sys.argv[2]) if len(sys.argv) > 2 else 2000
-    
+
     print(f"Backfilling prices for up to {limit} transactions...")
     result = backfill_transaction_prices(db_path, limit)
-    
+
     print("\nResults:")
     print(f"  Transactions updated: {result['transactions_updated']}")
     print(f"  FT transactions updated: {result['ft_updated']}")

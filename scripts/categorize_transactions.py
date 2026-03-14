@@ -33,7 +33,7 @@ print("\n=== STEP 2: Mark DELETE_ACCOUNT beneficiary transfers ===")
 # Find tx_hashes that have DELETE_ACCOUNT actions
 c.execute("""
     UPDATE transactions
-    SET tax_category = 'delete_account_received', 
+    SET tax_category = 'delete_account_received',
         category_notes = 'Received from deleted account via system'
     WHERE action_type = 'TRANSFER'
     AND counterparty = 'system'
@@ -53,9 +53,9 @@ c.execute("""
         category_notes = 'Received from own deleted account'
     WHERE t1.tax_category = 'delete_account_received'
     AND EXISTS (
-        SELECT 1 FROM transactions t2 
+        SELECT 1 FROM transactions t2
         JOIN wallets w ON t2.wallet_id = w.id
-        WHERE t2.tx_hash = t1.tx_hash 
+        WHERE t2.tx_hash = t1.tx_hash
         AND t2.action_type = 'DELETE_ACCOUNT'
         AND w.is_owned = 1
     )
@@ -83,7 +83,7 @@ print(f"Marked {c.rowcount} outflows as internal")
 
 print("\n=== STEP 4: Mark NEAR Intents (implicit account) transfers ===")
 c.execute("""
-    UPDATE transactions 
+    UPDATE transactions
     SET tax_category = 'internal', category_notes = 'NEAR Intents/implicit account'
     WHERE LENGTH(counterparty) = 64
     AND counterparty GLOB '[0-9a-f]*'
@@ -204,7 +204,7 @@ c.execute("""
     UPDATE transactions
     SET tax_category = 'non_taxable', category_notes = 'Zero-value DeFi operation'
     WHERE direction = 'out'
-    AND (counterparty LIKE '%burrow%' OR counterparty LIKE '%ref%' 
+    AND (counterparty LIKE '%burrow%' OR counterparty LIKE '%ref%'
          OR counterparty = 'wrap.near' OR counterparty = 'meta-pool.near')
     AND CAST(amount AS REAL) = 0
     AND tax_category IS NULL
@@ -267,7 +267,7 @@ conn.commit()
 print("\n" + "="*60)
 print("=== FINAL CATEGORY SUMMARY ===")
 c.execute("""
-    SELECT 
+    SELECT
         COALESCE(tax_category, 'UNCATEGORIZED') as cat,
         direction,
         SUM(CAST(amount AS REAL)/1e24) as total_near,
@@ -282,9 +282,9 @@ for row in c.fetchall():
 # Uncategorized breakdown
 print("\n=== UNCATEGORIZED TRANSACTIONS (sample) ===")
 c.execute("""
-    SELECT action_type, method_name, counterparty, direction, 
+    SELECT action_type, method_name, counterparty, direction,
            CAST(amount AS REAL)/1e24 as near_amt, COUNT(*) as cnt
-    FROM transactions 
+    FROM transactions
     WHERE tax_category IS NULL
     GROUP BY action_type, method_name, counterparty, direction
     ORDER BY cnt DESC

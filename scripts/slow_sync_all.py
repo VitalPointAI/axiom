@@ -21,12 +21,12 @@ def get_wallets_to_sync():
     conn = get_connection()
     rows = conn.execute("""
         SELECT id, account_id, sync_status, last_synced_at
-        FROM wallets 
-        WHERE chain = 'NEAR' 
-          AND (sync_status IN ('error', 'idle', 'pending', 'in_progress') 
+        FROM wallets
+        WHERE chain = 'NEAR'
+          AND (sync_status IN ('error', 'idle', 'pending', 'in_progress')
                OR sync_status IS NULL)
-        ORDER BY 
-            CASE sync_status 
+        ORDER BY
+            CASE sync_status
                 WHEN 'in_progress' THEN 1
                 WHEN 'error' THEN 2
                 WHEN 'pending' THEN 3
@@ -42,7 +42,7 @@ def update_wallet_status(wallet_id, status, error=None):
     conn = get_connection()
     if status == 'complete':
         conn.execute("""
-            UPDATE wallets 
+            UPDATE wallets
             SET sync_status = 'complete', last_synced_at = datetime('now')
             WHERE id = ?
         """, (wallet_id,))
@@ -56,22 +56,22 @@ def update_wallet_status(wallet_id, status, error=None):
 def slow_sync_all():
     """Sync all pending wallets, one at a time, with generous delays."""
     wallets = get_wallets_to_sync()
-    
+
     if not wallets:
         print("✅ All wallets are already synced!")
         return
-    
+
     print(f"📋 Found {len(wallets)} wallets to sync")
     print(f"⏱️  Using {INTER_WALLET_DELAY}s delay between wallets")
     print(f"⏱️  Estimated time: {len(wallets) * 2} minutes (varies by tx count)")
     print()
-    
+
     synced = 0
     errors = 0
-    
+
     for i, (wallet_id, account_id, status, last_synced) in enumerate(wallets, 1):
         print(f"[{i}/{len(wallets)}] Syncing {account_id}...")
-        
+
         try:
             update_wallet_status(wallet_id, 'in_progress')
             tx_count = index_account(account_id, force=False, incremental=True)
@@ -86,12 +86,12 @@ def slow_sync_all():
             errors += 1
             update_wallet_status(wallet_id, 'error')
             print(f"  ❌ Error: {e}")
-        
+
         # Wait between wallets (unless last one)
         if i < len(wallets):
             print(f"  ⏳ Waiting {INTER_WALLET_DELAY}s before next wallet...")
             time.sleep(INTER_WALLET_DELAY)
-    
+
     print()
     print("📊 Summary:")
     print(f"  ✅ Synced: {synced}")

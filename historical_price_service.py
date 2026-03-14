@@ -71,11 +71,11 @@ STABLECOINS = {"USDC", "USDT", "DAI", "USN", "USDC.e", "USDT.e"}
 
 class PriceCache:
     """SQLite-backed price cache - uses existing price_cache table schema"""
-    
+
     def __init__(self, db_path: str):
         self.conn = sqlite3.connect(db_path)
         # Use existing table schema: coin_id, date, currency, price
-    
+
     def get(self, symbol: str, date: str) -> Optional[float]:
         """Get cached price for symbol on date (YYYY-MM-DD)"""
         cur = self.conn.execute(
@@ -84,7 +84,7 @@ class PriceCache:
         )
         row = cur.fetchone()
         return row[0] if row else None
-    
+
     def set(self, symbol: str, date: str, price: float, source: str = "unknown"):
         """Cache price for symbol on date"""
         self.conn.execute("""
@@ -92,7 +92,7 @@ class PriceCache:
             VALUES (?, ?, 'USD', ?)
         """, (symbol.upper(), date, price))
         self.conn.commit()
-    
+
     def get_cached_count(self) -> int:
         cur = self.conn.execute("SELECT COUNT(*) FROM price_cache WHERE currency = 'USD'")
         return cur.fetchone()[0]
@@ -103,35 +103,35 @@ class HistoricalPriceService:
         self.db_path = db_path
         self.cache = PriceCache(db_path)
         self.last_api_call = 0
-        
+
         # Track API calls for rate limiting
         self.cc_calls = 0
         self.cg_calls = 0
-    
+
     def _rate_limit(self, delay: float):
         """Enforce rate limiting between API calls"""
         elapsed = time.time() - self.last_api_call
         if elapsed < delay:
             time.sleep(delay - elapsed)
         self.last_api_call = time.time()
-    
+
     def get_price_cryptocompare(self, symbol: str, date: str) -> Optional[float]:
         """Get historical price from CryptoCompare"""
         cc_symbol = CC_SYMBOL_MAP.get(symbol.upper(), symbol.upper())
-        
+
         # Parse date to timestamp
         dt = datetime.strptime(date, "%Y-%m-%d")
         timestamp = int(dt.replace(tzinfo=timezone.utc).timestamp())
-        
+
         self._rate_limit(CRYPTOCOMPARE_RATE_LIMIT)
-        
+
         url = f"{CRYPTOCOMPARE_API}/pricehistorical"
         params = {
             "fsym": cc_symbol,
             "tsyms": "USD",
             "ts": timestamp
         }
-        
+
         try:
             resp = requests.get(url, params=params, timeout=10)
             self.cc_calls += 1
@@ -145,22 +145,22 @@ class HistoricalPriceService:
             logger.warning("CryptoCompare price fetch failed for %s on %s: %s", symbol, date, e)
 
         return None
-    
+
     def get_price_coingecko(self, symbol: str, date: str) -> Optional[float]:
         """Get historical price from CoinGecko"""
         cg_id = CG_ID_MAP.get(symbol.upper())
         if not cg_id:
             return None
-        
+
         # CoinGecko date format: DD-MM-YYYY
         dt = datetime.strptime(date, "%Y-%m-%d")
         cg_date = dt.strftime("%d-%m-%Y")
-        
+
         self._rate_limit(COINGECKO_RATE_LIMIT)
-        
+
         url = f"{COINGECKO_API}/coins/{cg_id}/history"
         params = {"date": cg_date}
-        
+
         try:
             resp = requests.get(url, params=params, timeout=10)
             self.cg_calls += 1
@@ -174,67 +174,67 @@ class HistoricalPriceService:
             logger.warning("CoinGecko price fetch failed for %s on %s: %s", symbol, date, e)
 
         return None
-    
+
     def get_price(self, symbol: str, date: str) -> Optional[Tuple[float, str]]:
         """
         Get historical price for symbol on date.
         Returns (price_usd, source) or None.
         """
         symbol = symbol.upper()
-        
+
         # Stablecoins = $1
         if symbol in STABLECOINS:
             return (1.0, "stablecoin")
-        
+
         # Check cache first
         cached = self.cache.get(symbol, date)
         if cached is not None:
             return (cached, "cache")
-        
+
         # Try CryptoCompare
         price = self.get_price_cryptocompare(symbol, date)
         if price:
             self.cache.set(symbol, date, price, "cryptocompare")
             return (price, "cryptocompare")
-        
+
         # Try CoinGecko as fallback
         price = self.get_price_coingecko(symbol, date)
         if price:
             self.cache.set(symbol, date, price, "coingecko")
             return (price, "coingecko")
-        
+
         return None
-    
+
     def get_near_price(self, date: str) -> Optional[float]:
         """Get NEAR price for a specific date"""
         result = self.get_price("NEAR", date)
         return result[0] if result else None
-    
+
     def batch_get_near_prices(self, dates: List[str]) -> Dict[str, float]:
         """Get NEAR prices for multiple dates efficiently"""
         prices = {}
         unique_dates = sorted(set(dates))
-        
+
         print(f"Fetching NEAR prices for {len(unique_dates)} unique dates...")
-        
+
         for i, date in enumerate(unique_dates):
             result = self.get_price("NEAR", date)
             if result:
                 prices[date] = result[0]
-            
+
             if (i + 1) % 50 == 0:
                 print(f"  Processed {i + 1}/{len(unique_dates)} dates...")
-        
+
         print(f"Got {len(prices)} NEAR prices")
         return prices
-    
+
     def get_cad_rate(self, date: str) -> float:
         """Get CAD/USD exchange rate for date"""
         # Check cache first
         cached = self.cache.get("CADUSD", date)
         if cached:
             return cached
-        
+
         # Fetch from Bank of Canada
         try:
             url = f"{BOC_API}/json"
@@ -254,12 +254,12 @@ class HistoricalPriceService:
             logger.warning("Bank of Canada rate fetch failed for %s: %s", date, e)
 
         return 1.35  # Default fallback
-    
+
     def batch_get_cad_rates(self, dates: List[str]) -> Dict[str, float]:
         """Get CAD rates for multiple dates efficiently"""
         rates = {}
         unique_dates = sorted(set(dates))
-        
+
         # Try to get rates in bulk from Bank of Canada
         if unique_dates:
             try:
@@ -280,7 +280,7 @@ class HistoricalPriceService:
                     print(f"Got {len(rates)} CAD/USD rates from Bank of Canada")
             except Exception as e:
                 print(f"Warning: Could not fetch CAD rates: {e}")
-        
+
         # Fill gaps with cached or default
         for date in unique_dates:
             if date not in rates:
@@ -289,7 +289,7 @@ class HistoricalPriceService:
                     rates[date] = cached
                 else:
                     rates[date] = 1.35  # Default
-        
+
         return rates
 
 
@@ -298,9 +298,9 @@ def price_near_transactions(db_path: str):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    
+
     service = HistoricalPriceService(db_path)
-    
+
     # Get all dates needing prices
     cur.execute("""
         SELECT DISTINCT date(datetime(block_timestamp/1000000000, 'unixepoch')) as tx_date
@@ -310,16 +310,16 @@ def price_near_transactions(db_path: str):
         ORDER BY tx_date
     """)
     dates = [row[0] for row in cur.fetchall() if row[0]]
-    
+
     print(f"Found {len(dates)} unique dates needing NEAR prices")
-    
+
     # Batch fetch prices and CAD rates
     prices = service.batch_get_near_prices(dates)
     cad_rates = service.batch_get_cad_rates(dates)
-    
+
     # Update transactions
     print("\nUpdating transaction cost basis...")
-    
+
     cur.execute("""
         SELECT id, amount, block_timestamp
         FROM transactions
@@ -327,13 +327,13 @@ def price_near_transactions(db_path: str):
         AND block_timestamp IS NOT NULL
         AND amount IS NOT NULL
     """)
-    
+
     updated = 0
     for row in cur.fetchall():
         tx_id = row["id"]
         amount_raw = row["amount"]
         timestamp = row["block_timestamp"]
-        
+
         # Parse date
         try:
             dt = datetime.fromtimestamp(timestamp / 1_000_000_000, tz=timezone.utc)
@@ -368,12 +368,12 @@ def price_near_transactions(db_path: str):
                 conn.commit()
         except (ValueError, TypeError, ZeroDivisionError) as e:
             logger.warning("Failed to calculate cost basis for tx %s (amount=%s): %s", tx_id, amount_raw, e)
-    
+
     conn.commit()
     print(f"\nSuccessfully updated {updated} NEAR transactions")
     print(f"API calls: CryptoCompare={service.cc_calls}, CoinGecko={service.cg_calls}")
     print(f"Price cache now has {service.cache.get_cached_count()} entries")
-    
+
     return updated
 
 
@@ -382,9 +382,9 @@ def price_ft_transactions(db_path: str):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    
+
     service = HistoricalPriceService(db_path)
-    
+
     # Get all dates needing CAD rates first
     cur.execute("""
         SELECT DISTINCT date(datetime(block_timestamp/1000000000, 'unixepoch')) as tx_date
@@ -395,10 +395,10 @@ def price_ft_transactions(db_path: str):
     """)
     all_dates = [row[0] for row in cur.fetchall() if row[0]]
     cad_rates = service.batch_get_cad_rates(all_dates)
-    
+
     # Get tokens needing prices
     cur.execute("""
-        SELECT DISTINCT token_symbol, 
+        SELECT DISTINCT token_symbol,
             date(datetime(block_timestamp/1000000000, 'unixepoch')) as tx_date
         FROM ft_transactions
         WHERE (price_usd IS NULL OR price_usd = 0)
@@ -406,7 +406,7 @@ def price_ft_transactions(db_path: str):
         AND block_timestamp IS NOT NULL
         ORDER BY token_symbol, tx_date
     """)
-    
+
     token_dates = {}
     for row in cur.fetchall():
         symbol = row[0]
@@ -414,21 +414,21 @@ def price_ft_transactions(db_path: str):
         if symbol not in token_dates:
             token_dates[symbol] = []
         token_dates[symbol].append(date)
-    
+
     print(f"Found {len(token_dates)} tokens needing prices")
-    
+
     # Price each token
     updated = 0
     for symbol, dates in token_dates.items():
         print(f"\nProcessing {symbol} ({len(dates)} dates)...")
-        
+
         # Get prices for this token
         prices = {}
         for date in set(dates):
             result = service.get_price(symbol, date)
             if result:
                 prices[date] = result[0]
-        
+
         if not prices:
             # Try using NEAR price as proxy for NEAR-related tokens
             if symbol in ["STNEAR", "LINEAR", "wNEAR", "rNEAR"]:
@@ -437,13 +437,13 @@ def price_ft_transactions(db_path: str):
                     near_price = service.get_near_price(date)
                     if near_price:
                         prices[date] = near_price
-        
+
         if not prices:
             print(f"  No prices found for {symbol}")
             continue
-        
+
         print(f"  Got {len(prices)} prices for {symbol}")
-        
+
         # Update transactions
         cur.execute("""
             SELECT id, amount, block_timestamp, token_contract
@@ -451,13 +451,13 @@ def price_ft_transactions(db_path: str):
             WHERE token_symbol = ?
             AND (price_usd IS NULL OR price_usd = 0)
         """, (symbol,))
-        
+
         for row in cur.fetchall():
             tx_id = row["id"]
             amount_raw = row["amount"]
             timestamp = row["block_timestamp"]
             contract = row["token_contract"]
-            
+
             try:
                 dt = datetime.fromtimestamp(timestamp / 1_000_000_000, tz=timezone.utc)
                 date_str = dt.strftime("%Y-%m-%d")
@@ -494,29 +494,29 @@ def price_ft_transactions(db_path: str):
                 updated += 1
             except (ValueError, TypeError, ZeroDivisionError) as e:
                 logger.warning("Failed to calculate FT value for tx %s (symbol=%s, amount=%s): %s", tx_id, symbol, amount_raw, e)
-        
+
         conn.commit()
-    
+
     print(f"\nSuccessfully updated {updated} FT transactions")
     return updated
 
 
 def main():
     db_path = sys.argv[1] if len(sys.argv) > 1 else "neartax.db"
-    
+
     print("=" * 60)
     print("Historical Price Service for NearTax")
     print(f"Database: {db_path}")
     print("=" * 60)
-    
+
     # Price NEAR transactions
     print("\n[1/2] Pricing NEAR transactions...")
     near_updated = price_near_transactions(db_path)
-    
+
     # Price FT transactions
     print("\n[2/2] Pricing FT transactions...")
     ft_updated = price_ft_transactions(db_path)
-    
+
     print("\n" + "=" * 60)
     print(f"Complete! Updated {near_updated} NEAR + {ft_updated} FT transactions")
     print("=" * 60)

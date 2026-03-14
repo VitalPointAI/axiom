@@ -3,14 +3,14 @@
 if __name__ == '__main__':
     import argparse
     from indexer_reporter import IndexerReporter
-    
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--user', type=int, help='Sync only this user ID')
     args = parser.parse_args()
-    
+
     reporter = IndexerReporter('near_indexer')
     reporter.start()
-    
+
     try:
         sync_all(args.user)
         # Count total records

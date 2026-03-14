@@ -37,13 +37,13 @@ def load_credentials():
 def generate_jwt(method: str, path: str) -> str:
     """Generate JWT token for Coinbase API authentication."""
     creds = load_credentials()
-    
+
     private_key_pem = creds['private_key']
     key_name = creds['key_name']
-    
+
     # Create JWT payload
     uri = f"{method} api.coinbase.com{path}"
-    
+
     payload = {
         "sub": key_name,
         "iss": "cdp",
@@ -51,102 +51,102 @@ def generate_jwt(method: str, path: str) -> str:
         "exp": int(time.time()) + 120,  # 2 minute expiry
         "uri": uri,
     }
-    
+
     headers = {
         "kid": key_name,
         "nonce": secrets.token_hex(16),
         "typ": "JWT",
         "alg": "ES256"
     }
-    
+
     # Load private key and sign
     private_key = serialization.load_pem_private_key(
         private_key_pem.encode(),
         password=None
     )
-    
+
     token = jwt.encode(
         payload,
         private_key,
         algorithm="ES256",
         headers=headers
     )
-    
+
     return token
 
 def coinbase_request(method: str, path: str, params: dict = None) -> dict:
     """Make authenticated request to Coinbase API."""
-    
+
     url = f"{API_BASE}{path}"
     token = generate_jwt(method, path)
-    
+
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
-    
+
     if method == "GET":
         response = requests.get(url, headers=headers, params=params, timeout=30)
     else:
         response = requests.post(url, headers=headers, json=params, timeout=30)
-    
+
     if response.status_code != 200:
         print(f"API error {response.status_code}: {response.text[:500]}")
         return {"error": response.text}
-    
+
     return response.json()
 
 def get_accounts() -> List[Dict]:
     """Get all Coinbase accounts (wallets)."""
     accounts = []
     cursor = None
-    
+
     while True:
         params = {"limit": 250}
         if cursor:
             params["cursor"] = cursor
-        
+
         data = coinbase_request("GET", "/api/v3/brokerage/accounts", params)
-        
+
         if "error" in data:
             break
-        
+
         accounts.extend(data.get("accounts", []))
-        
+
         if not data.get("has_next"):
             break
         cursor = data.get("cursor")
-    
+
     return accounts
 
 def get_transactions(account_id: str) -> List[Dict]:
     """Get transaction history for an account."""
     transactions = []
     cursor = None
-    
+
     while True:
         params = {"limit": 250}
         if cursor:
             params["cursor"] = cursor
-        
+
         data = coinbase_request("GET", f"/api/v3/brokerage/accounts/{account_id}/ledger", params)
-        
+
         if "error" in data:
             break
-        
+
         transactions.extend(data.get("entries", []))
-        
+
         if not data.get("has_next"):
             break
         cursor = data.get("cursor")
-    
+
     return transactions
 
 def get_orders(start_date: str = None) -> List[Dict]:
     """Get order (trade) history."""
     orders = []
     cursor = None
-    
+
     while True:
         params = {
             "limit": 250,
@@ -156,18 +156,18 @@ def get_orders(start_date: str = None) -> List[Dict]:
             params["cursor"] = cursor
         if start_date:
             params["start_date"] = start_date
-        
+
         data = coinbase_request("GET", "/api/v3/brokerage/orders/historical/batch", params)
-        
+
         if "error" in data:
             break
-        
+
         orders.extend(data.get("orders", []))
-        
+
         if not data.get("has_next"):
             break
         cursor = data.get("cursor")
-    
+
     return orders
 
 def map_transaction_type(cb_type: str) -> str:
@@ -191,59 +191,59 @@ def map_transaction_type(cb_type: str) -> str:
 
 def sync_coinbase_transactions(user_id: int):
     """Sync all Coinbase transactions for a user."""
-    
+
     if not HAS_JWT:
         print("ERROR: PyJWT and cryptography libraries required")
         return
-    
+
     print("Fetching Coinbase accounts...")
     accounts = get_accounts()
     print(f"Found {len(accounts)} accounts")
-    
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     # Create import batch
     cursor.execute("""
         INSERT INTO import_batches (user_id, filename, exchange, row_count)
         VALUES (?, 'Coinbase API Sync', 'coinbase', 0)
     """, (user_id,))
     batch_id = cursor.lastrowid
-    
+
     total_transactions = 0
     inserted = 0
     skipped = 0
-    
+
     for account in accounts:
         currency = account.get("currency", "")
         balance = float(account.get("available_balance", {}).get("value", 0))
         account_id = account.get("uuid", "")
-        
+
         if balance == 0 and currency not in ["BTC", "ETH", "NEAR"]:
             continue  # Skip empty non-major accounts
-        
+
         print(f"  Fetching {currency} transactions...")
-        
+
         # Get ledger entries for this account
         transactions = get_transactions(account_id)
         total_transactions += len(transactions)
-        
+
         for tx in transactions:
             entry_type = tx.get("entry_type", "")
             amount = float(tx.get("amount", {}).get("value", 0))
             timestamp = tx.get("created_at", "")
             tx_id = tx.get("entry_id", "")
-            
+
             tx_type = map_transaction_type(entry_type)
-            
+
             # Create hash for deduplication
             import hashlib
             hash_input = f"{timestamp}|{currency}|{amount}|{entry_type}|{tx_id}"
             tx_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:32]
-            
+
             try:
                 cursor.execute("""
-                    INSERT OR IGNORE INTO manual_transactions 
+                    INSERT OR IGNORE INTO manual_transactions
                     (user_id, import_batch_id, timestamp, tx_type, asset, amount,
                      exchange, tx_id, description, hash)
                     VALUES (?, ?, ?, ?, ?, ?, 'coinbase', ?, ?, ?)
@@ -251,7 +251,7 @@ def sync_coinbase_transactions(user_id: int):
                     user_id, batch_id, timestamp, tx_type, currency,
                     abs(amount), tx_id, entry_type, tx_hash
                 ))
-                
+
                 if cursor.rowcount > 0:
                     inserted += 1
                 else:
@@ -259,12 +259,12 @@ def sync_coinbase_transactions(user_id: int):
             except Exception as e:
                 print(f"    Error: {e}")
                 skipped += 1
-    
+
     # Also get filled orders
     print("Fetching order history...")
     orders = get_orders()
     print(f"Found {len(orders)} orders")
-    
+
     for order in orders:
         product_id = order.get("product_id", "")  # e.g., "BTC-CAD"
         side = order.get("side", "")  # BUY or SELL
@@ -272,22 +272,22 @@ def sync_coinbase_transactions(user_id: int):
         filled_size = float(order.get("filled_size", 0))
         created_at = order.get("created_time", "")
         order_id = order.get("order_id", "")
-        
+
         if filled_size == 0:
             continue
-        
+
         base_currency = product_id.split("-")[0] if "-" in product_id else product_id
         quote_currency = product_id.split("-")[1] if "-" in product_id else "CAD"
-        
+
         tx_type = "buy" if side == "BUY" else "sell"
-        
+
         import hashlib
         hash_input = f"{created_at}|{product_id}|{filled_size}|{side}|{order_id}"
         tx_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:32]
-        
+
         try:
             cursor.execute("""
-                INSERT OR IGNORE INTO manual_transactions 
+                INSERT OR IGNORE INTO manual_transactions
                 (user_id, import_batch_id, timestamp, tx_type, asset, amount,
                  quote_asset, quote_amount, price_per_unit, exchange, tx_id, description, hash)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'coinbase', ?, ?, ?)
@@ -297,7 +297,7 @@ def sync_coinbase_transactions(user_id: int):
                 filled_value / filled_size if filled_size else None,
                 order_id, f"{side} {product_id}", tx_hash
             ))
-            
+
             if cursor.rowcount > 0:
                 inserted += 1
             else:
@@ -305,10 +305,10 @@ def sync_coinbase_transactions(user_id: int):
         except Exception as e:
             print(f"    Order error: {e}")
             skipped += 1
-    
+
     # Update batch
     cursor.execute("""
-        UPDATE import_batches 
+        UPDATE import_batches
         SET status = 'completed',
             row_count = ?,
             imported_count = ?,
@@ -316,10 +316,10 @@ def sync_coinbase_transactions(user_id: int):
             completed_at = datetime('now')
         WHERE id = ?
     """, (total_transactions + len(orders), inserted, skipped, batch_id))
-    
+
     conn.commit()
     conn.close()
-    
+
     print(f"\nDone! Inserted: {inserted}, Skipped: {skipped}")
     return {"inserted": inserted, "skipped": skipped}
 
@@ -329,10 +329,10 @@ def test_connection():
         print("ERROR: Install required libraries:")
         print("  pip install PyJWT cryptography")
         return False
-    
+
     print("Testing Coinbase API connection...")
     accounts = get_accounts()
-    
+
     if accounts:
         print(f"✓ Connected! Found {len(accounts)} accounts:")
         for acc in accounts[:5]:

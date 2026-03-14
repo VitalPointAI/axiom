@@ -60,7 +60,7 @@ def get_account_balance(account_id: str) -> Optional[Decimal]:
 def get_staked_balance(account_id: str, pool_id: str) -> Optional[Decimal]:
     """Get staked balance in a validator pool"""
     import base64
-    
+
     payload = {
         "jsonrpc": "2.0",
         "id": "1",
@@ -141,7 +141,7 @@ def get_nft_transfers(account_id: str) -> List[Dict]:
 def classify_transaction(txn: Dict, account_id: str, own_accounts: set) -> Dict:
     """
     Classify transaction for tax treatment
-    
+
     Returns dict with:
     - type: income|expense|transfer|trade|staking|gas
     - taxable: bool
@@ -152,19 +152,19 @@ def classify_transaction(txn: Dict, account_id: str, own_accounts: set) -> Dict:
     """
     sender = txn.get("predecessor_account_id", "")
     receiver = txn.get("receiver_account_id", "")
-    
+
     # Determine direction
     is_incoming = receiver == account_id
-    
+
     # Check if transfer between own accounts
     counterparty = sender if is_incoming else receiver
     is_internal = counterparty in own_accounts
-    
+
     # Get amount (if NEAR transfer)
     actions = txn.get("actions", [])
     amount = Decimal(0)
     tx_type = "unknown"
-    
+
     for action in actions:
         if action.get("action") == "TRANSFER":
             amount = Decimal(action.get("args", {}).get("deposit", "0")) / Decimal(10**24)
@@ -186,10 +186,10 @@ def classify_transaction(txn: Dict, account_id: str, own_accounts: set) -> Dict:
                 tx_type = "ft_transfer"
             elif method == "nft_transfer":
                 tx_type = "nft_transfer"
-    
+
     # Gas is always a cost
     gas_burnt = Decimal(txn.get("receipt_conversion_gas_burnt", 0)) / Decimal(10**24)
-    
+
     return {
         "hash": txn.get("transaction_hash"),
         "timestamp": txn.get("block_timestamp"),
@@ -207,28 +207,28 @@ def classify_transaction(txn: Dict, account_id: str, own_accounts: set) -> Dict:
 def scan_account(account_id: str, own_accounts: set, validator_pool: str) -> Dict:
     """Scan a single account and return summary"""
     print(f"Scanning {account_id}...", file=sys.stderr)
-    
+
     # Get current balance
     balance = get_account_balance(account_id)
     if balance is None:
         return {"account": account_id, "error": "Could not fetch balance"}
-    
+
     # Get staked balance
     staked = get_staked_balance(account_id, validator_pool)
-    
+
     # Get transactions
     txns = get_all_transactions(account_id)
-    
+
     # Classify transactions
     classified = [classify_transaction(t, account_id, own_accounts) for t in txns]
-    
+
     # Calculate totals
     total_in = sum(t["amount"] for t in classified if t["type"] == "income")
     total_out = sum(t["amount"] for t in classified if t["type"] == "expense")
     total_gas = sum(t["gas"] for t in classified)
     internal_in = sum(t["amount"] for t in classified if t["is_internal"] and t["receiver"] == account_id)
     internal_out = sum(t["amount"] for t in classified if t["is_internal"] and t["sender"] == account_id)
-    
+
     return {
         "account": account_id,
         "balance": float(balance),
@@ -251,21 +251,21 @@ def main():
     parser.add_argument("--export", choices=["json", "csv", "koinly"], help="Export format")
     parser.add_argument("--output", default="near_scan_results.json", help="Output file")
     args = parser.parse_args()
-    
+
     wallets = load_wallets()
     near_accounts = wallets.get("near", [])
     validator = wallets.get("validator", "")
     own_accounts = set(near_accounts)
-    
+
     if args.account:
         near_accounts = [args.account]
-    
+
     print(f"Scanning {len(near_accounts)} NEAR accounts...", file=sys.stderr)
     print(f"Validator pool: {validator}", file=sys.stderr)
-    
+
     results = []
     total_balance = Decimal(0)
-    
+
     for account in near_accounts:
         try:
             result = scan_account(account, own_accounts, validator)
@@ -276,7 +276,7 @@ def main():
         except Exception as e:
             print(f"Error scanning {account}: {e}", file=sys.stderr)
             results.append({"account": account, "error": str(e)})
-    
+
     summary = {
         "scan_date": datetime.utcnow().isoformat(),
         "accounts_scanned": len(results),
@@ -284,20 +284,20 @@ def main():
         "validator_pool": validator,
         "accounts": results,
     }
-    
+
     # Output
     if args.export == "json" or not args.export:
         with open(args.output, "w") as f:
             json.dump(summary, f, indent=2, default=str)
         print(f"Results saved to {args.output}", file=sys.stderr)
-    
+
     # Print summary
     print("\n=== SCAN SUMMARY ===")
     print(f"Accounts scanned: {len(results)}")
     print(f"Total NEAR balance: {total_balance:.4f} NEAR")
-    
+
     # Show top 10 by balance
-    sorted_results = sorted([r for r in results if "total_balance" in r], 
+    sorted_results = sorted([r for r in results if "total_balance" in r],
                            key=lambda x: x["total_balance"], reverse=True)
     print("\nTop 10 accounts by balance:")
     for r in sorted_results[:10]:

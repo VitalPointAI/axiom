@@ -22,7 +22,7 @@ jobs:
         run: pip install -r requirements.txt ruff pytest-cov
 
       - name: Lint (ruff)
-        run: ruff check . --select E,W,F --ignore E501
+        run: ruff check . --select E,W,F --ignore E501,E402
 
       - name: Run tests
         run: pytest tests/ -q --tb=short -x

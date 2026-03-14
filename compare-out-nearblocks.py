@@ -16,7 +16,7 @@ print("="*60)
 # Get our OUT totals (excluding self)
 cur.execute("""
     SELECT SUM(CAST(amount AS REAL)/1e24)
-    FROM transactions 
+    FROM transactions
     WHERE wallet_id = ? AND direction = 'out' AND counterparty != ?
 """, (wallet_id, wallet))
 db_out = cur.fetchone()[0] or 0
@@ -38,11 +38,11 @@ for _ in range(20):
     if not txns:
         break
     pages += 1
-    
+
     for tx in txns:
         receiver = tx.get("receiver_account_id", "")
         predecessor = tx.get("predecessor_account_id", "")
-        
+
         # Only count OUT from this wallet to external
         if predecessor == wallet and receiver != wallet:
             actions = tx.get("actions", []) or []
@@ -50,7 +50,7 @@ for _ in range(20):
                 if isinstance(a, dict) and a.get("action") == "TRANSFER":
                     deposit = (a.get("deposit") or 0) / 1e24
                     nb_out_total += deposit
-    
+
     cursor = data.get("cursor")
     if not cursor:
         break

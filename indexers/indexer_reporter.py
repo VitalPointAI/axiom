@@ -2,7 +2,7 @@
 Indexer Status Reporter
 Usage in indexers:
     from indexer_reporter import IndexerReporter
-    
+
     reporter = IndexerReporter('near_indexer')
     reporter.start()
     try:
@@ -23,12 +23,12 @@ class IndexerReporter:
         self.indexer_name = indexer_name
         self.start_time = None
         self.conn = None
-        
+
     def _get_conn(self):
         if not self.conn or self.conn.closed:
             self.conn = psycopg2.connect(DATABASE_URL)
         return self.conn
-    
+
     def start(self):
         """Mark indexer as running"""
         self.start_time = time.time()
@@ -36,8 +36,8 @@ class IndexerReporter:
             conn = self._get_conn()
             with conn.cursor() as cur:
                 cur.execute("""
-                    UPDATE indexer_status 
-                    SET status = 'running', 
+                    UPDATE indexer_status
+                    SET status = 'running',
                         last_run_at = NOW(),
                         updated_at = NOW()
                     WHERE indexer_name = %s
@@ -45,7 +45,7 @@ class IndexerReporter:
             conn.commit()
         except Exception as e:
             print(f"Warning: Could not update indexer status: {e}")
-    
+
     def success(self, records_processed: int = 0):
         """Mark indexer as successful"""
         duration = int(time.time() - self.start_time) if self.start_time else 0
@@ -53,7 +53,7 @@ class IndexerReporter:
             conn = self._get_conn()
             with conn.cursor() as cur:
                 cur.execute("""
-                    UPDATE indexer_status 
+                    UPDATE indexer_status
                     SET status = 'success',
                         last_success_at = NOW(),
                         records_processed = %s,
@@ -68,7 +68,7 @@ class IndexerReporter:
         finally:
             if self.conn:
                 self.conn.close()
-    
+
     def error(self, error_message: str):
         """Mark indexer as failed"""
         duration = int(time.time() - self.start_time) if self.start_time else 0
@@ -76,7 +76,7 @@ class IndexerReporter:
             conn = self._get_conn()
             with conn.cursor() as cur:
                 cur.execute("""
-                    UPDATE indexer_status 
+                    UPDATE indexer_status
                     SET status = 'error',
                         last_error = %s,
                         run_duration_seconds = %s,

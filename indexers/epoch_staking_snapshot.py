@@ -43,7 +43,7 @@ def get_staked_balance(account_id: str, pool_id: str) -> tuple:
     try:
         args = json.dumps({'account_id': account_id})
         args_b64 = base64.b64encode(args.encode()).decode()
-        
+
         resp = requests.post(NEAR_RPC, json={
             'jsonrpc': '2.0',
             'id': '1',
@@ -56,7 +56,7 @@ def get_staked_balance(account_id: str, pool_id: str) -> tuple:
                 'args_base64': args_b64
             }
         }, timeout=30)
-        
+
         data = resp.json()
         if 'result' in data and 'result' in data['result']:
             result_bytes = bytes(data['result']['result'])
@@ -77,15 +77,15 @@ def take_snapshots():
     if not epoch_info:
         print('Failed to get epoch info')
         return
-    
+
     epoch_id = epoch_info['epoch_id']
     epoch_ts = int(datetime.utcnow().timestamp() * 1e9)  # nanoseconds
-    
+
     print(f'Taking snapshots for epoch {epoch_id}')
-    
+
     conn = psycopg2.connect(PG_CONN)
     cur = conn.cursor()
-    
+
     # Get all active staking positions (users with stake > 0)
     cur.execute("""
         SELECT DISTINCT sp.wallet_id, w.account_id, sp.validator
@@ -95,49 +95,49 @@ def take_snapshots():
         ORDER BY sp.wallet_id
     """)
     positions = cur.fetchall()
-    
+
     print(f'Found {len(positions)} active staking positions')
-    
+
     snapshots_taken = 0
     skipped = 0
-    
+
     for wallet_id, account_id, validator in positions:
         # Check if we already have a snapshot for this epoch
         cur.execute("""
             SELECT id FROM staking_balance_snapshots
             WHERE wallet_id = %s AND validator_id = %s AND epoch_id = %s
         """, (wallet_id, validator, epoch_id))
-        
+
         if cur.fetchone():
             skipped += 1
             continue
-        
+
         # Get current balance from pool
         staked, unstaked = get_staked_balance(account_id, validator)
-        
+
         if staked == '0' and unstaked == '0':
             continue
-        
+
         # Insert snapshot
         try:
             cur.execute("""
-                INSERT INTO staking_balance_snapshots 
+                INSERT INTO staking_balance_snapshots
                     (wallet_id, validator_id, epoch_id, epoch_timestamp, staked_balance, unstaked_balance)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (wallet_id, validator_id, epoch_id) DO NOTHING
             """, (wallet_id, validator, epoch_id, epoch_ts, staked, unstaked))
             conn.commit()
-            
+
             staked_near = int(staked) / 1e24
             print(f'  {account_id} @ {validator}: {staked_near:.4f} NEAR')
             snapshots_taken += 1
-            
+
         except Exception as e:
             print(f'  Error saving snapshot: {e}')
             conn.rollback()
-    
+
     conn.close()
-    
+
     print(f'\nDone! Snapshots: {snapshots_taken}, Skipped (already exists): {skipped}')
 
 

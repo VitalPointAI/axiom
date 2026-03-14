@@ -33,17 +33,17 @@ META_TOKEN = "meta-token.near"  # META governance token
 def parse_meta_pool_transactions():
     """Parse all Meta Pool-related FT transactions."""
     conn = get_connection()
-    
+
     # Check if defi_events table exists
     try:
         conn.execute("SELECT 1 FROM defi_events LIMIT 1")
     except Exception:
         from defi.burrow_parser import create_defi_events_table
         create_defi_events_table()
-    
+
     # Find all FT transactions involving Meta Pool
     cur = conn.execute("""
-        SELECT ft.id, ft.wallet_id, ft.token_contract, ft.token_symbol, 
+        SELECT ft.id, ft.wallet_id, ft.token_contract, ft.token_symbol,
                ft.amount, ft.counterparty, ft.direction, ft.cause,
                ft.tx_hash, ft.block_timestamp, ft.token_decimals,
                w.account_id
@@ -56,28 +56,28 @@ def parse_meta_pool_transactions():
            OR ft.token_symbol = '$META'
         ORDER BY ft.block_timestamp
     """)
-    
+
     transactions = cur.fetchall()
     print(f"Found {len(transactions)} Meta Pool-related FT transactions")
-    
+
     events = []
-    
+
     for row in transactions:
-        (ft_id, wallet_id, token_contract, token_symbol, amount, 
+        (ft_id, wallet_id, token_contract, token_symbol, amount,
          counterparty, direction, cause, tx_hash, timestamp, decimals, account_id) = row
-        
+
         # Parse amount
         try:
             decimals = decimals or 24  # NEAR uses 24 decimals
             amount_decimal = float(amount) / (10 ** decimals) if amount else 0
         except Exception:
             amount_decimal = 0
-        
+
         event_type = None
         tax_category = None
         tax_notes = None
         needs_review = 0
-        
+
         # stNEAR transactions
         if token_symbol == "STNEAR" or "stnear" in (token_contract or "").lower():
             if direction == "in":
@@ -89,7 +89,7 @@ def parse_meta_pool_transactions():
                 tax_category = "unstake"
                 tax_notes = "Sent stNEAR - may have gain if stNEAR appreciated"
                 needs_review = 1
-        
+
         # META token (rewards/governance)
         elif token_symbol == "$META" or token_contract == META_TOKEN:
             if direction == "in":
@@ -100,17 +100,17 @@ def parse_meta_pool_transactions():
                 event_type = "meta_transfer"
                 tax_category = "transfer"
                 tax_notes = "META token sent"
-        
+
         # Get price
         price_usd = None
         value_usd = None
-        
+
         if token_symbol == "STNEAR" and timestamp:
             # stNEAR ~= NEAR price (slight premium usually)
             price_usd = get_hourly_price("NEAR", timestamp)
             if price_usd:
                 value_usd = amount_decimal * price_usd * 1.05  # ~5% premium estimate
-        
+
         if event_type:
             events.append({
                 "wallet_id": wallet_id,
@@ -129,11 +129,11 @@ def parse_meta_pool_transactions():
                 "tax_notes": tax_notes,
                 "needs_review": needs_review,
             })
-    
+
     # Insert events
     for e in events:
         conn.execute("""
-            INSERT INTO defi_events 
+            INSERT INTO defi_events
             (wallet_id, protocol, event_type, token_contract, token_symbol,
              amount, amount_decimal, counterparty, tx_hash, block_timestamp,
              price_usd, value_usd, tax_category, tax_notes, needs_review)
@@ -144,10 +144,10 @@ def parse_meta_pool_transactions():
             e["tx_hash"], e["block_timestamp"], e["price_usd"], e["value_usd"],
             e["tax_category"], e["tax_notes"], e["needs_review"]
         ))
-    
+
     conn.commit()
     conn.close()
-    
+
     print(f"Created {len(events)} Meta Pool DeFi events")
     return events
 
@@ -155,9 +155,9 @@ def parse_meta_pool_transactions():
 def get_meta_pool_summary():
     """Get summary of Meta Pool activity."""
     conn = get_connection()
-    
+
     cur = conn.execute("""
-        SELECT 
+        SELECT
             event_type,
             token_symbol,
             SUM(amount_decimal) as total_amount,
@@ -168,17 +168,17 @@ def get_meta_pool_summary():
         GROUP BY event_type, token_symbol
         ORDER BY count DESC
     """)
-    
+
     print("\n=== Meta Pool Activity Summary ===")
     print(f"{'Event':<20} {'Token':<10} {'Amount':>15} {'USD':>15} {'Count':>8}")
     print("-" * 70)
-    
+
     for row in cur.fetchall():
         event, token, amount, usd, count = row
         amount = amount or 0
         usd = usd or 0
         print(f"{event:<20} {token or '?':<10} {amount:>15,.2f} {usd:>15,.2f} {count:>8}")
-    
+
     conn.close()
 
 

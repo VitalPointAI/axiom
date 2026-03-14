@@ -30,12 +30,12 @@ print(f"Normal transactions: {len(txs)}")
 
 # Calculate totals
 total_in = 0
-total_out = 0 
+total_out = 0
 total_gas = 0
 
 for tx in txs:
     val = int(tx.get('value', '0')) / 1e18
-    
+
     if tx.get('to', '').lower() == address:
         total_in += val
     if tx.get('from', '').lower() == address:

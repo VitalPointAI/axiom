@@ -29,7 +29,7 @@ def get_balance(account_id: str) -> tuple:
             return None, None, str(data.get("error", "Unknown error"))
     except Exception as e:
         return None, None, str(e)
-    
+
     # Check staked balance in vitalpoint.pool.near
     staked = Decimal(0)
     try:
@@ -51,21 +51,21 @@ def get_balance(account_id: str) -> tuple:
             staked = Decimal(result_bytes.decode().strip('"')) / Decimal(10**24)
     except Exception:
         pass
-    
+
     return liquid, staked, None
 
 def main():
     with open(WALLETS_FILE) as f:
         wallets = json.load(f)
-    
+
     accounts = wallets.get("near", [])
     print(f"Checking {len(accounts)} NEAR accounts...\n")
-    
+
     results = []
     total_liquid = Decimal(0)
     total_staked = Decimal(0)
     errors = []
-    
+
     for i, account in enumerate(accounts):
         liquid, staked, error = get_balance(account)
         if error:
@@ -78,7 +78,7 @@ def main():
                 print(f"[{i+1}/{len(accounts)}] {account}: {liquid:.4f} liquid + {staked:.4f} staked = {total:.4f} NEAR")
             total_liquid += liquid
             total_staked += staked
-    
+
     print(f"\n{'='*60}")
     print("SUMMARY")
     print(f"{'='*60}")
@@ -87,13 +87,13 @@ def main():
     print(f"Total liquid NEAR: {total_liquid:.4f}")
     print(f"Total staked NEAR: {total_staked:.4f}")
     print(f"TOTAL NEAR: {total_liquid + total_staked:.4f}")
-    
+
     # Top 10 by balance
     results.sort(key=lambda x: x[3], reverse=True)
     print("\nTop 10 accounts:")
     for acc, liq, stk, tot in results[:10]:
         print(f"  {acc}: {tot:.4f} NEAR")
-    
+
     # Save results
     output = {
         "scan_date": __import__('datetime').datetime.utcnow().isoformat(),

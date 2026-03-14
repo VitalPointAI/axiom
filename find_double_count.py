@@ -37,8 +37,8 @@ cursor = conn.cursor()
 
 cursor.execute('''
     SELECT tx_hash, amount, action_type
-    FROM transactions 
-    WHERE wallet_id = 75 
+    FROM transactions
+    WHERE wallet_id = 75
     AND direction = 'OUT'
     AND asset = 'ETH'
     AND action_type != 'FEE'
@@ -66,7 +66,7 @@ print("="*60)
 for tx_hash, our_data in our_out_map.items():
     eth_val = etherscan_out.get(tx_hash, 0)
     our_val = our_data['total']
-    
+
     if abs(eth_val - our_val) > 0.0001:
         diff = our_val - eth_val
         print(f"\n{tx_hash[:20]}...")

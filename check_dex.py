@@ -24,8 +24,8 @@ cursor = conn.cursor()
 # Get 1inch OUT transactions
 cursor.execute('''
     SELECT tx_hash, amount, counterparty
-    FROM transactions 
-    WHERE wallet_id = 75 
+    FROM transactions
+    WHERE wallet_id = 75
     AND direction = 'OUT'
     AND asset = 'ETH'
     AND LOWER(counterparty) LIKE '0x1111112%'
@@ -45,9 +45,9 @@ for tx_hash, amount, _ in oneinch_txs[:10]:  # Check first 10
         'method': 'trace_transaction',
         'params': [tx_hash]
     }, timeout=30)
-    
+
     traces = response.json().get('result', [])
-    
+
     # Find any traces that send ETH back to our address
     for t in traces:
         action = t.get('action', {})

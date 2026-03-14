@@ -10,9 +10,9 @@ wallet_id = cur.fetchone()[0]
 # Check the creation transaction
 print("Creation transaction details:")
 cur.execute("""
-    SELECT tx_hash, receipt_id, action_type, direction, counterparty, 
+    SELECT tx_hash, receipt_id, action_type, direction, counterparty,
            CAST(amount AS REAL)/1e24, CAST(fee AS REAL)/1e24
-    FROM transactions 
+    FROM transactions
     WHERE wallet_id = ? AND tx_hash LIKE 'B3TfR9%'
     ORDER BY receipt_id
 """, (wallet_id,))

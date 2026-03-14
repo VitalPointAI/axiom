@@ -14,8 +14,8 @@ cur = conn.cursor()
 
 # Get missing dates
 cur.execute('''
-    SELECT DISTINCT epoch_date 
-    FROM staking_epoch_rewards 
+    SELECT DISTINCT epoch_date
+    FROM staking_epoch_rewards
     WHERE near_price_usd IS NULL
     ORDER BY epoch_date
 ''')
@@ -25,14 +25,14 @@ print(f'Missing prices for {len(missing_dates)} dates')
 for date_str in missing_dates:
     dt = datetime.strptime(date_str, '%Y-%m-%d')
     ts = int(dt.timestamp())
-    
+
     try:
         resp = requests.get(f'{CRYPTOCOMPARE_API}/pricehistorical', params={
             'fsym': 'NEAR',
             'tsyms': 'USD',
             'ts': ts
         }, timeout=10)
-        
+
         if resp.status_code == 200:
             data = resp.json()
             price = data.get('NEAR', {}).get('USD')
@@ -43,10 +43,10 @@ for date_str in missing_dates:
                     VALUES ('near', %s, 'usd', %s)
                     ON CONFLICT (coin_id, date, currency) DO UPDATE SET price = EXCLUDED.price
                 ''', (date_str, price))
-                
+
                 # Update rewards table
                 cur.execute('''
-                    UPDATE staking_epoch_rewards 
+                    UPDATE staking_epoch_rewards
                     SET near_price_usd = %s,
                         near_price_cad = %s * 1.36,
                         reward_usd = reward_near * %s,

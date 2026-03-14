@@ -51,7 +51,7 @@ def call_lockup_method(lockup_account, method_name, args="{}"):
     """Call a view method on the lockup contract."""
     try:
         args_b64 = base64.b64encode(args.encode()).decode()
-        
+
         response = requests.post(
             FASTNEAR_RPC,
             json={
@@ -68,7 +68,7 @@ def call_lockup_method(lockup_account, method_name, args="{}"):
             },
             timeout=10
         )
-        
+
         result = response.json().get("result", {})
         if "result" in result:
             value_bytes = bytes(result["result"])
@@ -77,10 +77,10 @@ def call_lockup_method(lockup_account, method_name, args="{}"):
             if value_str.isdigit():
                 return int(value_str) / 1e24
             return value_str
-        
+
         if "error" in response.json():
             return None
-            
+
     except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError) as e:
         logger.warning("Failed to call lockup method %s on %s: %s", method_name, lockup_account, e)
 
@@ -97,26 +97,26 @@ def get_lockup_info(lockup_account=LOCKUP_ACCOUNT):
         "get_staking_pool_account_id",
         "get_known_deposited_balance"
     ]
-    
+
     info = {}
     for method in methods:
         result = call_lockup_method(lockup_account, method)
         if result is not None:
             info[method] = result
-    
+
     return info
 
 
 def get_lockup_summary(lockup_account=LOCKUP_ACCOUNT):
     """
     Get lockup contract summary.
-    
+
     Aaron confirmed: Vesting COMPLETE as of ~2021 (1 year after opening).
     This is historical data for tax records.
     """
     state = get_lockup_state(lockup_account)
     info = get_lockup_info(lockup_account)
-    
+
     # Get transaction count
     client = NearBlocksClient()
     try:
@@ -124,7 +124,7 @@ def get_lockup_summary(lockup_account=LOCKUP_ACCOUNT):
     except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError) as e:
         logger.warning("Failed to get transaction count for %s: %s", lockup_account, e)
         tx_count = "unknown"
-    
+
     return {
         "lockup_account": lockup_account,
         "owner": "vitalpointai.near",
@@ -146,17 +146,17 @@ def print_lockup_summary(result):
     print(f"\n{'='*60}")
     print("LOCKUP CONTRACT SUMMARY")
     print(f"{'='*60}")
-    
+
     print(f"\nAccount: {result['lockup_account']}")
     print(f"Owner: {result['owner']}")
     print(f"Vesting Status: {result['vesting_status']}")
-    
+
     state = result['account_state']
     if 'error' not in state:
         print("\nAccount State:")
         print(f"  Balance: {state['balance']:.4f} NEAR")
         print(f"  Storage: {state['storage_used']:,} bytes")
-    
+
     info = result['contract_info']
     if info:
         print("\nContract Info:")
@@ -165,15 +165,15 @@ def print_lockup_summary(result):
                 print(f"  {key}: {value:.4f} NEAR")
             else:
                 print(f"  {key}: {value}")
-    
+
     print(f"\nTransaction Count: {result['transaction_count']}")
-    
+
     print("\nTax Treatment:")
     tax = result['tax_treatment']
     print(f"  {tax['summary']}")
     print(f"  Action: {tax['action_needed']}")
     print(f"  FMV: {tax['fmv_needed']}")
-    
+
     print(f"\nNote: {result['note']}")
     print(f"{'='*60}\n")
 

@@ -71,7 +71,7 @@ def get_stake_txns(account_id: str, per_page: int = 100) -> list:
     headers = {"Authorization": f"Bearer {NEARBLOCKS_KEY}"} if NEARBLOCKS_KEY else {}
     all_txns = []
     page = 1
-    
+
     while True:
         try:
             resp = requests.get(url, headers=headers, params={"page": page, "per_page": per_page}, timeout=30)
@@ -88,7 +88,7 @@ def get_stake_txns(account_id: str, per_page: int = 100) -> list:
         except Exception as e:
             print(f"  Error fetching stake txns: {e}")
             break
-    
+
     return all_txns
 
 
@@ -96,11 +96,11 @@ def sync_staking(user_id: int = None):
     """Main sync function."""
     conn = get_db()
     cur = conn.cursor()
-    
+
     # Get all NEAR wallets
     if user_id:
         cur.execute("""
-            SELECT id, account_id FROM wallets 
+            SELECT id, account_id FROM wallets
             WHERE chain = 'NEAR' AND user_id = %s
             AND account_id NOT LIKE '%%.pool%%'
             AND account_id NOT LIKE '%%.poolv1%%'
@@ -109,7 +109,7 @@ def sync_staking(user_id: int = None):
         """, (user_id,))
     else:
         cur.execute("""
-            SELECT id, account_id FROM wallets 
+            SELECT id, account_id FROM wallets
             WHERE chain = 'NEAR'
             AND account_id NOT LIKE '%%.pool%%'
             AND account_id NOT LIKE '%%.poolv1%%'
@@ -118,46 +118,46 @@ def sync_staking(user_id: int = None):
         """)
     wallets = cur.fetchall()
     print(f"Found {len(wallets)} NEAR wallets to check")
-    
+
     total_staked = 0
     positions_added = 0
     events_added = 0
-    
+
     for wallet_id, account_id in wallets:
         print(f"\nProcessing: {account_id}")
-        
+
         # Get staking pools
         pools = get_staking_pools(account_id)
         if not pools:
             print("  No staking pools found")
             continue
-        
+
         print(f"  Found {len(pools)} pools")
-        
+
         for pool_info in pools:
             pool_id = pool_info.get("pool_id", "")
             if not pool_id:
                 continue
-            
+
             # Get current balance via RPC
             staked, unstaked = get_pool_balance(account_id, pool_id)
             if staked == 0 and unstaked == 0:
                 continue
-            
+
             staked_near = staked / 1e24
             unstaked_near = unstaked / 1e24
             total_staked += staked_near
-            
+
             print(f"    {pool_id}: {staked_near:.2f} staked, {unstaked_near:.2f} unstaked")
-            
+
             # Upsert staking position
             try:
                 cur.execute("""
-                    INSERT INTO staking_positions 
+                    INSERT INTO staking_positions
                         (wallet_id, validator, staked_amount, unstaked_amount, updated_at)
                     VALUES (%s, %s, %s, %s, NOW())
-                    ON CONFLICT (wallet_id, validator) 
-                    DO UPDATE SET 
+                    ON CONFLICT (wallet_id, validator)
+                    DO UPDATE SET
                         staked_amount = EXCLUDED.staked_amount,
                         unstaked_amount = EXCLUDED.unstaked_amount,
                         updated_at = NOW()
@@ -167,12 +167,12 @@ def sync_staking(user_id: int = None):
             except Exception as e:
                 print(f"    Error upserting position: {e}")
                 conn.rollback()
-        
+
         # Fetch and store staking events (for history)
         txns = get_stake_txns(account_id)
         if txns:
             print(f"  Found {len(txns)} staking transactions")
-            
+
             for tx in txns:
                 tx_hash = tx.get("transaction_hash", "")
                 tx.get("included_in_block_height", 0)
@@ -180,19 +180,19 @@ def sync_staking(user_id: int = None):
                 receiver = tx.get("receiver_account_id", "")
                 actions = tx.get("actions", [])
                 deposit = int(tx.get("actions_agg", {}).get("deposit", 0))
-                
+
                 if not actions:
                     continue
-                
+
                 action = actions[0]
                 method = action.get("method", "")
                 args = action.get("args", {})
-                
+
                 # Determine event type
                 event_type = None
                 amount = 0
                 validator = receiver if "pool" in receiver else ""
-                
+
                 if method in ("deposit_and_stake", "stake", "stake_all"):
                     event_type = "stake"
                     amount = deposit if deposit else int(args.get("amount", 0))
@@ -205,14 +205,14 @@ def sync_staking(user_id: int = None):
                 elif method in ("withdraw", "withdraw_all"):
                     event_type = "withdraw"
                     amount = int(args.get("amount", 0)) if args.get("amount") else 0
-                
+
                 if not event_type or not validator:
                     continue
-                
+
                 # Insert event (skip duplicates)
                 try:
                     cur.execute("""
-                        INSERT INTO staking_events 
+                        INSERT INTO staking_events
                             (wallet_id, validator_id, event_type, amount, tx_hash, block_timestamp)
                         VALUES (%s, %s, %s, %s, %s, %s)
                         ON CONFLICT DO NOTHING
@@ -220,16 +220,16 @@ def sync_staking(user_id: int = None):
                     events_added += 1
                 except Exception:
                     conn.rollback()  # Rollback and continue
-        
+
         # Commit after each wallet
         try:
             conn.commit()
         except Exception:
             conn.rollback()
-    
+
     conn.commit()
     conn.close()
-    
+
     print(f"\n{'='*50}")
     print("Sync complete!")
     print(f"  Total staked: {total_staked:.2f} NEAR")

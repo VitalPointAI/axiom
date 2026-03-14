@@ -18,7 +18,7 @@ for tx_hash in problem_txs:
     print(f"\n{'='*60}")
     print(f"TX: {tx_hash[:20]}...")
     print(f"{'='*60}")
-    
+
     # Get transaction details
     response = requests.post(url, json={
         'jsonrpc': '2.0', 'id': 1,
@@ -26,18 +26,18 @@ for tx_hash in problem_txs:
         'params': [tx_hash]
     })
     tx = response.json().get('result', {})
-    
+
     if tx:
         print(f"From:  {tx.get('from')}")
         print(f"To:    {tx.get('to')}")
         val = int(tx.get('value', '0x0'), 16) / 1e18
         print(f"Value: {val:.6f} ETH")
-        
+
         is_from_us = tx.get('from', '').lower() == address
         print(f"We sent this: {is_from_us}")
     else:
         print("Transaction not found!")
-    
+
     # Get traces
     response = requests.post(url, json={
         'jsonrpc': '2.0', 'id': 1,
@@ -46,22 +46,22 @@ for tx_hash in problem_txs:
     })
     traces = response.json().get('result') or []
     print(f"\nTraces: {len(traces)}")
-    
+
     for i, t in enumerate(traces[:10]):
         action = t.get('action', {})
         trace_from = action.get('from', '')[:16]
         trace_to = action.get('to', '')[:16]
         val = int(action.get('value', '0x0'), 16) / 1e18
         tt = t.get('type')
-        
+
         is_our_out = action.get('from', '').lower() == address
         is_our_in = action.get('to', '').lower() == address
-        
+
         marker = ''
         if is_our_out:
             marker = ' <-- OUR OUT'
         if is_our_in:
             marker = ' <-- OUR IN'
-        
+
         if val > 0:
             print(f"  [{i}] {tt}: {trace_from}... -> {trace_to}... = {val:.6f} ETH{marker}")

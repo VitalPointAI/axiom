@@ -21,7 +21,7 @@ TOKEN_TO_COINGECKO = {
     'NEAR': 'near',
     'WNEAR': 'near',
     'STNEAR': 'near',  # Tracks NEAR
-    'RNEAR': 'near',   # Tracks NEAR  
+    'RNEAR': 'near',   # Tracks NEAR
     'ETH': 'ethereum',
     'WETH': 'ethereum',
     'USDC': 'usd-coin',
@@ -57,7 +57,7 @@ TOKEN_TO_COINGECKO = {
 # Dates to backfill (year-end for tax reporting)
 DATES_TO_BACKFILL = [
     '2023-01-01', '2023-12-31',
-    '2024-01-01', '2024-12-31', 
+    '2024-01-01', '2024-12-31',
     '2025-01-01', '2025-12-31',
 ]
 
@@ -67,7 +67,7 @@ def get_historical_price(coin_id: str, date_str: str) -> float | None:
     # Convert YYYY-MM-DD to DD-MM-YYYY for CoinGecko
     dt = datetime.strptime(date_str, '%Y-%m-%d')
     cg_date = dt.strftime('%d-%m-%Y')
-    
+
     url = f"{COINGECKO_BASE}/coins/{coin_id}/history"
     params = {
         'date': cg_date,
@@ -76,17 +76,17 @@ def get_historical_price(coin_id: str, date_str: str) -> float | None:
     headers = {
         'x-cg-demo-api-key': COINGECKO_API_KEY
     }
-    
+
     try:
         resp = requests.get(url, params=params, headers=headers, timeout=30)
         if resp.status_code == 429:
             print("  Rate limited, waiting 60s...")
             time.sleep(60)
             return get_historical_price(coin_id, date_str)
-        
+
         resp.raise_for_status()
         data = resp.json()
-        
+
         market_data = data.get('market_data', {})
         price = market_data.get('current_price', {}).get('usd')
         return price
@@ -99,7 +99,7 @@ def backfill_prices():
     """Backfill historical prices for all tokens."""
     conn = psycopg2.connect(PG_CONN)
     cursor = conn.cursor()
-    
+
     # Ensure price_cache table exists with correct schema
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS price_cache (
@@ -113,13 +113,13 @@ def backfill_prices():
         )
     """)
     conn.commit()
-    
+
     total_fetched = 0
-    
+
     for symbol, coin_id in TOKEN_TO_COINGECKO.items():
         if not coin_id:
             continue
-            
+
         for date_str in DATES_TO_BACKFILL:
             # Check if we already have this price
             cursor.execute(
@@ -127,14 +127,14 @@ def backfill_prices():
                 (symbol, date_str)
             )
             existing = cursor.fetchone()
-            
+
             if existing and existing[0]:
                 print(f"  {symbol} {date_str}: ${existing[0]:.4f} (cached)")
                 continue
-            
+
             print(f"Fetching {symbol} ({coin_id}) for {date_str}...")
             price = get_historical_price(coin_id, date_str)
-            
+
             if price:
                 cursor.execute("""
                     INSERT INTO price_cache (coin_id, date, price, source)
@@ -146,10 +146,10 @@ def backfill_prices():
                 total_fetched += 1
             else:
                 print(f"  {symbol} {date_str}: No price found")
-            
+
             # Rate limit: 30 calls/minute for demo key
             time.sleep(2.5)
-    
+
     conn.close()
     print(f"\nDone! Fetched {total_fetched} prices.")
 

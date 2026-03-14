@@ -9,7 +9,7 @@ from .categories import (
 
 __all__ = [
     "TaxCategory",
-    "CategoryResult", 
+    "CategoryResult",
     "categorize_near_transaction",
     "get_tax_treatment",
 ]

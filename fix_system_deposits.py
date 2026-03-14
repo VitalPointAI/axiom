@@ -29,42 +29,42 @@ def fix_system_deposits(db_path: str):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    
+
     # Get system deposits
     cur.execute("""
         SELECT id, tx_hash, wallet_id, amount, block_timestamp, tax_category
         FROM transactions
-        WHERE direction = 'in' 
+        WHERE direction = 'in'
         AND counterparty = 'system'
         AND tax_category = 'deposit'
     """)
-    
+
     rows = cur.fetchall()
     print(f"Found {len(rows)} system deposits to analyze")
-    
+
     # Statistics
     total_near = 0
     rewards_near = 0
     returns_near = 0
     recategorized = 0
-    
+
     for row in rows:
         tx_id = row["id"]
         amount_raw = row["amount"]
-        
+
         try:
             amount_near = float(amount_raw) / 1e24
         except Exception:
             continue
-        
+
         total_near += amount_near
-        
+
         # Categorize based on amount
         if amount_near > REWARD_THRESHOLD:
             # Likely an unstake return - not a taxable acquisition
             # Change category to "unstake_return" which shouldn't add to cost pool
             cur.execute("""
-                UPDATE transactions 
+                UPDATE transactions
                 SET tax_category = 'unstake_return',
                     category_notes = 'Recategorized from deposit - likely unstaking return (amount > 10 NEAR)'
                 WHERE id = ?
@@ -74,21 +74,21 @@ def fix_system_deposits(db_path: str):
         else:
             # Likely staking reward - taxable income
             cur.execute("""
-                UPDATE transactions 
+                UPDATE transactions
                 SET tax_category = 'staking_income',
                     category_notes = 'Recategorized from deposit - likely staking reward (amount <= 10 NEAR)'
                 WHERE id = ?
             """, (tx_id,))
             rewards_near += amount_near
-    
+
     conn.commit()
-    
+
     print("\nResults:")
     print(f"  Total system deposits: {total_near:,.2f} NEAR")
     print(f"  Recategorized as unstake_return: {returns_near:,.2f} NEAR ({returns_near/total_near*100:.1f}%)")
     print(f"  Recategorized as staking_income: {rewards_near:,.2f} NEAR ({rewards_near/total_near*100:.1f}%)")
     print(f"  Transactions recategorized: {recategorized}")
-    
+
     # Verify the fix
     cur.execute("""
         SELECT tax_category, COUNT(*), SUM(CAST(amount AS REAL) / 1e24) as near
@@ -96,24 +96,24 @@ def fix_system_deposits(db_path: str):
         WHERE direction = 'in' AND counterparty = 'system'
         GROUP BY tax_category
     """)
-    
+
     print("\nSystem deposits after fix:")
     for row in cur.fetchall():
         print(f"  {row[0]}: {row[1]} txs, {row[2]:,.2f} NEAR")
-    
+
     return recategorized
 
 
 def main():
     db_path = sys.argv[1] if len(sys.argv) > 1 else "neartax.db"
-    
+
     print("=" * 60)
     print("Fix System Deposits Categorization")
     print(f"Database: {db_path}")
     print("=" * 60)
-    
+
     fixed = fix_system_deposits(db_path)
-    
+
     print("\n" + "=" * 60)
     print(f"Complete! Fixed {fixed} transactions")
     print("=" * 60)

@@ -18,9 +18,9 @@ cursor = conn.cursor()
 # Get all ETH transfers TO WETH contract
 cursor.execute('''
     SELECT tx_hash, amount, action_type
-    FROM transactions 
-    WHERE wallet_id = 75 
-    AND direction = 'OUT' 
+    FROM transactions
+    WHERE wallet_id = 75
+    AND direction = 'OUT'
     AND asset = 'ETH'
     AND LOWER(counterparty) = ?
 ''', (weth,))
@@ -29,11 +29,11 @@ weth_out = cursor.fetchall()
 total_wrapped = sum(float(r[1]) for r in weth_out)
 print(f"\nETH sent to WETH (wrapping): {len(weth_out)} txs, {total_wrapped:.6f} ETH")
 
-# Get WETH token transfers 
+# Get WETH token transfers
 cursor.execute('''
     SELECT tx_hash, amount, direction, action_type
-    FROM transactions 
-    WHERE wallet_id = 75 
+    FROM transactions
+    WHERE wallet_id = 75
     AND asset = 'WETH'
 ''')
 weth_transfers = cursor.fetchall()
@@ -82,8 +82,8 @@ print(f"  Total: {weth_from_total:.6f} WETH")
 print("\n\nChecking for failed transactions...")
 cursor.execute('''
     SELECT COUNT(*), SUM(CAST(amount AS REAL))
-    FROM transactions 
-    WHERE wallet_id = 75 
+    FROM transactions
+    WHERE wallet_id = 75
     AND success = 0
 ''')
 failed = cursor.fetchone()
@@ -93,8 +93,8 @@ print(f"Failed txs: {failed[0]}, Value: {failed[1] or 0:.6f} ETH")
 print("\n\nTop 10 counterparties (OUT):")
 cursor.execute('''
     SELECT counterparty, SUM(CAST(amount AS REAL)) as total, COUNT(*)
-    FROM transactions 
-    WHERE wallet_id = 75 
+    FROM transactions
+    WHERE wallet_id = 75
     AND direction = 'OUT'
     AND asset = 'ETH'
     GROUP BY counterparty

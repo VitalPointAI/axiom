@@ -47,22 +47,22 @@ def fetch_coinbase_accounts(api_key: str, api_secret: str) -> list:
     """Fetch all accounts from Coinbase"""
     timestamp = str(int(time.time()))
     path = "/accounts"
-    
+
     signature = sign_coinbase_request(api_secret, timestamp, "GET", path)
-    
+
     headers = {
         "CB-ACCESS-KEY": api_key,
         "CB-ACCESS-SIGN": signature,
         "CB-ACCESS-TIMESTAMP": timestamp,
         "Content-Type": "application/json"
     }
-    
+
     response = requests.get(f"{COINBASE_API_URL}{path}", headers=headers)
-    
+
     if response.status_code != 200:
         print(f"Error fetching accounts: {response.status_code} - {response.text}")
         return []
-    
+
     data = response.json()
     return data.get("accounts", [])
 
@@ -72,77 +72,77 @@ def fetch_coinbase_transactions(api_key: str, api_secret: str, account_id: str, 
     path = f"/accounts/{account_id}/transactions"
     if cursor:
         path += f"?cursor={cursor}"
-    
+
     signature = sign_coinbase_request(api_secret, timestamp, "GET", path)
-    
+
     headers = {
         "CB-ACCESS-KEY": api_key,
         "CB-ACCESS-SIGN": signature,
         "CB-ACCESS-TIMESTAMP": timestamp,
         "Content-Type": "application/json"
     }
-    
+
     response = requests.get(f"{COINBASE_API_URL}{path}", headers=headers)
-    
+
     if response.status_code != 200:
         print(f"Error fetching transactions: {response.status_code} - {response.text}")
         return {"transactions": [], "cursor": None}
-    
+
     return response.json()
 
 def fetch_coinbase_orders(api_key: str, api_secret: str, start_date: str = None) -> list:
     """Fetch filled orders (buys/sells)"""
     timestamp = str(int(time.time()))
     path = "/orders/historical/fills"
-    
+
     params = []
     if start_date:
         params.append(f"start_date={start_date}")
     if params:
         path += "?" + "&".join(params)
-    
+
     signature = sign_coinbase_request(api_secret, timestamp, "GET", path)
-    
+
     headers = {
         "CB-ACCESS-KEY": api_key,
         "CB-ACCESS-SIGN": signature,
         "CB-ACCESS-TIMESTAMP": timestamp,
         "Content-Type": "application/json"
     }
-    
+
     response = requests.get(f"{COINBASE_API_URL}{path}", headers=headers)
-    
+
     if response.status_code != 200:
         print(f"Error fetching orders: {response.status_code} - {response.text}")
         return []
-    
+
     data = response.json()
     return data.get("fills", [])
 
 def sync_coinbase_connection(conn, connection_id: int, api_key: str, api_secret: str, passphrase: str = None):
     """Sync a Coinbase Pro connection"""
     cursor = conn.cursor()
-    
+
     print(f"Syncing Coinbase connection {connection_id}...")
-    
+
     # Update status to syncing
     cursor.execute(
         "UPDATE exchange_connections SET status = 'syncing', last_sync_at = NOW() WHERE id = %s",
         (connection_id,)
     )
     conn.commit()
-    
+
     try:
         # Get or create exchange wallet
         cursor.execute(
             """
-            SELECT id FROM wallets 
+            SELECT id FROM wallets
             WHERE account_id = %s AND chain = 'exchange'
             """,
             (f"exchange:coinbase_pro:{connection_id}",)
         )
         wallet = cursor.fetchone()
-        
+
         if not wallet:
             cursor.execute(
                 """
@@ -155,34 +155,34 @@ def sync_coinbase_connection(conn, connection_id: int, api_key: str, api_secret:
             )
             wallet = cursor.fetchone()
             conn.commit()
-        
+
         wallet_id = wallet[0]
-        
+
         # Fetch accounts
         accounts = fetch_coinbase_accounts(api_key, api_secret)
         print(f"Found {len(accounts)} accounts")
-        
+
         # Fetch orders/fills
         orders = fetch_coinbase_orders(api_key, api_secret)
         print(f"Found {len(orders)} order fills")
-        
+
         # Process orders into transactions
         transactions = []
         for order in orders:
             tx_hash = f"coinbase_pro_{order.get('trade_id', order.get('order_id', ''))}"
-            
+
             # Parse the product (e.g., "BTC-USD")
             product = order.get("product_id", "")
             parts = product.split("-")
             base_asset = parts[0] if parts else "UNKNOWN"
             quote_asset = parts[1] if len(parts) > 1 else "USD"
-            
+
             side = order.get("side", "").upper()
             size = float(order.get("size", 0))
             price = float(order.get("price", 0))
             float(order.get("fee", 0))
             trade_time = order.get("trade_time", datetime.utcnow().isoformat())
-            
+
             # Buy = receive base asset, spend quote
             # Sell = spend base asset, receive quote
             if side == "BUY":
@@ -219,7 +219,7 @@ def sync_coinbase_connection(conn, connection_id: int, api_key: str, api_secret:
                     "quote_amount": str(size * price),
                     "cost_basis_cad": 0,
                 })
-        
+
         # Insert transactions
         if transactions:
             for tx in transactions:
@@ -239,26 +239,26 @@ def sync_coinbase_connection(conn, connection_id: int, api_key: str, api_secret:
                 )
             conn.commit()
             print(f"Inserted {len(transactions)} transactions")
-        
+
         # Update connection status
         cursor.execute(
             """
-            UPDATE exchange_connections 
-            SET status = 'connected', last_sync_at = NOW(), last_error = NULL 
+            UPDATE exchange_connections
+            SET status = 'connected', last_sync_at = NOW(), last_error = NULL
             WHERE id = %s
             """,
             (connection_id,)
         )
-        
+
         # Update wallet status
         cursor.execute(
             "UPDATE wallets SET sync_status = 'complete', last_synced_at = NOW() WHERE id = %s",
             (wallet_id,)
         )
         conn.commit()
-        
+
         print(f"Successfully synced Coinbase connection {connection_id}")
-        
+
     except Exception as e:
         print(f"Error syncing connection {connection_id}: {e}")
         cursor.execute(
@@ -271,7 +271,7 @@ def main():
     """Main sync function - syncs all Coinbase Pro connections"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     # Get all active Coinbase Pro connections
     cursor.execute(
         """
@@ -281,9 +281,9 @@ def main():
         """
     )
     connections = cursor.fetchall()
-    
+
     print(f"Found {len(connections)} Coinbase Pro connections to sync")
-    
+
     for conn_id, api_key, api_secret, config in connections:
         passphrase = None
         if config:
@@ -292,9 +292,9 @@ def main():
                 passphrase = config_data.get("passphrase")
             except Exception:
                 pass
-        
+
         sync_coinbase_connection(conn, conn_id, api_key, api_secret, passphrase)
-    
+
     conn.close()
     print("Done!")
 

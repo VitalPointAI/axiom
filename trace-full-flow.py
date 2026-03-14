@@ -15,7 +15,7 @@ print("="*70)
 
 # Get the gap
 cur.execute("""
-    SELECT 
+    SELECT
         SUM(CASE WHEN direction = 'in' AND counterparty != ? THEN CAST(amount AS REAL)/1e24 ELSE 0 END) as in_amt,
         SUM(CASE WHEN direction = 'out' AND counterparty != ? THEN CAST(amount AS REAL)/1e24 ELSE 0 END) as out_amt
     FROM transactions WHERE wallet_id = ?
@@ -76,7 +76,7 @@ print(f"   Total fees recorded: {fees:.6f} NEAR")
 # Check if there are any transactions with unusual amounts
 print("\n3. Checking for precision issues:")
 cur.execute("""
-    SELECT COUNT(*) FROM transactions 
+    SELECT COUNT(*) FROM transactions
     WHERE wallet_id = ? AND (
         CAST(amount AS REAL) != ROUND(CAST(amount AS REAL), 0)
     )

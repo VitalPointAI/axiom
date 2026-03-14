@@ -28,7 +28,7 @@ for page in range(20):
     txns = data.get("txns", [])
     if not txns:
         break
-    
+
     for tx in txns:
         tx_hash = tx.get("transaction_hash", "")
         # Only count fees when this wallet is the sender (predecessor)
@@ -37,7 +37,7 @@ for page in range(20):
             if tx_hash not in nb_fees_by_tx:
                 nb_fees_by_tx[tx_hash] = fee
                 total_nb_fee += fee
-    
+
     cursor = data.get("cursor")
     if not cursor:
         break
@@ -47,7 +47,7 @@ print(f"NearBlocks: {len(nb_fees_by_tx)} outgoing txs, total fees: {total_nb_fee
 # Get our DB fees
 cur.execute("""
     SELECT tx_hash, MAX(CAST(fee AS REAL)/1e24) as fee
-    FROM transactions 
+    FROM transactions
     WHERE wallet_id = ? AND direction = 'out'
     GROUP BY tx_hash
 """, (wallet_id,))

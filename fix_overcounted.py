@@ -33,7 +33,7 @@ cursor = conn.cursor()
 
 cursor.execute('''
     SELECT tx_hash, CAST(amount AS REAL), action_type
-    FROM transactions 
+    FROM transactions
     WHERE wallet_id = 75 AND direction = 'OUT' AND asset = 'ETH' AND action_type = 'TRANSFER'
 ''')
 our_transfers = cursor.fetchall()
@@ -50,7 +50,7 @@ over_counted = []
 for tx_hash, amount, action_type in our_transfers:
     clean_hash = tx_hash.lower()
     eth_val = valid_out.get(clean_hash, None)
-    
+
     if eth_val is None:
         # We have it but Etherscan doesn't - it's an internal transfer
         print(f"  INTERNAL: {tx_hash[:40]}... {amount:.6f} ETH")
@@ -72,7 +72,7 @@ for tx_hash, amount, reason in over_counted:
     if reason == 'not_in_etherscan':
         # Change to INTERNAL_TRANSFER
         cursor.execute('''
-            UPDATE transactions 
+            UPDATE transactions
             SET action_type = 'INTERNAL_TRANSFER'
             WHERE tx_hash = ? AND wallet_id = 75
         ''', (tx_hash,))
@@ -82,8 +82,8 @@ conn.commit()
 
 # Verify fix
 cursor.execute('''
-    SELECT direction, SUM(CAST(amount AS REAL)) 
-    FROM transactions 
+    SELECT direction, SUM(CAST(amount AS REAL))
+    FROM transactions
     WHERE wallet_id = 75 AND asset = 'ETH'
     AND action_type NOT IN ('INTERNAL_TRANSFER')
     GROUP BY direction
