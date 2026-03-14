@@ -363,12 +363,41 @@ Phase 2 ──┘                                              │
 ### Phase 9: Code Quality & Hardening
 
 **Goal:** Refactor monolithic modules (classifier, reconcile), complete SQLite→PostgreSQL migration, fix N+1 query patterns, add test coverage, API rate limiting, CI/CD quality gates
-**Requirements**: TBD
+
+**Requirements:** QH-01 through QH-12 (derived from CONCERNS.md unfixed items)
 **Depends on:** Phase 8
-**Plans:** 0 plans
+**Plans:** 4 plans in 2 waves
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 9 to break down)
+- [ ] 09-01-PLAN.md — CI quality gates (ci.yml + ruff) + legacy SQLite cleanup + stub documentation (Wave 1) [QH-01, QH-08, QH-12]
+- [ ] 09-02-PLAN.md — API rate limiting (slowapi) + env validation + SQL whitelist + rollback consistency (Wave 1) [QH-04, QH-05, QH-06, QH-07]
+- [ ] 09-03-PLAN.md — Classifier N+1 fix (batch event loading) + NearBlocks retry hardening (Wave 1) [QH-02, QH-03]
+- [ ] 09-04-PLAN.md — Test coverage: authorization isolation + indexer edge cases + parser robustness (Wave 2) [QH-09, QH-10, QH-11]
+
+**Requirements:**
+- QH-01: SQLite→PostgreSQL: migrate/remove remaining SQLite modules
+- QH-02: Refactor monolithic modules (classifier, reconcile)
+- QH-03: Fix N+1 query patterns in classifier
+- QH-04: Fix SQL injection risk in dynamic UPDATE
+- QH-05: Add API rate limiting
+- QH-06: Startup environment variable validation
+- QH-07: Complete transaction rollback pattern
+- QH-08: Add CI/CD quality gates
+- QH-09: Test coverage: authorization isolation
+- QH-10: Test coverage: indexer edge cases
+- QH-11: Test coverage: exchange parser robustness
+- QH-12: Document stub implementations
+
+**Success Criteria:**
+1. [ ] CI pipeline runs pytest + ruff before deploy can proceed
+2. [ ] Zero SQLite imports in production code path
+3. [ ] API rate limits active on auth, job trigger, and data endpoints
+4. [ ] Application fails fast on missing DATABASE_URL
+5. [ ] Classifier loads staking/lockup events in batch, not per-transaction
+6. [ ] NearBlocks API calls retry with exponential backoff on 429
+7. [ ] Cross-user data access returns 403/404 on all protected endpoints
+8. [ ] Indexer handles rate limits and malformed responses without crashing
+9. [ ] Exchange parsers handle missing columns and malformed CSV gracefully
 
 ---
-*Last updated: 2026-03-13 — Phase 7 COMPLETE: 7/7 plans. FastAPI Docker container added, 75 Next.js API routes removed, 4-service production stack ready.*
+*Last updated: 2026-03-13 — Phase 9 planned: 4 plans in 2 waves covering 12 code quality requirements.*
