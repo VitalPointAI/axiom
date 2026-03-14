@@ -213,14 +213,14 @@ def test_offline_mode_false_stays_online():
 # ---------------------------------------------------------------------------
 
 
-def test_health_endpoint_exposes_offline_mode(mock_pool, monkeypatch):
+def test_health_endpoint_exposes_offline_mode(mock_pool):
     """GET /health returns offline_mode field."""
-    monkeypatch.setenv("DB_POOL_MIN", "1")
-    monkeypatch.setenv("DB_POOL_MAX", "2")
     app = create_app()
     app.dependency_overrides[get_pool_dep] = lambda: mock_pool
     with patch("indexers.db.get_pool", return_value=mock_pool), \
-         patch("indexers.db.close_pool"):
+         patch("indexers.db.close_pool"), \
+         patch("config.DB_POOL_MIN", 1), \
+         patch("config.DB_POOL_MAX", 2):
         with TestClient(app, raise_server_exceptions=True) as client:
             resp = client.get("/health")
     assert resp.status_code == 200
@@ -235,14 +235,14 @@ def test_health_endpoint_exposes_offline_mode(mock_pool, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_status_endpoint_exposes_offline_mode(mock_pool, monkeypatch):
+def test_status_endpoint_exposes_offline_mode(mock_pool):
     """GET /api/status returns offline_mode field."""
-    monkeypatch.setenv("DB_POOL_MIN", "1")
-    monkeypatch.setenv("DB_POOL_MAX", "2")
     app = create_app()
     app.dependency_overrides[get_pool_dep] = lambda: mock_pool
     with patch("indexers.db.get_pool", return_value=mock_pool), \
-         patch("indexers.db.close_pool"):
+         patch("indexers.db.close_pool"), \
+         patch("config.DB_POOL_MIN", 1), \
+         patch("config.DB_POOL_MAX", 2):
         with TestClient(app, raise_server_exceptions=True) as client:
             resp = client.get("/api/status")
     assert resp.status_code == 200
