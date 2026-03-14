@@ -424,10 +424,26 @@ Plans:
 **Out of scope:** Audit log, multi-currency support, offline mode, export validation (feature work for future milestones)
 
 **Depends on:** Phase 9
-**Plans:** 0 plans
+**Plans:** 5 plans in 2 waves
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 10 to break down)
+- [ ] 10-01-PLAN.md — Module split: classifier.py, acb.py, models.py into sub-packages (Wave 1) [RC-01]
+- [ ] 10-02-PLAN.md — DB index migration 007 + configurable pool sizing + pyproject.toml (Wave 1) [RC-02, RC-06, RC-09]
+- [ ] 10-03-PLAN.md — Streaming CSV export + backfill batching + NearBlocks API caching (Wave 1) [RC-03, RC-04, RC-05]
+- [ ] 10-04-PLAN.md — Logging policy + stub documentation + deprecation warnings + docs cleanup (Wave 1) [RC-07, RC-08, RC-13, RC-14]
+- [ ] 10-05-PLAN.md — Test gaps: classifier rule interactions + ACB edge cases + concurrent classification (Wave 2) [RC-10, RC-11, RC-12]
+
+**Success Criteria:**
+1. [ ] classifier.py, acb.py, models.py split into sub-packages with backward-compatible imports
+2. [ ] price_cache has composite index; migration 007 applied
+3. [ ] Report CSVs stream via named cursors (no fetchall on large tables)
+4. [ ] Staking backfill commits in batches of 100
+5. [ ] NearBlocks API caches repeated calls with 5-min TTL
+6. [ ] Pool sizing configurable via DB_POOL_MIN/DB_POOL_MAX env vars
+7. [ ] sanitize_for_log() redacts sensitive fields
+8. [ ] Stubs documented, Coinbase Pro deprecated, docs free of SQLite refs
+9. [ ] pyproject.toml has requires-python >= 3.11
+10. [ ] Rule priority, ACB gap, and concurrent classification tests pass
 
 ---
-*Last updated: 2026-03-14 — Phase 10 added: Remaining Concerns Remediation (14 requirements from CONCERNS.md unfixed items).*
+*Last updated: 2026-03-14 — Phase 10 planned: 5 plans in 2 waves covering 14 requirements.*
