@@ -9,6 +9,11 @@ RUN npm ci
 
 # Copy source and build
 COPY . .
+
+# NEXT_PUBLIC_* vars must be present at build time for Next.js to inline them
+ARG NEXT_PUBLIC_API_URL=https://axiom.vitalpoint.ai
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
 RUN npm run build
 
 # Production stage
