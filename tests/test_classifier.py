@@ -720,3 +720,347 @@ class TestSwapDecomposition:
         children = [r for r in results if r["leg_type"] != "parent"]
         fee = next(r for r in results if r["leg_type"] == "fee_leg")
         assert fee["leg_index"] == 2, f"fee_leg index should be 2, got {fee['leg_index']}"
+
+
+# ---------------------------------------------------------------------------
+# TestRulePriorityAndChainFilter (RC-10)
+# ---------------------------------------------------------------------------
+
+
+class TestRulePriorityAndChainFilter:
+    """Rule priority resolution, conflict handling, chain filtering, and unknown fallthrough.
+
+    Covers RC-10: classification rule interactions.
+    """
+
+    def _make_two_matching_rules(self, high_priority_category="staking_reward", low_priority_category="transfer"):
+        """Return two rules that both match a NEAR FUNCTION_CALL with method_name='deposit_and_stake'.
+
+        high_priority_rule has priority=100, low_priority_rule has priority=50.
+        Rules are pre-sorted by priority DESC (as load_rules() guarantees).
+        """
+        high_priority_rule = {
+            "id": 101,
+            "name": "near_staking_high",
+            "chain": "near",
+            "pattern": {
+                "action_type": "FUNCTION_CALL",
+                "method_name": ["deposit_and_stake", "stake"],
+            },
+            "category": high_priority_category,
+            "confidence": 0.95,
+            "priority": 100,
+        }
+        low_priority_rule = {
+            "id": 102,
+            "name": "near_transfer_low",
+            "chain": "near",
+            "pattern": {
+                "action_type": "FUNCTION_CALL",
+                "method_name": ["deposit_and_stake", "transfer"],
+            },
+            "category": low_priority_category,
+            "confidence": 0.70,
+            "priority": 50,
+        }
+        # sorted by priority DESC — high comes first, first match wins
+        return [high_priority_rule, low_priority_rule]
+
+    def test_higher_priority_rule_wins_over_lower(self):
+        """Higher-priority rule (100) wins when two rules match the same tx pattern.
+
+        _match_rules() iterates rules in priority DESC order; the first match wins.
+        """
+        clf = _make_classifier()
+        rules = self._make_two_matching_rules(
+            high_priority_category="reward",
+            low_priority_category="deposit",
+        )
+
+        tx = {
+            "id": 700,
+            "action_type": "FUNCTION_CALL",
+            "method_name": "deposit_and_stake",
+            "counterparty": "validator.poolv1.near",
+            "direction": "out",
+            "amount": 1000000000000000000000000,
+            "raw_data": {},
+        }
+        result = clf._match_rules(tx, rules, chain="near")
+
+        assert result is not None, "Expected a rule match"
+        assert result["category"] == "reward", (
+            f"Higher-priority rule (reward) should win, got {result['category']}"
+        )
+
+    def test_equal_priority_first_rule_wins(self):
+        """When two rules share the same priority, the first in sorted order wins.
+
+        Stable sort: if priority is equal, the rule added first to the list wins.
+        This mirrors the DB ORDER BY priority DESC, id ASC stable ordering.
+        """
+        clf = _make_classifier()
+
+        rule_a = {
+            "id": 201,
+            "name": "rule_a",
+            "chain": "near",
+            "pattern": {"action_type": "FUNCTION_CALL", "method_name": ["some_method"]},
+            "category": "income",
+            "confidence": 0.90,
+            "priority": 75,
+        }
+        rule_b = {
+            "id": 202,
+            "name": "rule_b",
+            "chain": "near",
+            "pattern": {"action_type": "FUNCTION_CALL", "method_name": ["some_method"]},
+            "category": "reward",
+            "confidence": 0.85,
+            "priority": 75,
+        }
+        # rule_a appears first in the list (lower id, DB stable sort)
+        rules = [rule_a, rule_b]
+
+        tx = {
+            "id": 701,
+            "action_type": "FUNCTION_CALL",
+            "method_name": "some_method",
+            "counterparty": "anyone.near",
+            "direction": "out",
+            "amount": 500,
+            "raw_data": {},
+        }
+        result = clf._match_rules(tx, rules, chain="near")
+
+        assert result is not None, "Expected a rule match"
+        assert result["category"] == "income", (
+            f"First rule in equal-priority list should win, got {result['category']}"
+        )
+
+    def test_conflicting_categories_resolved_by_priority(self):
+        """Staking rule at priority 100 vs transfer rule at priority 50; staking wins."""
+        clf = _make_classifier()
+
+        staking_rule = {
+            "id": 301,
+            "name": "staking_high",
+            "chain": "near",
+            "pattern": {
+                "action_type": "FUNCTION_CALL",
+                "method_name": ["deposit_and_stake"],
+                "counterparty_suffix": [".poolv1.near", ".pool.near"],
+            },
+            "category": "stake",
+            "confidence": 0.95,
+            "priority": 100,
+        }
+        transfer_rule = {
+            "id": 302,
+            "name": "transfer_low",
+            "chain": "near",
+            "pattern": {
+                "action_type": "FUNCTION_CALL",
+                "method_name": ["deposit_and_stake"],
+            },
+            "category": "deposit",
+            "confidence": 0.60,
+            "priority": 50,
+        }
+        rules = [staking_rule, transfer_rule]  # priority DESC order
+
+        tx = {
+            "id": 702,
+            "action_type": "FUNCTION_CALL",
+            "method_name": "deposit_and_stake",
+            "counterparty": "myvalidator.poolv1.near",
+            "direction": "out",
+            "amount": 2000000000000000000000000,
+            "raw_data": {},
+        }
+        result = clf._match_rules(tx, rules, chain="near")
+
+        assert result is not None, "Expected a rule match"
+        assert result["category"] == "stake", (
+            f"Staking rule (priority=100) should beat transfer (priority=50); got {result['category']}"
+        )
+
+    def test_chain_filter_prevents_wrong_chain_rule(self):
+        """A NEAR-specific rule (chain='near') does NOT match an EVM tx.
+
+        Even if the method_name matches, the chain filter prevents cross-chain application.
+        """
+        clf = _make_classifier()
+
+        # NEAR-only rule: matches deposit_and_stake on NEAR chain
+        near_only_rule = {
+            "id": 401,
+            "name": "near_staking_rule",
+            "chain": "near",  # NEAR-specific
+            "pattern": {
+                "method_name": ["deposit_and_stake"],
+            },
+            "category": "stake",
+            "confidence": 0.95,
+            "priority": 100,
+        }
+
+        # EVM tx with same method_name — should NOT match NEAR rule
+        evm_tx = {
+            "id": 703,
+            "action_type": None,
+            "method_name": "deposit_and_stake",
+            "counterparty": "0xsomecontract",
+            "direction": "out",
+            "amount": 1000000,
+            "raw_data": {"input": "0x"},
+            "chain": "ethereum",
+        }
+        result = clf._match_rules(evm_tx, [near_only_rule], chain="evm")
+
+        assert result is None, (
+            f"NEAR-only rule should NOT match EVM tx; got {result}"
+        )
+
+    def test_no_match_falls_through_to_unknown(self):
+        """A transaction that matches zero rules gets 'unknown' with needs_review=True.
+
+        When _match_rules returns None (no rule matched), the AI fallback is invoked.
+        We mock the AI to return 'unknown' (simulating no confidence) and assert the
+        final classification is 'unknown' with needs_review=True.
+        """
+        clf = _make_classifier(rules=_near_rules())
+
+        _ai_unknown = {
+            "category": TaxCategory.UNKNOWN.value,
+            "confidence": 0.30,
+            "notes": "AI: no confident classification",
+            "needs_review": True,
+            "rule_id": None,
+            "classification_source": "ai",
+        }
+
+        with patch.object(clf.wallet_graph, "is_internal_transfer", return_value=False), \
+             patch.object(clf.spam_detector, "check_spam", return_value={"is_spam": False, "confidence": 0.0, "signals": []}), \
+             patch.object(clf, "_classify_with_ai", return_value=_ai_unknown):
+
+            # tx that won't match any rule in _near_rules():
+            # - not a NEAR pool counterparty
+            # - not a DEX method
+            # - not a plain TRANSFER action_type
+            tx = {
+                "id": 704,
+                "wallet_id": 10,
+                "tx_hash": "unknown_hash_1",
+                "action_type": "FUNCTION_CALL",
+                "method_name": "totally_unknown_method_xyz",
+                "counterparty": "random.contract.near",
+                "direction": "in",
+                "amount": 100,
+                "block_timestamp": 1700000500,
+                "success": True,
+                "raw_data": {},
+            }
+            results = clf._classify_near_tx(
+                user_id=1,
+                tx=tx,
+                rules=_near_rules(),
+                owned_wallets=set(),
+            )
+
+        assert results, "Expected fallback classification result"
+        parent = results[0]
+        assert parent["category"] == TaxCategory.UNKNOWN.value, (
+            f"Unmatched tx should fall through to 'unknown'; got {parent['category']}"
+        )
+        assert parent["needs_review"] is True, "Unknown category should always have needs_review=True"
+
+    def test_concurrent_upsert_preserves_specialist_confirmed(self):
+        """Upsert on a specialist_confirmed=True row does NOT overwrite the category.
+
+        The SQL uses WHERE specialist_confirmed = FALSE; if the row has specialist_confirmed=True,
+        fetchone() returns None (no RETURNING row), and the classification is left unchanged.
+        """
+        pool, conn, cur = _make_pool()
+
+        # Simulate: INSERT ... ON CONFLICT ... WHERE specialist_confirmed = FALSE
+        # If the existing row has specialist_confirmed=True, the DO UPDATE is skipped.
+        # fetchone() returns None (no RETURNING row).
+        cur.fetchone.return_value = None  # specialist_confirmed=True row -> no return
+
+        clf = _make_classifier(pool=pool)
+
+        # Build a record to upsert
+        record = {
+            "user_id": 1,
+            "transaction_id": 999,
+            "exchange_transaction_id": None,
+            "leg_type": "parent",
+            "leg_index": 0,
+            "category": "deposit",  # trying to overwrite with a different category
+            "confidence": 0.70,
+            "classification_source": "rule",
+            "rule_id": None,
+            "staking_event_id": None,
+            "lockup_event_id": None,
+            "fmv_usd": None,
+            "fmv_cad": None,
+            "needs_review": True,
+        }
+
+        classification_id = clf._upsert_classification(conn, record)
+
+        # Verify the SQL was called with WHERE specialist_confirmed = FALSE
+        assert cur.execute.called, "cursor.execute should have been called"
+        sql_called = cur.execute.call_args[0][0]
+        assert "specialist_confirmed" in sql_called, (
+            "Upsert SQL must contain specialist_confirmed guard"
+        )
+        # Since fetchone returned None (no row updated), classification_id should be 0 or falsy
+        assert classification_id == 0, (
+            f"specialist_confirmed=True row should not return an id; got {classification_id}"
+        )
+
+    def test_duplicate_classify_call_idempotent(self):
+        """Calling _classify_near_tx twice on the same tx produces the same category.
+
+        Idempotency: repeated classification produces identical results.
+        """
+        clf = _make_classifier(rules=_near_rules())
+
+        tx = {
+            "id": 705,
+            "wallet_id": 10,
+            "tx_hash": "idempotent_hash_1",
+            "action_type": "FUNCTION_CALL",
+            "method_name": "deposit_and_stake",
+            "counterparty": "validator.poolv1.near",
+            "direction": "out",
+            "amount": 1000000000000000000000000,
+            "block_timestamp": 1700000600,
+            "success": True,
+            "raw_data": {},
+        }
+
+        with patch.object(clf.wallet_graph, "is_internal_transfer", return_value=False), \
+             patch.object(clf.spam_detector, "check_spam", return_value={"is_spam": False, "confidence": 0.0, "signals": []}):
+
+            results_first = clf._classify_near_tx(
+                user_id=1, tx=tx, rules=_near_rules(), owned_wallets=set()
+            )
+
+        with patch.object(clf.wallet_graph, "is_internal_transfer", return_value=False), \
+             patch.object(clf.spam_detector, "check_spam", return_value={"is_spam": False, "confidence": 0.0, "signals": []}):
+
+            results_second = clf._classify_near_tx(
+                user_id=1, tx=tx, rules=_near_rules(), owned_wallets=set()
+            )
+
+        assert results_first, "First classify call should produce results"
+        assert results_second, "Second classify call should produce results"
+        assert results_first[0]["category"] == results_second[0]["category"], (
+            f"Idempotent: first={results_first[0]['category']}, second={results_second[0]['category']}"
+        )
+        assert results_first[0]["confidence"] == results_second[0]["confidence"], (
+            "Repeated classification should produce same confidence"
+        )
