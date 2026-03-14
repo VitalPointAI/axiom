@@ -18,8 +18,12 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 import indexers.db as _db
+from api.rate_limit import limiter
+from config import validate_env
 from api.auth import router as auth_router
 from api.routers import (
     exchanges_router,
@@ -40,6 +44,7 @@ from api.routers import (
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Initialize the psycopg2 connection pool on startup, close on shutdown."""
+    validate_env()
     _db.get_pool()
     yield
     _db.close_pool()
@@ -61,6 +66,12 @@ def create_app() -> FastAPI:
         ),
         lifespan=lifespan,
     )
+
+    # ----------------------------------------------------------------
+    # Rate limiting (slowapi)
+    # ----------------------------------------------------------------
+    application.state.limiter = limiter
+    application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     # ----------------------------------------------------------------
     # CORS middleware

@@ -21,10 +21,11 @@ import math
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.concurrency import run_in_threadpool
 
 from api.dependencies import get_effective_user, get_pool_dep
+from api.rate_limit import limiter
 from api.schemas.transactions import (
     ApplyChangesRequest,
     ApplyChangesResponse,
@@ -36,6 +37,9 @@ from api.schemas.transactions import (
 )
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
+
+# Whitelist prevents SQL injection via user-supplied field names in dynamic UPDATE statements.
+ALLOWED_UPDATE_FIELDS = {"tax_category", "sub_category", "reviewer_notes", "needs_review"}
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +241,9 @@ async def get_review_queue(
 
 
 @router.get("", response_model=TransactionListResponse)
+@limiter.limit("60/minute")
 async def list_transactions(
+    request: Request,
     user: dict = Depends(get_effective_user),
     pool=Depends(get_pool_dep),
     start_date: Optional[str] = Query(default=None),

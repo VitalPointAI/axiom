@@ -26,11 +26,12 @@ import os
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Query, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
 from api.dependencies import get_effective_user, get_pool_dep, require_admin
+from api.rate_limit import limiter
 from api.schemas.reports import (
     ExchangeImportResponse,
     ReportFileInfo,
@@ -78,7 +79,9 @@ def _get_output_dir() -> str:
 
 
 @router.post("/generate", response_model=ReportGenerateResponse)
+@limiter.limit("5/minute")
 async def generate_report(
+    request: Request,
     body: ReportGenerateRequest,
     user: dict = Depends(get_effective_user),
     pool=Depends(get_pool_dep),

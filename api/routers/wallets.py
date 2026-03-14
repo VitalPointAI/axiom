@@ -24,10 +24,11 @@ Stage progress bar mapping (from RESEARCH.md):
 
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
 
 from api.dependencies import get_effective_user, get_pool_dep
+from api.rate_limit import limiter
 from api.schemas.wallets import JobSummary, SyncStatusResponse, WalletCreate, WalletResponse
 
 router = APIRouter(prefix="/api/wallets", tags=["wallets"])
@@ -186,7 +187,9 @@ def _derive_sync_status(jobs: list) -> str:
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=WalletResponse)
+@limiter.limit("5/minute")
 async def create_wallet(
+    request: Request,
     body: WalletCreate,
     user: dict = Depends(get_effective_user),
     pool=Depends(get_pool_dep),
@@ -469,7 +472,9 @@ async def delete_wallet(
 
 
 @router.post("/{wallet_id}/resync")
+@limiter.limit("10/minute")
 async def resync_wallet(
+    request: Request,
     wallet_id: int,
     user: dict = Depends(get_effective_user),
     pool=Depends(get_pool_dep),

@@ -22,6 +22,7 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
 
 from api.dependencies import get_current_user, get_db_conn, get_pool_dep
+from api.rate_limit import limiter
 from api.schemas.auth import (
     LoginFinishRequest,
     LoginStartRequest,
@@ -55,7 +56,9 @@ async def register_start(
 
 
 @router.post("/register/finish", response_model=SessionResponse)
+@limiter.limit("10/minute")
 async def register_finish(
+    request: Request,
     body: RegisterFinishRequest,
     response: Response,
     conn=Depends(get_db_conn),
@@ -111,7 +114,9 @@ async def login_start(
 
 
 @router.post("/login/finish", response_model=SessionResponse)
+@limiter.limit("10/minute")
 async def login_finish(
+    request: Request,
     body: LoginFinishRequest,
     response: Response,
     conn=Depends(get_db_conn),
@@ -159,7 +164,9 @@ async def login_finish(
 
 
 @router.get("/session", response_model=SessionResponse)
+@limiter.limit("20/minute")
 async def get_session(
+    request: Request,
     user: dict = Depends(get_current_user),
 ):
     """Return the current session's user context (validates session cookie)."""
@@ -201,7 +208,9 @@ async def logout(
 
 
 @router.get("/oauth/start")
+@limiter.limit("20/minute")
 async def oauth_start(
+    request: Request,
     conn=Depends(get_db_conn),
 ):
     """Generate Google OAuth redirect URL with PKCE state stored in DB."""
@@ -212,7 +221,9 @@ async def oauth_start(
 
 
 @router.post("/oauth/callback", response_model=SessionResponse)
+@limiter.limit("20/minute")
 async def oauth_callback(
+    request: Request,
     body: OAuthCallbackRequest,
     response: Response,
     conn=Depends(get_db_conn),
@@ -255,7 +266,9 @@ async def oauth_callback(
 
 
 @router.post("/magic-link/request")
+@limiter.limit("10/minute")
 async def magic_link_request(
+    request: Request,
     body: MagicLinkRequest,
     conn=Depends(get_db_conn),
 ):
@@ -267,7 +280,9 @@ async def magic_link_request(
 
 
 @router.get("/magic-link/verify", response_model=SessionResponse)
+@limiter.limit("10/minute")
 async def magic_link_verify(
+    request: Request,
     token: str,
     response: Response,
     conn=Depends(get_db_conn),
