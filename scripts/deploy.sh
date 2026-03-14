@@ -42,7 +42,7 @@ fi
 
 # Step 2: Build new images
 echo "==> Building Docker images"
-$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml build --no-cache --parallel"
+$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml build --parallel"
 
 # Step 3: Run migrations (one-shot container)
 echo "==> Running database migrations"
@@ -50,8 +50,8 @@ $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod
 
 # Step 4: Rolling restart - user-facing services first, background workers last
 # Rolling restart order: web, api, indexer
-echo "==> Stopping web, api, and indexer"
-$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml stop web api indexer && docker compose -f docker-compose.prod.yml rm -f web api indexer"
+echo "==> Stopping proxy, web, api, and indexer"
+$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml stop proxy web api indexer && docker compose -f docker-compose.prod.yml rm -f proxy web api indexer"
 
 echo "==> Starting api (FastAPI backend)"
 $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d api"
@@ -61,6 +61,9 @@ sleep 20
 
 echo "==> Starting web (Next.js frontend)"
 $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d web"
+
+echo "==> Starting proxy (nginx reverse proxy)"
+$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d proxy"
 
 echo "==> Starting indexer"
 $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d indexer"
