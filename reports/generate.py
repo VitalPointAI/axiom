@@ -40,6 +40,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
+from db.audit import write_audit
+
 from reports.engine import ReportEngine, ReportBlockedError, fmt_cad
 from reports.capital_gains import CapitalGainsReport
 from reports.income import IncomeReport
@@ -509,15 +511,21 @@ class PackageBuilder:
         conn = self.pool.getconn()
         try:
             self._write_manifest(output_dir, user_id, tax_year, conn)
-        finally:
-            self.pool.putconn(conn)
-
-        # ----------------------------------------------------------------
-        # MANIFEST.json — final step before return
-        # ----------------------------------------------------------------
-        conn = self.pool.getconn()
-        try:
-            self._write_manifest(output_dir, user_id, tax_year, conn)
+            # Audit the report generation event
+            write_audit(
+                conn,
+                user_id=user_id,
+                entity_type="report_package",
+                entity_id=None,
+                action="report_generated",
+                new_value={
+                    "tax_year": tax_year,
+                    "files_count": len(files),
+                    "output_dir": output_dir,
+                    "tax_treatment": tax_treatment,
+                },
+                actor_type="system",
+            )
         finally:
             self.pool.putconn(conn)
 
@@ -591,47 +599,6 @@ class PackageBuilder:
         )
         return manifest_path
 
-
-    def _get_data_fingerprint(self, conn, user_id: int) -> dict:
-        """Delegate to module-level get_data_fingerprint()."""
-        return get_data_fingerprint(conn, user_id)
-
-    def _write_manifest(self, output_dir: str, user_id: int, tax_year: int, conn) -> str:
-        """Compute SHA-256 for every file in output_dir (excluding MANIFEST.json) and write manifest."""
-        from pathlib import Path as _P
-        pkg_path = _P(output_dir)
-        file_entries = []
-        for f in sorted(pkg_path.glob('*')):
-            if not f.is_file():
-                continue
-            if f.name == 'MANIFEST.json':
-                continue
-            sha256 = hashlib.sha256(f.read_bytes()).hexdigest()
-            file_entries.append({
-                'filename': f.name,
-                'sha256': sha256,
-                'size_bytes': f.stat().st_size,
-            })
-
-        fingerprint = self._get_data_fingerprint(conn, user_id)
-
-        manifest = {
-            'generated_at': datetime.utcnow().isoformat() + 'Z',
-            'tax_year': tax_year,
-            'user_id': user_id,
-            'source_data_version': fingerprint,
-            'files': file_entries,
-        }
-
-        manifest_path = str(_P(output_dir) / 'MANIFEST.json')
-        with open(manifest_path, 'w') as fh:
-            fh.write(json.dumps(manifest, indent=2))
-
-        logger.info(
-            "MANIFEST.json written: user_id=%s tax_year=%s files=%d output_dir=%s",
-            user_id, tax_year, len(file_entries), output_dir,
-        )
-        return manifest_path
 
     def _run_generate(self, report_instance, user_id, tax_year, output_dir, **kwargs):
         """Call report_instance.generate() with common args + extra kwargs.

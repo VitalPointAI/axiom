@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.concurrency import run_in_threadpool
 
 from api.dependencies import get_effective_user, get_pool_dep
+from db.audit import write_audit
 from api.schemas.verification import (
     IssueGroup,
     NeedsReviewCountResponse,
@@ -295,10 +296,11 @@ async def resolve_verification_issue(
     def _resolve(conn):
         cur = conn.cursor()
         try:
-            # Verify ownership
+            # Verify ownership and fetch info for audit row
             cur.execute(
                 """
-                SELECT vr.id FROM verification_results vr
+                SELECT vr.id, vr.diagnosis_category, vr.verification_type
+                FROM verification_results vr
                 JOIN wallets w ON w.id = vr.wallet_id
                 WHERE vr.id = %s AND w.user_id = %s
                 """,
@@ -308,6 +310,8 @@ async def resolve_verification_issue(
             if row is None:
                 return False
 
+            _vr_id, diagnosis_category, verification_type = row
+
             cur.execute(
                 """
                 UPDATE verification_results
@@ -316,6 +320,23 @@ async def resolve_verification_issue(
                 """,
                 (issue_id,),
             )
+
+            # Audit the manual resolution
+            write_audit(
+                conn,
+                user_id=user_id,
+                entity_type="verification_result",
+                entity_id=issue_id,
+                action="verification_resolved",
+                new_value={
+                    "status": "resolved",
+                    "diagnosis_category": diagnosis_category,
+                    "verification_type": verification_type,
+                },
+                actor_type="user",
+                notes=body.resolution_notes if hasattr(body, "resolution_notes") else None,
+            )
+
             conn.commit()
             return True
         except Exception:

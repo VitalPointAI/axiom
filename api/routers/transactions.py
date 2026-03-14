@@ -26,6 +26,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from api.dependencies import get_effective_user, get_pool_dep
 from api.rate_limit import limiter
+from db.audit import write_audit
 from api.schemas.transactions import (
     ApplyChangesRequest,
     ApplyChangesResponse,
@@ -483,10 +484,10 @@ async def patch_classification(
     def _update(conn):
         cur = conn.cursor()
         try:
-            # Verify ownership: check on-chain or exchange transaction
+            # Verify ownership and fetch old classification values for audit
             cur.execute(
                 """
-                SELECT tc.id
+                SELECT tc.id, tc.tax_category, tc.confidence_score
                 FROM transaction_classifications tc
                 LEFT JOIN transactions t ON tc.tx_hash = t.tx_hash
                 LEFT JOIN wallets w ON t.wallet_id = w.id
@@ -503,6 +504,8 @@ async def patch_classification(
             row = cur.fetchone()
             if row is None:
                 return None
+
+            classification_id, old_category, old_confidence = row
 
             # Build dynamic UPDATE statement
             set_clauses = ["updated_at = NOW()"]
@@ -545,6 +548,27 @@ async def patch_classification(
                 """,
                 params + [user_id, tx_hash],
             )
+
+            # Write audit row for the manual classification edit
+            new_category = body.tax_category if body.tax_category is not None else old_category
+            write_audit(
+                conn,
+                user_id=user_id,
+                entity_type="transaction_classification",
+                entity_id=classification_id,
+                action="reclassify",
+                old_value={
+                    "category": old_category,
+                    "confidence": float(old_confidence) if old_confidence is not None else None,
+                },
+                new_value={
+                    "category": new_category,
+                    "reviewer_notes": body.reviewer_notes,
+                    "needs_review": body.needs_review,
+                },
+                actor_type="user",
+            )
+
             conn.commit()
             return {"tx_hash": tx_hash, "updated": True}
         except Exception:

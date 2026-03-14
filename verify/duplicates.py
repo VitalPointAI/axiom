@@ -16,6 +16,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from indexers.dedup_handler import ASSET_DECIMALS, AMOUNT_TOLERANCE
+from db.audit import write_audit
 
 logger = logging.getLogger(__name__)
 
@@ -233,6 +234,20 @@ class DuplicateDetector:
                         detail=detail,
                         confidence=Decimal("1.0"),
                         status="resolved",
+                    )
+                    # Unified audit trail for duplicate merge
+                    write_audit(
+                        conn,
+                        user_id=user_id,
+                        entity_type="duplicate_merge",
+                        entity_id=dupe_id,
+                        action="duplicate_merge",
+                        new_value={
+                            "merged_with": kept_id,
+                            "score": 1.0,
+                            "tx_hash": tx_hash,
+                        },
+                        actor_type="system",
                     )
                     merged_count += 1
 
