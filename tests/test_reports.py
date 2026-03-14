@@ -2207,3 +2207,313 @@ class TestStreamingNamedCursors(unittest.TestCase):
         putconn_idx = len(close_order) - 1 - close_order[::-1].index('putconn')
         self.assertLess(close_idx, putconn_idx,
                         "Named cursor must be closed before putconn is called")
+
+
+# ---------------------------------------------------------------------------
+# TestManifestGeneration — Task 1 (11-02)
+# ---------------------------------------------------------------------------
+
+
+class TestManifestGeneration(unittest.TestCase):
+    """Tests for PackageBuilder._write_manifest() and _get_data_fingerprint()."""
+
+    def _make_fingerprint_conn(
+        self,
+        last_tx_ts='2024-12-31T23:59:59',
+        tx_count=150,
+        acb_version='2024-12-31T10:00:00',
+        needs_review=3,
+        exchange_tx_count=50,
+    ):
+        """Build a mock conn whose cursor returns fingerprint query results."""
+        conn = MagicMock()
+        cur = MagicMock()
+        conn.cursor.return_value = cur
+        # _get_data_fingerprint runs 5 queries in sequence
+        cur.fetchone.side_effect = [
+            (last_tx_ts,),
+            (tx_count,),
+            (acb_version,),
+            (needs_review,),
+            (exchange_tx_count,),
+        ]
+        return conn, cur
+
+    def test_manifest_file_created(self):
+        """Test 1: PackageBuilder._write_manifest() creates MANIFEST.json in output_dir."""
+        from reports.generate import PackageBuilder
+        pool = MagicMock()
+        conn, cur = self._make_fingerprint_conn()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_file = os.path.join(tmpdir, 'capital_gains_2024.csv')
+            with open(dummy_file, 'w') as f:
+                f.write('Date,Amount\n2024-01-01,100\n')
+
+            builder = PackageBuilder(pool)
+            manifest_path = builder._write_manifest(tmpdir, user_id=1, tax_year=2024, conn=conn)
+
+            manifest_json = os.path.join(tmpdir, 'MANIFEST.json')
+            self.assertTrue(os.path.exists(manifest_json))
+            self.assertEqual(manifest_path, manifest_json)
+
+    def test_manifest_contains_files_with_sha256_and_size(self):
+        """Test 2: MANIFEST.json 'files' array contains filename, sha256, size_bytes per file."""
+        import json
+        import hashlib
+        from reports.generate import PackageBuilder
+        pool = MagicMock()
+        conn, cur = self._make_fingerprint_conn()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            content = b'Date,Amount\n2024-01-01,100\n'
+            dummy_file = os.path.join(tmpdir, 'capital_gains_2024.csv')
+            with open(dummy_file, 'wb') as f:
+                f.write(content)
+            expected_sha256 = hashlib.sha256(content).hexdigest()
+            expected_size = len(content)
+
+            builder = PackageBuilder(pool)
+            builder._write_manifest(tmpdir, user_id=1, tax_year=2024, conn=conn)
+
+            with open(os.path.join(tmpdir, 'MANIFEST.json')) as f:
+                manifest = json.load(f)
+
+            self.assertIn('files', manifest)
+            file_entry = next(
+                (e for e in manifest['files'] if e['filename'] == 'capital_gains_2024.csv'),
+                None,
+            )
+            self.assertIsNotNone(file_entry, "capital_gains_2024.csv not in manifest files")
+            self.assertEqual(file_entry['sha256'], expected_sha256)
+            self.assertEqual(file_entry['size_bytes'], expected_size)
+
+    def test_manifest_does_not_include_itself(self):
+        """Test 3: MANIFEST.json is NOT listed in its own 'files' array."""
+        import json
+        from reports.generate import PackageBuilder
+        pool = MagicMock()
+        conn, cur = self._make_fingerprint_conn()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_file = os.path.join(tmpdir, 'report.csv')
+            with open(dummy_file, 'w') as f:
+                f.write('data\n')
+
+            builder = PackageBuilder(pool)
+            builder._write_manifest(tmpdir, user_id=1, tax_year=2024, conn=conn)
+
+            with open(os.path.join(tmpdir, 'MANIFEST.json')) as f:
+                manifest = json.load(f)
+
+            filenames = [e['filename'] for e in manifest['files']]
+            self.assertNotIn('MANIFEST.json', filenames)
+
+    def test_manifest_contains_source_data_version(self):
+        """Test 4: MANIFEST.json contains source_data_version with fingerprint fields."""
+        import json
+        from reports.generate import PackageBuilder
+        pool = MagicMock()
+        conn, cur = self._make_fingerprint_conn(
+            last_tx_ts='2024-12-31T23:59:59',
+            tx_count=150,
+            acb_version='2024-12-31T10:00:00',
+            needs_review=3,
+            exchange_tx_count=50,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_file = os.path.join(tmpdir, 'report.csv')
+            with open(dummy_file, 'w') as f:
+                f.write('data\n')
+
+            builder = PackageBuilder(pool)
+            builder._write_manifest(tmpdir, user_id=1, tax_year=2024, conn=conn)
+
+            with open(os.path.join(tmpdir, 'MANIFEST.json')) as f:
+                manifest = json.load(f)
+
+            sdv = manifest.get('source_data_version', {})
+            self.assertIn('last_tx_timestamp', sdv)
+            self.assertIn('total_tx_count', sdv)
+            self.assertIn('acb_snapshot_version', sdv)
+            self.assertIn('needs_review_count', sdv)
+            # total_tx_count = on-chain (150) + exchange (50) = 200
+            self.assertEqual(sdv['total_tx_count'], 200)
+            self.assertEqual(sdv['needs_review_count'], 3)
+
+    def test_manifest_contains_metadata(self):
+        """Test 5: MANIFEST.json contains generated_at (ISO 8601), tax_year, user_id."""
+        import json
+        from reports.generate import PackageBuilder
+        pool = MagicMock()
+        conn, cur = self._make_fingerprint_conn()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_file = os.path.join(tmpdir, 'report.csv')
+            with open(dummy_file, 'w') as f:
+                f.write('data\n')
+
+            builder = PackageBuilder(pool)
+            builder._write_manifest(tmpdir, user_id=42, tax_year=2024, conn=conn)
+
+            with open(os.path.join(tmpdir, 'MANIFEST.json')) as f:
+                manifest = json.load(f)
+
+            self.assertIn('generated_at', manifest)
+            self.assertTrue(manifest['generated_at'].endswith('Z'),
+                            "generated_at must be ISO 8601 with Z suffix")
+            self.assertEqual(manifest['tax_year'], 2024)
+            self.assertEqual(manifest['user_id'], 42)
+
+
+# ---------------------------------------------------------------------------
+# TestStaleDetection — Task 2 (11-02)
+# ---------------------------------------------------------------------------
+
+
+class TestStaleDetection(unittest.TestCase):
+    """Tests for stale report detection in GET /api/reports/download/{year}."""
+
+    def _make_manifest(self, pkg_dir, tax_year=2024, user_id=1, **fingerprint_overrides):
+        """Write a MANIFEST.json into pkg_dir with given source_data_version."""
+        import json
+        fingerprint = {
+            'last_tx_timestamp': '2024-12-31T23:59:59',
+            'total_tx_count': 200,
+            'acb_snapshot_version': '2024-12-31T10:00:00',
+            'needs_review_count': 0,
+        }
+        fingerprint.update(fingerprint_overrides)
+        manifest = {
+            'generated_at': '2024-12-31T23:59:59Z',
+            'tax_year': tax_year,
+            'user_id': user_id,
+            'source_data_version': fingerprint,
+            'files': [{'filename': 'report.csv', 'sha256': 'abc', 'size_bytes': 10}],
+        }
+        with open(os.path.join(pkg_dir, 'MANIFEST.json'), 'w') as f:
+            json.dump(manifest, f)
+
+    def _make_pool_with_fingerprint(
+        self, last_tx_ts, tx_count, acb_version, needs_review, exchange_count
+    ):
+        """Build a mock pool returning the given fingerprint query results."""
+        pool = MagicMock()
+        conn = MagicMock()
+        cur = MagicMock()
+        pool.getconn.return_value = conn
+        conn.cursor.return_value = cur
+        cur.fetchone.side_effect = [
+            (last_tx_ts,),
+            (tx_count,),
+            (acb_version,),
+            (needs_review,),
+            (exchange_count,),
+        ]
+        return pool, conn, cur
+
+    def _make_app_with_overrides(self, pool, tmpdir, mock_user):
+        """Build a FastAPI test app with dependency overrides for reports router."""
+        from fastapi import FastAPI
+        from api.routers.reports import router
+        from api.dependencies import get_effective_user, get_pool_dep
+        app = FastAPI()
+        app.include_router(router)
+        app.dependency_overrides[get_effective_user] = lambda: mock_user
+        app.dependency_overrides[get_pool_dep] = lambda: pool
+        return app
+
+    def test_stale_false_when_fingerprint_matches(self):
+        """Test 1: list_report_files includes stale=False when MANIFEST fingerprint matches DB."""
+        from fastapi.testclient import TestClient
+
+        pool, conn, cur = self._make_pool_with_fingerprint(
+            last_tx_ts='2024-12-31T23:59:59',
+            tx_count=150,
+            acb_version='2024-12-31T10:00:00',
+            needs_review=0,
+            exchange_count=50,  # total = 200, matches manifest
+        )
+
+        mock_user = {'user_id': 1, 'email': 'test@example.com', 'is_admin': False}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pkg_dir = os.path.join(tmpdir, '2024_tax_package')
+            os.makedirs(pkg_dir)
+            with open(os.path.join(pkg_dir, 'report.csv'), 'w') as f:
+                f.write('data\n')
+            self._make_manifest(pkg_dir, user_id=1,
+                                total_tx_count=200,
+                                last_tx_timestamp='2024-12-31T23:59:59',
+                                acb_snapshot_version='2024-12-31T10:00:00',
+                                needs_review_count=0)
+
+            app = self._make_app_with_overrides(pool, tmpdir, mock_user)
+            with patch('api.routers.reports._get_output_dir', return_value=tmpdir):
+                client = TestClient(app)
+                resp = client.get('/api/reports/download/2024')
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn('stale', data)
+        self.assertFalse(data['stale'])
+
+    def test_stale_true_when_fingerprint_differs(self):
+        """Test 2: list_report_files includes stale=True when data has changed since report."""
+        from fastapi.testclient import TestClient
+
+        # DB has 300 total (150 on-chain + 150 exchange) but manifest says 200
+        pool, conn, cur = self._make_pool_with_fingerprint(
+            last_tx_ts='2024-12-31T23:59:59',
+            tx_count=150,
+            acb_version='2024-12-31T10:00:00',
+            needs_review=0,
+            exchange_count=150,  # Changed: was 50, now 150 => total 300 != 200
+        )
+
+        mock_user = {'user_id': 1, 'email': 'test@example.com', 'is_admin': False}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pkg_dir = os.path.join(tmpdir, '2024_tax_package')
+            os.makedirs(pkg_dir)
+            with open(os.path.join(pkg_dir, 'report.csv'), 'w') as f:
+                f.write('data\n')
+            self._make_manifest(pkg_dir, user_id=1,
+                                total_tx_count=200,
+                                last_tx_timestamp='2024-12-31T23:59:59',
+                                acb_snapshot_version='2024-12-31T10:00:00',
+                                needs_review_count=0)
+
+            app = self._make_app_with_overrides(pool, tmpdir, mock_user)
+            with patch('api.routers.reports._get_output_dir', return_value=tmpdir):
+                client = TestClient(app)
+                resp = client.get('/api/reports/download/2024')
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn('stale', data)
+        self.assertTrue(data['stale'])
+
+    def test_no_stale_field_when_no_manifest(self):
+        """Test 3: list_report_files returns normal response (no stale field) when no MANIFEST.json."""
+        from fastapi.testclient import TestClient
+
+        pool = MagicMock()
+        mock_user = {'user_id': 1, 'email': 'test@example.com', 'is_admin': False}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pkg_dir = os.path.join(tmpdir, '2024_tax_package')
+            os.makedirs(pkg_dir)
+            with open(os.path.join(pkg_dir, 'report.csv'), 'w') as f:
+                f.write('data\n')
+            # No MANIFEST.json
+
+            app = self._make_app_with_overrides(pool, tmpdir, mock_user)
+            with patch('api.routers.reports._get_output_dir', return_value=tmpdir):
+                client = TestClient(app)
+                resp = client.get('/api/reports/download/2024')
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertNotIn('stale', data)
