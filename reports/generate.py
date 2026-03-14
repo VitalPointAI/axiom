@@ -31,6 +31,8 @@ Tax treatment values:
 """
 
 import argparse
+import hashlib
+import json
 import logging
 import os
 from datetime import datetime
@@ -50,6 +52,160 @@ from reports.business import BusinessIncomeStatement
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Module-level data fingerprint helper (importable by API routers)
+# ---------------------------------------------------------------------------
+
+
+def get_data_fingerprint(conn, user_id: int) -> dict:
+    """Query the current DB state fingerprint for a user.
+
+    Returns a dict with:
+        last_tx_timestamp: ISO string or None
+        total_tx_count: int (on-chain + exchange)
+        acb_snapshot_version: ISO string or None
+        needs_review_count: int
+
+    This function is module-level so it can be imported by api.routers.reports
+    without instantiating PackageBuilder.
+    """
+    cur = conn.cursor()
+    try:
+        # 1. Last on-chain transaction timestamp
+        cur.execute(
+            "SELECT MAX(block_timestamp) FROM transactions WHERE user_id = %s",
+            (user_id,),
+        )
+        last_tx_ts = cur.fetchone()[0]
+
+        # 2. On-chain transaction count
+        cur.execute(
+            "SELECT COUNT(*) FROM transactions WHERE user_id = %s",
+            (user_id,),
+        )
+        onchain_count = cur.fetchone()[0] or 0
+
+        # 3. ACB snapshot version
+        cur.execute(
+            "SELECT MAX(updated_at) FROM acb_snapshots WHERE user_id = %s",
+            (user_id,),
+        )
+        acb_version = cur.fetchone()[0]
+
+        # 4. Needs-review transaction classification count
+        cur.execute(
+            """
+            SELECT COUNT(*) FROM transaction_classifications
+            WHERE user_id = %s AND needs_review = TRUE
+            """,
+            (user_id,),
+        )
+        needs_review_count = cur.fetchone()[0] or 0
+
+        # 5. Exchange transaction count
+        cur.execute(
+            "SELECT COUNT(*) FROM exchange_transactions WHERE user_id = %s",
+            (user_id,),
+        )
+        exchange_count = cur.fetchone()[0] or 0
+
+        total_tx_count = (onchain_count or 0) + (exchange_count or 0)
+
+        # Normalise timestamp values to ISO strings
+        def _to_iso(val):
+            if val is None:
+                return None
+            if hasattr(val, 'isoformat'):
+                return val.isoformat()
+            return str(val)
+
+        return {
+            'last_tx_timestamp': _to_iso(last_tx_ts),
+            'total_tx_count': total_tx_count,
+            'acb_snapshot_version': _to_iso(acb_version),
+            'needs_review_count': needs_review_count,
+        }
+    finally:
+        cur.close()
+
+
+
+
+# ---------------------------------------------------------------------------
+# Module-level data fingerprint helper (importable by API routers)
+# ---------------------------------------------------------------------------
+
+
+def get_data_fingerprint(conn, user_id: int) -> dict:
+    """Query the current DB state fingerprint for a user.
+
+    Returns a dict with:
+        last_tx_timestamp: ISO string or None
+        total_tx_count: int (on-chain + exchange)
+        acb_snapshot_version: ISO string or None
+        needs_review_count: int
+
+    This function is module-level so it can be imported by api.routers.reports
+    without instantiating PackageBuilder.
+    """
+    cur = conn.cursor()
+    try:
+        # 1. Last on-chain transaction timestamp
+        cur.execute(
+            "SELECT MAX(block_timestamp) FROM transactions WHERE user_id = %s",
+            (user_id,),
+        )
+        last_tx_ts = cur.fetchone()[0]
+
+        # 2. On-chain transaction count
+        cur.execute(
+            "SELECT COUNT(*) FROM transactions WHERE user_id = %s",
+            (user_id,),
+        )
+        onchain_count = cur.fetchone()[0] or 0
+
+        # 3. ACB snapshot version
+        cur.execute(
+            "SELECT MAX(updated_at) FROM acb_snapshots WHERE user_id = %s",
+            (user_id,),
+        )
+        acb_version = cur.fetchone()[0]
+
+        # 4. Needs-review transaction classification count
+        cur.execute(
+            """
+            SELECT COUNT(*) FROM transaction_classifications
+            WHERE user_id = %s AND needs_review = TRUE
+            """,
+            (user_id,),
+        )
+        needs_review_count = cur.fetchone()[0] or 0
+
+        # 5. Exchange transaction count
+        cur.execute(
+            "SELECT COUNT(*) FROM exchange_transactions WHERE user_id = %s",
+            (user_id,),
+        )
+        exchange_count = cur.fetchone()[0] or 0
+
+        total_tx_count = (onchain_count or 0) + (exchange_count or 0)
+
+        def _to_iso(val):
+            if val is None:
+                return None
+            if hasattr(val, 'isoformat'):
+                return val.isoformat()
+            return str(val)
+
+        return {
+            'last_tx_timestamp': _to_iso(last_tx_ts),
+            'total_tx_count': total_tx_count,
+            'acb_snapshot_version': _to_iso(acb_version),
+            'needs_review_count': needs_review_count,
+        }
+    finally:
+        cur.close()
 
 class PackageBuilder:
     """Orchestrates all tax reports into a complete deliverable tax package.
@@ -347,6 +503,24 @@ class PackageBuilder:
         )
         files.append(tax_summary_pdf)
 
+        # ----------------------------------------------------------------
+        # MANIFEST.json — final step before return
+        # ----------------------------------------------------------------
+        conn = self.pool.getconn()
+        try:
+            self._write_manifest(output_dir, user_id, tax_year, conn)
+        finally:
+            self.pool.putconn(conn)
+
+        # ----------------------------------------------------------------
+        # MANIFEST.json — final step before return
+        # ----------------------------------------------------------------
+        conn = self.pool.getconn()
+        try:
+            self._write_manifest(output_dir, user_id, tax_year, conn)
+        finally:
+            self.pool.putconn(conn)
+
         logger.info(
             "PackageBuilder complete: user_id=%s tax_year=%s files=%d output_dir=%s",
             user_id, tax_year, len(files), output_dir,
@@ -362,6 +536,102 @@ class PackageBuilder:
     # ----------------------------------------------------------------
     # Internal helpers
     # ----------------------------------------------------------------
+
+    def _get_data_fingerprint(self, conn, user_id: int) -> dict:
+        """Delegate to module-level get_data_fingerprint().
+
+        Kept as instance method for backward compatibility and to allow
+        subclasses to override without changing the module-level helper.
+        """
+        return get_data_fingerprint(conn, user_id)
+
+    def _write_manifest(self, output_dir: str, user_id: int, tax_year: int, conn) -> str:
+        """Compute SHA-256 for every file in output_dir (excluding MANIFEST.json) and write manifest.
+
+        Args:
+            output_dir: Directory containing the tax package files.
+            user_id: User the package was built for.
+            tax_year: Tax year of this package.
+            conn: Live psycopg2 connection for fingerprint queries.
+
+        Returns:
+            Absolute path of the written MANIFEST.json file.
+        """
+        pkg_path = Path(output_dir)
+        file_entries = []
+        for f in sorted(pkg_path.glob('*')):
+            if not f.is_file():
+                continue
+            if f.name == 'MANIFEST.json':
+                continue
+            sha256 = hashlib.sha256(f.read_bytes()).hexdigest()
+            file_entries.append({
+                'filename': f.name,
+                'sha256': sha256,
+                'size_bytes': f.stat().st_size,
+            })
+
+        fingerprint = self._get_data_fingerprint(conn, user_id)
+
+        manifest = {
+            'generated_at': datetime.utcnow().isoformat() + 'Z',
+            'tax_year': tax_year,
+            'user_id': user_id,
+            'source_data_version': fingerprint,
+            'files': file_entries,
+        }
+
+        manifest_path = str(pkg_path / 'MANIFEST.json')
+        with open(manifest_path, 'w') as fh:
+            fh.write(json.dumps(manifest, indent=2))
+
+        logger.info(
+            "MANIFEST.json written: user_id=%s tax_year=%s files=%d output_dir=%s",
+            user_id, tax_year, len(file_entries), output_dir,
+        )
+        return manifest_path
+
+
+    def _get_data_fingerprint(self, conn, user_id: int) -> dict:
+        """Delegate to module-level get_data_fingerprint()."""
+        return get_data_fingerprint(conn, user_id)
+
+    def _write_manifest(self, output_dir: str, user_id: int, tax_year: int, conn) -> str:
+        """Compute SHA-256 for every file in output_dir (excluding MANIFEST.json) and write manifest."""
+        from pathlib import Path as _P
+        pkg_path = _P(output_dir)
+        file_entries = []
+        for f in sorted(pkg_path.glob('*')):
+            if not f.is_file():
+                continue
+            if f.name == 'MANIFEST.json':
+                continue
+            sha256 = hashlib.sha256(f.read_bytes()).hexdigest()
+            file_entries.append({
+                'filename': f.name,
+                'sha256': sha256,
+                'size_bytes': f.stat().st_size,
+            })
+
+        fingerprint = self._get_data_fingerprint(conn, user_id)
+
+        manifest = {
+            'generated_at': datetime.utcnow().isoformat() + 'Z',
+            'tax_year': tax_year,
+            'user_id': user_id,
+            'source_data_version': fingerprint,
+            'files': file_entries,
+        }
+
+        manifest_path = str(_P(output_dir) / 'MANIFEST.json')
+        with open(manifest_path, 'w') as fh:
+            fh.write(json.dumps(manifest, indent=2))
+
+        logger.info(
+            "MANIFEST.json written: user_id=%s tax_year=%s files=%d output_dir=%s",
+            user_id, tax_year, len(file_entries), output_dir,
+        )
+        return manifest_path
 
     def _run_generate(self, report_instance, user_id, tax_year, output_dir, **kwargs):
         """Call report_instance.generate() with common args + extra kwargs.
