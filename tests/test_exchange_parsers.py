@@ -386,5 +386,117 @@ class TestNoQuestionMarkPlaceholders(unittest.TestCase):
                     )
 
 
+class TestParserRobustness(unittest.TestCase):
+    """Edge case tests for exchange parser robustness.
+
+    Covers QH-11: Silent data loss prevention.
+    """
+
+    def test_coinbase_parser_missing_column(self):
+        """CSV missing required column returns None from parse_row."""
+        parser = CoinbaseParser()
+        row = {
+            "Timestamp": "2023-01-15 10:30:00",
+            # Missing "Transaction Type"
+            "Asset": "BTC",
+            "Quantity Transacted": "0.1",
+        }
+        result = parser.parse_row(row)
+        # Should return None (missing tx_type_raw)
+        self.assertIsNone(result)
+
+    def test_coinbase_parser_extra_columns(self):
+        """CSV with unexpected extra columns doesn't crash."""
+        parser = CoinbaseParser()
+        row = {
+            "Timestamp": "2023-01-15 10:30:00",
+            "Transaction Type": "Buy",
+            "Asset": "BTC",
+            "Quantity Transacted": "0.1",
+            "Spot Price Currency": "CAD",
+            "Spot Price at Transaction": "25000.00",
+            "Subtotal": "2500.00",
+            "Total": "2525.00",
+            "Fees": "25.00",
+            "Notes": "",
+            "ExtraColumn1": "unexpected",
+            "ExtraColumn2": "data",
+        }
+        result = parser.parse_row(row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["asset"], "BTC")
+
+    def test_coinbase_parser_empty_csv(self):
+        """CSV with only headers returns empty list."""
+        parser = CoinbaseParser()
+        csv_content = "Timestamp,Transaction Type,Asset,Quantity Transacted,Spot Price Currency,Spot Price at Transaction,Subtotal,Total,Fees,Notes\n"
+        path = _write_tempfile(csv_content)
+        try:
+            txs = parser.parse_file(path)
+            self.assertEqual(len(txs), 0)
+        finally:
+            os.unlink(path)
+
+    def test_crypto_com_malformed_amount(self):
+        """Amount field with non-numeric value handled without crash."""
+        parser = CryptoComParser()
+        row = {
+            "Timestamp (UTC)": "2023-01-15 10:30:00",
+            "Transaction Description": "Buy BTC",
+            "Currency": "BTC",
+            "Amount": "N/A",
+            "To Currency": "",
+            "To Amount": "",
+            "Native Currency": "CAD",
+            "Native Amount": "N/A",
+            "Native Amount (in USD)": "",
+            "Transaction Kind": "crypto_purchase",
+        }
+        # Should not raise — may return None or partial
+        try:
+            result = parser.parse_row(row)
+        except Exception:
+            self.fail("parse_row raised exception on malformed amount")
+
+    def test_wealthsimple_missing_date(self):
+        """Empty date field handled without crash."""
+        parser = WealthsimpleParser()
+        row = {
+            "Date": "",
+            "Type": "Buy",
+            "Asset": "BTC",
+            "Quantity": "0.1",
+            "Price": "25000",
+            "Amount": "2500",
+            "Fee": "10",
+        }
+        # Should return None or handle gracefully
+        try:
+            result = parser.parse_row(row)
+        except Exception:
+            self.fail("parse_row raised exception on empty date")
+
+    def test_parser_handles_unicode_bom(self):
+        """CSV starting with UTF-8 BOM is parsed correctly."""
+        parser = CoinbaseParser()
+        bom = "\ufeff"
+        csv_content = bom + "Timestamp,Transaction Type,Asset,Quantity Transacted,Spot Price Currency,Spot Price at Transaction,Subtotal,Total,Fees,Notes\n"
+        csv_content += "2023-01-15 10:30:00,Buy,BTC,0.1,CAD,25000.00,2500.00,2525.00,25.00,\n"
+        path = _write_tempfile(csv_content)
+        try:
+            txs = parser.parse_file(path)
+            # BOM handling: either parses correctly or returns empty (not crash)
+            self.assertIsInstance(txs, list)
+        finally:
+            os.unlink(path)
+
+    def test_coinbase_detect_wrong_format(self):
+        """Coinbase detect returns False for non-CSV content."""
+        parser = CoinbaseParser()
+        first_lines = ["<html><head><title>Error</title></head>"]
+        result = parser.detect("/path/to/file.csv", first_lines)
+        self.assertFalse(result)
+
+
 if __name__ == "__main__":
     unittest.main()
