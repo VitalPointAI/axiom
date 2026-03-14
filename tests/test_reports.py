@@ -1980,3 +1980,132 @@ class TestReportHandler(unittest.TestCase):
             service = IndexerService()
             self.assertIn('generate_reports', service.handlers,
                           "generate_reports should be registered in IndexerService.handlers")
+
+
+# ---------------------------------------------------------------------------
+# TestStreamingNamedCursors
+# ---------------------------------------------------------------------------
+
+class TestStreamingNamedCursors(unittest.TestCase):
+    """Tests for named cursor streaming in capital gains, ledger, and export reports.
+
+    Verifies that large result-set queries use psycopg2 named cursors (server-side)
+    instead of fetchall, and that named cursors are properly closed before putconn.
+    """
+
+    def _make_streaming_pool(self, rows=None):
+        """Build a mock pool that tracks named cursor creation.
+
+        Named cursors are created via conn.cursor(name=...) and return an iterable.
+        """
+        pool = MagicMock()
+        conn = MagicMock()
+        pool.getconn.return_value = conn
+
+        # Gate check cursor (no name= arg)
+        gate_cur = MagicMock()
+        gate_cur.fetchone.side_effect = [(0,), (0,)]
+
+        # Named cursor (for streaming)
+        named_cur = MagicMock()
+        named_cur.__iter__ = MagicMock(return_value=iter(rows or []))
+        named_cur.__enter__ = MagicMock(return_value=named_cur)
+        named_cur.__exit__ = MagicMock(return_value=False)
+
+        # conn.cursor() without name= returns gate cursor; with name= returns named cursor
+        def cursor_factory(**kwargs):
+            if 'name' in kwargs:
+                return named_cur
+            return gate_cur
+
+        conn.cursor.side_effect = cursor_factory
+        return pool, conn, gate_cur, named_cur
+
+    def test_streaming_capital_gains_uses_named_cursor(self):
+        """capital_gains.generate() uses conn.cursor(name=...) for the main disposal query."""
+        from reports.capital_gains import CapitalGainsReport
+
+        pool, conn, gate_cur, named_cur = self._make_streaming_pool(rows=[])
+        # Opening ACB query also needs a cursor — use regular one (not named)
+        gate_cur.fetchone.side_effect = [(0,), (0,)]
+        gate_cur.fetchall.return_value = []
+
+        report = CapitalGainsReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+
+        # Verify cursor was created with a name= keyword argument at some point
+        calls_with_name = [
+            c for c in conn.cursor.call_args_list
+            if c.kwargs.get('name') or (c.args and False)
+        ]
+        self.assertGreater(
+            len(calls_with_name), 0,
+            "capital_gains.generate() must call conn.cursor(name=...) for streaming"
+        )
+
+    def test_streaming_ledger_uses_named_cursor(self):
+        """ledger.generate() uses conn.cursor(name=...) for the UNION ALL ledger query."""
+        from reports.ledger import LedgerReport
+
+        pool, conn, gate_cur, named_cur = self._make_streaming_pool(rows=[])
+        gate_cur.fetchone.side_effect = [(0,), (0,)]
+
+        report = LedgerReport(pool)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+
+        calls_with_name = [
+            c for c in conn.cursor.call_args_list
+            if c.kwargs.get('name')
+        ]
+        self.assertGreater(
+            len(calls_with_name), 0,
+            "ledger.generate() must call conn.cursor(name=...) for streaming"
+        )
+
+    def test_named_cursor_closed_before_putconn_capital_gains(self):
+        """Named cursor is closed before pool.putconn() in capital_gains.generate()."""
+        from reports.capital_gains import CapitalGainsReport
+
+        pool, conn, gate_cur, named_cur = self._make_streaming_pool(rows=[])
+        gate_cur.fetchone.side_effect = [(0,), (0,)]
+        gate_cur.fetchall.return_value = []
+
+        report = CapitalGainsReport(pool)
+        close_order = []
+        named_cur.close.side_effect = lambda: close_order.append('close')
+        pool.putconn.side_effect = lambda c: close_order.append('putconn')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+
+        # close must appear before putconn
+        self.assertIn('close', close_order)
+        self.assertIn('putconn', close_order)
+        close_idx = close_order.index('close')
+        putconn_idx = close_order.index('putconn')
+        self.assertLess(close_idx, putconn_idx,
+                        "Named cursor must be closed before putconn is called")
+
+    def test_named_cursor_closed_before_putconn_ledger(self):
+        """Named cursor is closed before pool.putconn() in ledger.generate()."""
+        from reports.ledger import LedgerReport
+
+        pool, conn, gate_cur, named_cur = self._make_streaming_pool(rows=[])
+        gate_cur.fetchone.side_effect = [(0,), (0,)]
+
+        report = LedgerReport(pool)
+        close_order = []
+        named_cur.close.side_effect = lambda: close_order.append('close')
+        pool.putconn.side_effect = lambda c: close_order.append('putconn')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+
+        self.assertIn('close', close_order)
+        self.assertIn('putconn', close_order)
+        close_idx = close_order.index('close')
+        putconn_idx = close_order.index('putconn')
+        self.assertLess(close_idx, putconn_idx,
+                        "Named cursor must be closed before putconn is called")
