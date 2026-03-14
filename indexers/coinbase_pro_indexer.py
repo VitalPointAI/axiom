@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# DEPRECATED: Use indexers/exchange_parsers/coinbase.py instead.
 """
 Coinbase Advanced Trade API Indexer for NearTax
 Fetches transaction history from Coinbase Pro / Advanced Trade API
@@ -10,13 +11,22 @@ import hmac
 import hashlib
 import time
 import json
+import warnings
 import requests
 from datetime import datetime, timedelta
 import psycopg2
 from psycopg2.extras import execute_values
 
-# Database connection
-DB_URL = os.environ.get('DATABASE_URL', 'postgresql://neartax:lqxBcUTkcgZdzrNdqYxcsFVGEwkEldMx@localhost:5432/neartax')
+warnings.warn(
+    "coinbase_pro_indexer.py is deprecated. "
+    "Use indexers/exchange_parsers/coinbase.py for Coinbase CSV imports. "
+    "Will be removed in v2.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+# Database connection — hardcoded fallback kept for backward compat; prefer DATABASE_URL env var
+DB_URL = os.environ.get("DATABASE_URL", "postgresql://neartax:lqxBcUTkcgZdzrNdqYxcsFVGEwkEldMx@localhost:5432/neartax")
 
 # Coinbase API base URLs
 COINBASE_API_URL = "https://api.coinbase.com/api/v3/brokerage"

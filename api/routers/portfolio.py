@@ -134,7 +134,15 @@ async def get_portfolio_summary(
 # ---------------------------------------------------------------------------
 
 
-@router.get("")
+@router.get(
+    "",
+    summary="Portfolio summary (stub)",
+    description=(
+        "Not yet implemented. Returns 501. "
+        "Use /api/portfolio/summary for holdings and staking positions. "
+        "This endpoint exists to enforce authentication; unauthenticated callers receive 401."
+    ),
+)
 async def get_portfolio_stub(user=Depends(get_effective_user)):
     """Stub root endpoint — enforces auth so unauthenticated returns 401.
 

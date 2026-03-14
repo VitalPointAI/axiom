@@ -71,6 +71,7 @@ class XRPFetcher(ChainFetcher):
         super().__init__(pool)
         self._endpoint_index = 0
         self._last_request_time = 0
+        logger.warning("XRPFetcher is a STUB implementation — untested against live XRPL API")
 
     # ------------------------------------------------------------------
     # ChainFetcher ABC methods

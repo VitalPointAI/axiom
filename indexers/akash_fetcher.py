@@ -79,6 +79,7 @@ class AkashFetcher(ChainFetcher):
         super().__init__(pool)
         self._endpoint_index = 0
         self._last_request_time = 0
+        logger.warning("AkashFetcher is a STUB implementation — untested against live Akash LCD API")
 
     # ------------------------------------------------------------------
     # ChainFetcher ABC methods
