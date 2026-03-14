@@ -52,12 +52,12 @@ services:
       context: ./web
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=https://axiom.vitalpoint.ai
+        - NEXT_PUBLIC_API_URL=
     ports:
       - "3003:3000"
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=https://axiom.vitalpoint.ai
+      - NEXT_PUBLIC_API_URL=
     depends_on:
       postgres:
         condition: service_healthy
