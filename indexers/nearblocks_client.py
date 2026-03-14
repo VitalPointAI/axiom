@@ -1,5 +1,7 @@
-"""Rate-limited NearBlocks API client with exponential backoff."""
+"""Rate-limited NearBlocks API client with exponential backoff + jitter."""
 
+import logging
+import random
 import time
 import requests
 from pathlib import Path
@@ -13,127 +15,150 @@ from config import (
     NEARBLOCKS_BASE_URL,
     RATE_LIMIT_DELAY,
     MAX_RETRIES,
-    BACKOFF_MULTIPLIER,
-    INTER_WALLET_DELAY
+    INTER_WALLET_DELAY,
 )
 
-# Initial backoff after hitting rate limit (before multiplier kicks in)
-INITIAL_RATE_LIMIT_WAIT = 30  # seconds
+logger = logging.getLogger(__name__)
 
 
 class NearBlocksClient:
-    """
-    NearBlocks API client with rate limiting.
-    
+    """NearBlocks API client with rate limiting and exponential backoff.
+
     Free tier hits 429 after ~6 rapid requests, so we:
-    - Wait RATE_LIMIT_DELAY (1.5s) between ALL requests
-    - Exponential backoff on 429 errors
-    - Max retries before giving up
+    - Wait RATE_LIMIT_DELAY (1.0–3.0s) between ALL normal requests
+    - Exponential backoff + jitter on 429, Timeout, or ConnectionError
+    - Max 5 retries before raising RuntimeError (no silent data loss)
     """
-    
-    def __init__(self, base_url=None, delay=None):
+
+    def __init__(self, base_url=None, delay=None, max_retries=None):
         self.base_url = base_url or NEARBLOCKS_BASE_URL
-        self.delay = delay or RATE_LIMIT_DELAY
+        self.delay = delay if delay is not None else RATE_LIMIT_DELAY
+        self.max_retries = max_retries if max_retries is not None else MAX_RETRIES
         self.last_request_time = 0
         self.request_count = 0
-    
+        self.session = requests.Session()
+
     def _wait_for_rate_limit(self):
-        """Ensure minimum delay between requests."""
+        """Ensure minimum delay between requests (normal inter-request pacing)."""
         elapsed = time.time() - self.last_request_time
         if elapsed < self.delay:
             wait_time = self.delay - elapsed
             time.sleep(wait_time)
         self.last_request_time = time.time()
-    
-    def _request(self, endpoint, retries=0):
-        """Make request with rate limiting and exponential backoff."""
-        self._wait_for_rate_limit()
-        self.request_count += 1
-        
+
+    def _nearblocks_request(self, url, params=None):
+        """Make NearBlocks API request with exponential backoff + jitter.
+
+        Retry strategy (2^attempt + uniform jitter in [0, 1)):
+          attempt 0 -> wait ~1s
+          attempt 1 -> wait ~2s
+          attempt 2 -> wait ~4s
+          attempt 3 -> wait ~8s
+          attempt 4 -> wait ~16s
+
+        Handles:
+          - 429 rate-limit responses
+          - requests.exceptions.Timeout
+          - requests.exceptions.ConnectionError
+
+        After max_retries exhausted, raises RuntimeError (not silent failure).
+        RATE_LIMIT_DELAY inter-request pacing is applied before each attempt.
+        """
+        for attempt in range(self.max_retries):
+            self._wait_for_rate_limit()
+            self.request_count += 1
+
+            try:
+                resp = self.session.get(url, params=params, timeout=30)
+
+                if resp.status_code == 429:
+                    wait = (2 ** attempt) + random.uniform(0, 1)
+                    logger.warning(
+                        "NearBlocks 429 rate limited, retry %d/%d in %.1fs: %s",
+                        attempt + 1, self.max_retries, wait, url,
+                    )
+                    time.sleep(wait)
+                    continue
+
+                resp.raise_for_status()
+                return resp.json()
+
+            except requests.exceptions.Timeout:
+                wait = (2 ** attempt) + random.uniform(0, 1)
+                logger.warning(
+                    "NearBlocks timeout, retry %d/%d in %.1fs: %s",
+                    attempt + 1, self.max_retries, wait, url,
+                )
+                time.sleep(wait)
+
+            except requests.exceptions.ConnectionError:
+                wait = (2 ** attempt) + random.uniform(0, 1)
+                logger.warning(
+                    "NearBlocks connection error, retry %d/%d in %.1fs: %s",
+                    attempt + 1, self.max_retries, wait, url,
+                )
+                time.sleep(wait)
+
+        raise RuntimeError(
+            f"NearBlocks API failed after {self.max_retries} retries: {url}"
+        )
+
+    def _request(self, endpoint, params=None):
+        """Build full URL and delegate to _nearblocks_request."""
         url = f"{self.base_url}/{endpoint}"
-        
-        try:
-            response = requests.get(url, timeout=30)
-            
-            if response.status_code == 429:
-                if retries < MAX_RETRIES:
-                    # Start with a longer initial wait, then exponential backoff
-                    if retries == 0:
-                        wait_time = INITIAL_RATE_LIMIT_WAIT
-                    else:
-                        wait_time = INITIAL_RATE_LIMIT_WAIT + (self.delay * (BACKOFF_MULTIPLIER ** retries))
-                    print(f"  Rate limited, waiting {wait_time:.1f}s (retry {retries+1}/{MAX_RETRIES})")
-                    time.sleep(wait_time)
-                    return self._request(endpoint, retries + 1)
-                raise Exception(f"Rate limit exceeded after {MAX_RETRIES} retries")
-            
-            response.raise_for_status()
-            return response.json()
-            
-        except requests.exceptions.Timeout:
-            if retries < MAX_RETRIES:
-                print(f"  Timeout, retrying ({retries+1}/{MAX_RETRIES})")
-                time.sleep(self.delay)
-                return self._request(endpoint, retries + 1)
-            raise
-        except requests.exceptions.RequestException as e:
-            if retries < MAX_RETRIES:
-                print(f"  Request error: {e}, retrying ({retries+1}/{MAX_RETRIES})")
-                time.sleep(self.delay * (BACKOFF_MULTIPLIER ** retries))
-                return self._request(endpoint, retries + 1)
-            raise
-    
+        return self._nearblocks_request(url, params=params)
+
     def get_transaction_count(self, account_id):
         """Get total transaction count for account."""
         data = self._request(f"account/{account_id}/txns/count")
-        return int(data['txns'][0]['count'])
-    
+        return int(data["txns"][0]["count"])
+
     def fetch_transactions(self, account_id, cursor=None, per_page=25):
-        """
-        Fetch one page of transactions.
-        
+        """Fetch one page of transactions.
+
         Returns dict with:
         - txns: list of transaction objects
         - cursor: cursor for next page (None if last page)
         """
-        endpoint = f"account/{account_id}/txns?per_page={per_page}"
+        endpoint = f"account/{account_id}/txns"
+        params = {"per_page": per_page}
         if cursor:
-            endpoint += f"&cursor={cursor}"
-        return self._request(endpoint)
-    
+            params["cursor"] = cursor
+        return self._request(endpoint, params=params)
+
     def fetch_staking_deposits(self, account_id):
-        """
-        Get staking deposit summary from kitwallet endpoint.
-        
+        """Get staking deposit summary from kitwallet endpoint.
+
         Returns list of validator deposits/withdrawals.
         """
         return self._request(f"kitwallet/staking-deposits/{account_id}")
-    
+
     def get_stats(self):
         """Get client statistics."""
         return {
             "request_count": self.request_count,
-            "delay": self.delay
+            "delay": self.delay,
         }
 
 
 if __name__ == "__main__":
-    # Test the client
+    # Quick smoke test
+    logging.basicConfig(level=logging.INFO)
     client = NearBlocksClient()
-    
+
     print("Testing NearBlocks client...")
-    
-    # Test transaction count
+
     count = client.get_transaction_count("vitalpointai.near")
     print(f"vitalpointai.near transaction count: {count}")
-    
-    # Test fetching transactions
+
     result = client.fetch_transactions("vitalpointai.near", per_page=5)
     print(f"Fetched {len(result.get('txns', []))} transactions")
-    print(f"Cursor: {result.get('cursor', 'none')[:20]}..." if result.get('cursor') else "No cursor")
-    
-    # Test staking deposits
+    if result.get("cursor"):
+        print(f"Cursor: {result['cursor'][:20]}...")
+    else:
+        print("No cursor")
+
     deposits = client.fetch_staking_deposits("vitalpointai.near")
     print(f"Staking validators: {len(deposits)}")
-    
+
     print(f"\nStats: {client.get_stats()}")

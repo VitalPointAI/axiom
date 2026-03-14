@@ -7,6 +7,7 @@ For FT tokens, we'll use NearBlocks API (with rate limiting).
 import os
 import sys
 import argparse
+import random
 import requests
 import time
 import json
@@ -48,55 +49,93 @@ def fetch_near_balance(account_id: str) -> float:
         logger.warning("Failed to fetch NEAR balance for %s: %s", account_id, e)
         return 0.0
 
-def fetch_ft_balances_nearblocks(account_id: str, retries: int = 3) -> list:
-    """Fetch FT balances from NearBlocks with retry/backoff."""
-    for attempt in range(retries):
+def fetch_ft_balances_nearblocks(account_id: str, max_retries: int = 5) -> list:
+    """Fetch FT balances from NearBlocks with exponential backoff + jitter.
+
+    Retry strategy (2^attempt + uniform jitter in [0, 1)) for 429, Timeout,
+    and ConnectionError — no silent data loss.
+    """
+    nearblocks_base = os.environ.get("NEARBLOCKS_API_URL", "https://api.nearblocks.io/v1")
+    url = f"{nearblocks_base}/account/{account_id}/ft"
+
+    for attempt in range(max_retries):
         try:
-            nearblocks_base = os.environ.get("NEARBLOCKS_API_URL", "https://api.nearblocks.io/v1")
-            url = f"{nearblocks_base}/account/{account_id}/ft"
             resp = requests.get(url, timeout=15)
-            
+
             if resp.status_code == 429:
-                # Rate limited - wait longer
-                wait = 30 * (attempt + 1)
-                print(f" [rate limited, waiting {wait}s]", end="", flush=True)
+                wait = (2 ** attempt) + random.uniform(0, 1)
+                logger.warning(
+                    "NearBlocks 429 rate limited fetching FT balances for %s, "
+                    "retry %d/%d in %.1fs",
+                    account_id, attempt + 1, max_retries, wait,
+                )
                 time.sleep(wait)
                 continue
-            
+
             if resp.status_code != 200:
+                logger.warning(
+                    "NearBlocks FT balance returned %d for %s",
+                    resp.status_code, account_id,
+                )
                 return []
-            
+
             data = resp.json()
-            tokens = data.get('inventory', {}).get('fts', [])
-            
+            tokens = data.get("inventory", {}).get("fts", [])
+
             result = []
             for t in tokens:
-                contract = t.get('contract', '')
-                if contract == 'aurora':
+                contract = t.get("contract", "")
+                if contract == "aurora":
                     continue
-                symbol = t.get('ft_meta', {}).get('symbol', 'UNKNOWN')
-                decimals = t.get('ft_meta', {}).get('decimals', 18)
-                amount = t.get('amount', '0')
-                
+                symbol = t.get("ft_meta", {}).get("symbol", "UNKNOWN")
+                decimals = t.get("ft_meta", {}).get("decimals", 18)
+                amount = t.get("amount", "0")
+
                 try:
                     balance = float(amount) / (10 ** int(decimals))
                 except (ValueError, TypeError, ZeroDivisionError) as e:
-                    logger.warning("Failed to parse FT balance for contract %s: %s", contract, e)
+                    logger.warning(
+                        "Failed to parse FT balance for contract %s: %s", contract, e
+                    )
                     balance = 0.0
-                
+
                 if balance > 0.0001:
                     result.append({
-                        'contract': contract,
-                        'symbol': symbol.upper(),
-                        'balance': balance,
+                        "contract": contract,
+                        "symbol": symbol.upper(),
+                        "balance": balance,
                     })
-            
+
             return result
-        except (requests.RequestException, ConnectionError, TimeoutError, ValueError) as e:
-            logger.warning("Error fetching FT balances for %s (attempt %d/%d): %s", account_id, attempt + 1, retries, e)
-            if attempt < retries - 1:
-                time.sleep(5 * (attempt + 1))
-            continue
+
+        except requests.exceptions.Timeout:
+            wait = (2 ** attempt) + random.uniform(0, 1)
+            logger.warning(
+                "NearBlocks timeout fetching FT balances for %s, retry %d/%d in %.1fs",
+                account_id, attempt + 1, max_retries, wait,
+            )
+            time.sleep(wait)
+
+        except requests.exceptions.ConnectionError:
+            wait = (2 ** attempt) + random.uniform(0, 1)
+            logger.warning(
+                "NearBlocks connection error fetching FT balances for %s, retry %d/%d in %.1fs",
+                account_id, attempt + 1, max_retries, wait,
+            )
+            time.sleep(wait)
+
+        except (requests.RequestException, ValueError) as e:
+            logger.warning(
+                "Error fetching FT balances for %s (attempt %d/%d): %s",
+                account_id, attempt + 1, max_retries, e,
+            )
+            if attempt < max_retries - 1:
+                time.sleep((2 ** attempt) + random.uniform(0, 1))
+
+    logger.error(
+        "NearBlocks FT balance fetch failed after %d retries for %s",
+        max_retries, account_id,
+    )
     return []
 
 def get_price(symbol: str, conn) -> float:
