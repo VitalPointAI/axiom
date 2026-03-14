@@ -92,6 +92,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Phase 8 added: GitHub Actions CI/CD deployment - deploy dockerized components on push to existing server
 - Phase 9 added: Code Quality & Hardening — refactor monolithic modules, complete SQLite→PostgreSQL migration, fix N+1 queries, add test coverage, API rate limiting, CI/CD quality gates
 - Phase 10 added: Remaining Concerns Remediation — refactor large modules, performance improvements, robustness hardening, test gap coverage, dependency hygiene (14 requirements from CONCERNS.md)
+- Phase 11 added: Robustness & Missing Features — audit log consistency, fragile area hardening, data export validation
 
 ## Blockers
 

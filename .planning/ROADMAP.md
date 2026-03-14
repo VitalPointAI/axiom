@@ -445,5 +445,15 @@ Plans:
 9. [x] pyproject.toml has requires-python >= 3.11
 10. [x] Rule priority, ACB gap, and concurrent classification tests pass
 
+### Phase 11: Robustness & Missing Features — audit log consistency, fragile area hardening, data export validation
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 10
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 11 to break down)
+
 ---
 *Last updated: 2026-03-14 — Phase 10 complete: 5/5 plans, 14/14 requirements verified.*
