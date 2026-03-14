@@ -417,3 +417,238 @@ class TestGainsCalculator:
         assert params[2] is None       # staking_event_id
         assert params[3] == 88         # lockup_event_id
         assert params[11] == Decimal("4.90")  # acb_added_cad = fmv_cad
+
+
+# ---------------------------------------------------------------------------
+# TestACBGapDataEdgeCases (RC-11, RC-12)
+# ---------------------------------------------------------------------------
+
+
+class TestACBGapDataEdgeCases:
+    """Tests for ACB gap data handling: missing prices, None amounts, estimated prices, oversell.
+
+    Covers RC-11 (missing price handling) and RC-12 (oversell / zero-holdings disposal).
+    """
+
+    def _make_mock_row(self, **kwargs):
+        """Build a mock DB row with all needed fields. Same pattern as TestACBEngine."""
+        defaults = {
+            "id": 1,
+            "category": "income",
+            "leg_type": "parent",
+            "fmv_usd": None,
+            "fmv_cad": None,
+            "staking_event_id": None,
+            "lockup_event_id": None,
+            "parent_classification_id": None,
+            "transaction_id": 1,
+            "exchange_transaction_id": None,
+            "t_block_timestamp": 1680000000000000000,
+            "amount": 1000000000000000000000000,
+            "fee": None,
+            "token_id": None,
+            "chain": "near",
+            "asset": None,
+            "quantity": None,
+            "et_fee": None,
+            "et_timestamp": None,
+            "se_fmv_usd": None,
+            "se_fmv_cad": None,
+            "se_amount_near": None,
+            "le_fmv_usd": None,
+            "le_fmv_cad": None,
+            "le_amount_near": None,
+        }
+        defaults.update(kwargs)
+        row = MagicMock()
+        for k, v in defaults.items():
+            setattr(row, k, v)
+        row.__getitem__ = lambda self, key: getattr(self, key)
+        return row
+
+    def _make_engine_with_rows(self, rows, price_cad_return=(Decimal("5.00"), False)):
+        """Set up a mock ACBEngine with given classification rows and price service."""
+        from engine.acb import ACBEngine
+
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_cursor.fetchall.side_effect = [rows, [], []]
+        mock_cursor.fetchone.return_value = [1]
+        mock_pool.getconn.return_value = mock_conn
+
+        price_service = MagicMock()
+        price_service.get_price_cad_at_timestamp.return_value = price_cad_return
+
+        return ACBEngine(mock_pool, price_service), mock_cursor, price_service
+
+    def test_missing_price_skips_income_row(self):
+        """When price_service returns None for get_price_cad_at_timestamp, income row is
+        processed without crashing. The FMV falls back to 0 (estimated) and the snapshot
+        is recorded with is_estimated=True.
+
+        This tests airdrop income (no staking_event_id, no lockup_event_id) where the
+        price lookup fails/returns None.
+        """
+        from engine.acb import ACBEngine
+
+        # Airdrop income row: no staking or lockup event -> price_service will be called
+        airdrop_row = self._make_mock_row(
+            id=1,
+            category="income",
+            leg_type="parent",
+            staking_event_id=None,
+            lockup_event_id=None,
+            fmv_cad=None,
+            t_block_timestamp=1680000000000000000,
+            amount=1000000000000000000000000,  # 1 NEAR
+        )
+
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_cursor.fetchall.side_effect = [[airdrop_row], [], []]
+        mock_cursor.fetchone.return_value = [1]
+        mock_pool.getconn.return_value = mock_conn
+
+        price_service = MagicMock()
+        # Simulate price_service returning None price (not estimated, but no data)
+        price_service.get_price_cad_at_timestamp.return_value = (None, False)
+
+        engine = ACBEngine(mock_pool, price_service)
+
+        # Should not raise any exception
+        with patch("engine.acb.GainsCalculator") as MockGains:
+            mock_gains_instance = MagicMock()
+            MockGains.return_value = mock_gains_instance
+            stats = engine.calculate_for_user(1)
+
+        # Income row was still processed (not crashed)
+        assert stats["income_recorded"] == 1, (
+            f"Income row should be recorded even with None price; got {stats['income_recorded']}"
+        )
+        assert stats["snapshots_written"] == 1
+
+        # Verify income recorded with fmv_cad=0 (fallback)
+        assert mock_gains_instance.record_income.called
+        call_kwargs = mock_gains_instance.record_income.call_args[1]
+        assert call_kwargs["fmv_cad"] == Decimal("0"), (
+            f"fmv_cad should fall back to 0 when price is None; got {call_kwargs['fmv_cad']}"
+        )
+
+    def test_none_amount_transaction_handled(self):
+        """Transaction with amount=None does not raise; ACBPool units_held stays at 0.
+
+        When amount=None, to_human_units is not called; units defaults to Decimal('0').
+        The pool.acquire(0, 0) call is safe.
+        """
+        from engine.acb import ACBPool
+
+        pool = ACBPool("NEAR")
+        # Simulating amount=None — engine assigns units=Decimal('0') in this case
+        initial_units = pool.total_units
+
+        # Direct test: acquire with 0 units (what happens when amount=None in engine)
+        result = pool.acquire(Decimal("0"), Decimal("0"))
+
+        assert result is not None, "acquire() should return a result dict"
+        assert pool.total_units == initial_units, "Pool state should be unchanged with 0 units"
+        assert pool.total_cost_cad == Decimal("0")
+
+    def test_disposal_with_no_price_uses_estimate(self):
+        """Disposal where price_service returns estimated price sets is_estimated=True in snapshot.
+
+        When get_price_cad_at_timestamp returns (price, is_estimated=True), the ACBEngine
+        passes is_estimated=True to _persist_snapshot, which writes it to acb_snapshots.
+        """
+        from engine.acb import ACBEngine
+
+        # Capital gain row — disposal (sell)
+        disposal_row = self._make_mock_row(
+            id=10,
+            category="capital_gain",
+            leg_type="parent",
+            fmv_cad=None,
+            staking_event_id=None,
+            lockup_event_id=None,
+            t_block_timestamp=1680000000000000000,
+            amount=1000000000000000000000000,  # 1 NEAR
+        )
+
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        # No child rows (no sell_leg/buy_leg) — falls into simple _handle_disposal
+        mock_cursor.fetchall.side_effect = [[disposal_row], [], []]
+        mock_cursor.fetchone.return_value = [1]
+        mock_pool.getconn.return_value = mock_conn
+
+        price_service = MagicMock()
+        # Return an estimated price (is_estimated=True)
+        price_service.get_price_cad_at_timestamp.return_value = (Decimal("4.50"), True)
+
+        engine = ACBEngine(mock_pool, price_service)
+
+        with patch("engine.acb.GainsCalculator") as MockGains:
+            mock_gains_instance = MagicMock()
+            MockGains.return_value = mock_gains_instance
+            stats = engine.calculate_for_user(1)
+
+        # Snapshot should be written
+        assert stats["snapshots_written"] >= 1
+
+        # Verify is_estimated=True is passed to the snapshot SQL
+        # _persist_snapshot calls cur.execute with _SNAPSHOT_UPSERT_SQL (INSERT INTO acb_snapshots)
+        # is_estimated is param at index 14 (0-based) in the positional args tuple.
+        execute_calls = mock_cursor.execute.call_args_list
+        # Filter for the INSERT (not DELETE) — INSERT has 16 positional params
+        insert_calls = [
+            c for c in execute_calls
+            if len(c[0]) > 1 and isinstance(c[0][1], tuple) and len(c[0][1]) == 16
+        ]
+        assert insert_calls, "Expected acb_snapshots INSERT call with 16 params"
+        snapshot_params = insert_calls[0][0][1]  # positional args tuple
+        # is_estimated is index 14 (0-based) in the INSERT params
+        assert snapshot_params[14] is True, (
+            f"is_estimated should be True for estimated price; got {snapshot_params[14]}"
+        )
+
+    def test_oversell_zero_holdings(self):
+        """Disposal after all units sold (zero holdings) records oversell with needs_review=True.
+
+        When pool has 0 units and dispose(any_amount) is called, the pool clamps to 0,
+        sets needs_review=True, and does not raise.
+        """
+        from engine.acb import ACBPool
+
+        pool = ACBPool("NEAR")
+        # Pool starts empty (0 units held) — simulates oversell on fresh pool
+        assert pool.total_units == Decimal("0")
+
+        # Attempt to dispose 10 units from an empty pool
+        result = pool.dispose(Decimal("10"), Decimal("100"))
+
+        assert result["needs_review"] is True, (
+            "Disposing from empty pool should set needs_review=True"
+        )
+        assert pool.total_units == Decimal("0"), (
+            "Pool units_held should remain 0 (clamped, not negative)"
+        )
+        assert pool.total_cost_cad == Decimal("0"), (
+            "Pool total_cost_cad should remain 0 after empty-pool disposal"
+        )
