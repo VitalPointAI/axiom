@@ -427,23 +427,23 @@ Plans:
 **Plans:** 5 plans in 2 waves
 
 Plans:
-- [ ] 10-01-PLAN.md — Module split: classifier.py, acb.py, models.py into sub-packages (Wave 1) [RC-01]
+- [x] 10-01-PLAN.md — Module split: classifier.py, acb.py, models.py into sub-packages (Wave 1) [RC-01] ✅ DONE (2026-03-14)
 - [x] 10-02-PLAN.md — DB index migration 007 + configurable pool sizing + pyproject.toml (Wave 1) [RC-02, RC-06, RC-09] ✅ DONE (2026-03-14)
-- [ ] 10-03-PLAN.md — Streaming CSV export + backfill batching + NearBlocks API caching (Wave 1) [RC-03, RC-04, RC-05]
-- [ ] 10-04-PLAN.md — Logging policy + stub documentation + deprecation warnings + docs cleanup (Wave 1) [RC-07, RC-08, RC-13, RC-14]
-- [ ] 10-05-PLAN.md — Test gaps: classifier rule interactions + ACB edge cases + concurrent classification (Wave 2) [RC-10, RC-11, RC-12]
+- [x] 10-03-PLAN.md — Streaming CSV export + backfill batching + NearBlocks API caching (Wave 1) [RC-03, RC-04, RC-05] ✅ DONE (2026-03-14)
+- [x] 10-04-PLAN.md — Logging policy + stub documentation + deprecation warnings + docs cleanup (Wave 1) [RC-07, RC-08, RC-13, RC-14] ✅ DONE (2026-03-14)
+- [x] 10-05-PLAN.md — Test gaps: classifier rule interactions + ACB edge cases + concurrent classification (Wave 2) [RC-10, RC-11, RC-12] ✅ DONE (2026-03-14)
 
 **Success Criteria:**
-1. [ ] classifier.py, acb.py, models.py split into sub-packages with backward-compatible imports
-2. [ ] price_cache has composite index; migration 007 applied
-3. [ ] Report CSVs stream via named cursors (no fetchall on large tables)
-4. [ ] Staking backfill commits in batches of 100
-5. [ ] NearBlocks API caches repeated calls with 5-min TTL
-6. [ ] Pool sizing configurable via DB_POOL_MIN/DB_POOL_MAX env vars
-7. [ ] sanitize_for_log() redacts sensitive fields
-8. [ ] Stubs documented, Coinbase Pro deprecated, docs free of SQLite refs
-9. [ ] pyproject.toml has requires-python >= 3.11
-10. [ ] Rule priority, ACB gap, and concurrent classification tests pass
+1. [x] classifier.py, acb.py, models.py split into sub-packages with backward-compatible imports
+2. [x] price_cache has composite index; migration 007 applied
+3. [x] Report CSVs stream via named cursors (no fetchall on large tables)
+4. [x] Staking backfill commits in batches of 100
+5. [x] NearBlocks API caches repeated calls with 5-min TTL
+6. [x] Pool sizing configurable via DB_POOL_MIN/DB_POOL_MAX env vars
+7. [x] sanitize_for_log() redacts sensitive fields
+8. [x] Stubs documented, Coinbase Pro deprecated, docs free of SQLite refs
+9. [x] pyproject.toml has requires-python >= 3.11
+10. [x] Rule priority, ACB gap, and concurrent classification tests pass
 
 ---
-*Last updated: 2026-03-14 — Phase 10 planned: 5 plans in 2 waves covering 14 requirements.*
+*Last updated: 2026-03-14 — Phase 10 complete: 5/5 plans, 14/14 requirements verified.*
