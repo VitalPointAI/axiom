@@ -136,10 +136,10 @@ class KoinlyExport(ReportEngine):
 
         conn = self.pool.getconn()
         try:
-            cur = conn.cursor()
-
-            # --- Query 1: NEAR chain classified transactions ---
-            cur.execute(
+            # Named cursors for server-side streaming (avoids loading all rows into memory)
+            near_cur = conn.cursor(name="export_stream_near")
+            near_cur.itersize = 500
+            near_cur.execute(
                 """
                 SELECT
                     tc.category,
@@ -159,10 +159,12 @@ class KoinlyExport(ReportEngine):
                 """,
                 (user_id,),
             )
-            near_rows = cur.fetchall()
+            near_rows = list(near_cur)
+            near_cur.close()
 
-            # --- Query 2: Exchange classified transactions ---
-            cur.execute(
+            exchange_cur = conn.cursor(name="export_stream_exchange")
+            exchange_cur.itersize = 500
+            exchange_cur.execute(
                 """
                 SELECT
                     tc.category,
@@ -181,8 +183,8 @@ class KoinlyExport(ReportEngine):
                 """,
                 (user_id,),
             )
-            exchange_rows = cur.fetchall()
-            cur.close()
+            exchange_rows = list(exchange_cur)
+            exchange_cur.close()
         finally:
             self.pool.putconn(conn)
 
@@ -341,10 +343,10 @@ class AccountingExporter(ReportEngine):
 
         conn = self.pool.getconn()
         try:
-            cur = conn.cursor()
-
-            # Query capital gains ledger for the fiscal year
-            cur.execute(
+            # Named cursors for server-side streaming of accounting data
+            gains_cur = conn.cursor(name="acct_stream_gains")
+            gains_cur.itersize = 500
+            gains_cur.execute(
                 """
                 SELECT
                     cgl.disposal_date,
@@ -363,10 +365,12 @@ class AccountingExporter(ReportEngine):
                 """,
                 (user_id, tax_year),
             )
-            gains_rows = cur.fetchall()
+            gains_rows = list(gains_cur)
+            gains_cur.close()
 
-            # Query income ledger for the fiscal year
-            cur.execute(
+            income_cur = conn.cursor(name="acct_stream_income")
+            income_cur.itersize = 500
+            income_cur.execute(
                 """
                 SELECT
                     il.income_date,
@@ -383,8 +387,8 @@ class AccountingExporter(ReportEngine):
                 """,
                 (user_id, tax_year),
             )
-            income_rows = cur.fetchall()
-            cur.close()
+            income_rows = list(income_cur)
+            income_cur.close()
         finally:
             self.pool.putconn(conn)
 

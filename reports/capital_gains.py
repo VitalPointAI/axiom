@@ -103,28 +103,31 @@ class CapitalGainsReport(ReportEngine):
 
         start_date, end_date = fiscal_year_range(tax_year, year_end_month)
 
+        # Compute opening ACB epoch before acquiring connection
+        try:
+            from datetime import datetime as _dt, timezone as _tz
+            _dt_obj = _dt(start_date.year, start_date.month, start_date.day, tzinfo=_tz.utc)
+            start_epoch = int(_dt_obj.timestamp())
+        except Exception:
+            start_epoch = 0
+
         conn = self.pool.getconn()
         try:
-            cur = conn.cursor()
+            # Named cursor for server-side streaming of the main disposal query
+            # (avoids loading all rows into memory for large result sets)
+            named_cur = conn.cursor(name="capital_gains_stream")
+            named_cur.itersize = 1000
+            named_cur.execute(_DISPOSAL_QUERY, (user_id, tax_year))
 
-            # Main disposal query
-            cur.execute(_DISPOSAL_QUERY, (user_id, tax_year))
-            rows = cur.fetchall()
+            # Small opening ACB query stays as regular fetchall (tiny result set)
+            acb_cur = conn.cursor()
+            acb_cur.execute(_OPENING_ACB_QUERY, (user_id, start_epoch))
+            opening_rows = acb_cur.fetchall()
+            acb_cur.close()
 
-            # Opening ACB per token (latest snapshot before fiscal year start)
-            start_epoch = int(start_date.strftime('%s')) if hasattr(start_date, 'strftime') else 0
-            try:
-                import time
-                from datetime import datetime, timezone
-                dt = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
-                start_epoch = int(dt.timestamp())
-            except Exception:
-                start_epoch = 0
-
-            cur.execute(_OPENING_ACB_QUERY, (user_id, start_epoch))
-            opening_rows = cur.fetchall()
-
-            cur.close()
+            # Stream rows into memory for summary calculation and CSV writing
+            rows = list(named_cur)
+            named_cur.close()
         finally:
             self.pool.putconn(conn)
 

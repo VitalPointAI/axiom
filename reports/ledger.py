@@ -184,9 +184,13 @@ class LedgerReport(ReportEngine):
             """
             all_params = onchain_params + exchange_params
 
-            cur.execute(full_sql, all_params)
-            rows = cur.fetchall()
+            # Close the regular cursor; open a named cursor for server-side streaming
             cur.close()
+            named_cur = conn.cursor(name="ledger_stream")
+            named_cur.itersize = 1000
+            named_cur.execute(full_sql, all_params)
+            rows = list(named_cur)
+            named_cur.close()
         finally:
             self.pool.putconn(conn)
 
