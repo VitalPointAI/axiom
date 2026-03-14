@@ -360,5 +360,15 @@ Phase 2 ──┘                                              │
 - Phase 6 requires Phase 5 (needs verified data)
 - Phase 7 requires Phase 6 (needs complete data pipeline), but UI scaffolding can start in parallel
 
+### Phase 9: Code Quality & Hardening
+
+**Goal:** Refactor monolithic modules (classifier, reconcile), complete SQLite→PostgreSQL migration, fix N+1 query patterns, add test coverage, API rate limiting, CI/CD quality gates
+**Requirements**: TBD
+**Depends on:** Phase 8
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 9 to break down)
+
 ---
 *Last updated: 2026-03-13 — Phase 7 COMPLETE: 7/7 plans. FastAPI Docker container added, 75 Next.js API routes removed, 4-service production stack ready.*

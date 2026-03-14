@@ -90,6 +90,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 ### Roadmap Evolution
 - Phase 8 added: GitHub Actions CI/CD deployment - deploy dockerized components on push to existing server
+- Phase 9 added: Code Quality & Hardening — refactor monolithic modules, complete SQLite→PostgreSQL migration, fix N+1 queries, add test coverage, API rate limiting, CI/CD quality gates
 
 ## Blockers
 
