@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-03-14T09:30:00Z"
+last_updated: "2026-03-14T10:00:00Z"
 progress:
-  total_phases: 10
+  total_phases: 11
   completed_phases: 10
-  total_plans: 46
-  completed_plans: 46
+  total_plans: 51
+  completed_plans: 47
 ---
 
 # Project State
@@ -18,9 +18,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 **Core value:** Accurate tax reporting — every transaction correctly classified, every balance reconciled.
-**Current focus:** Phase 1 - NEAR Indexer
+**Current focus:** Phase 11 - Robustness & Missing Features
 
 ## Current Phase
+
+**Phase 11: Robustness & Missing Features** IN PROGRESS
+- Plan 11-01: Unified audit_log migration 008 + AuditLog model + write_audit() helper ✅ DONE (2026-03-14)
+- Plan 11-02: Manifest generation + stale detection (pending)
+- Plan 11-03: Multi-hop swap decomposition in classifier (pending)
+- Plan 11-04: Data export validation (pending)
+- Plan 11-05: Offline mode + fragile area hardening (pending)
 
 **Phase 6: Reporting** COMPLETE ✅
 - Plan 06-01: ReportEngine base class + CapitalGainsReport + IncomeReport ✅ DONE (2026-03-13)
@@ -100,6 +107,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-14: **11-01 complete** - Alembic migration 008 creates audit_log (JSONB old_value/new_value, entity_type, action, actor_type); data migrated from classification_audit_log; AuditLog SQLAlchemy model replaces ClassificationAuditLog; write_audit() helper in db/audit.py with conn=None safety. Phase 11 started.
 - 2026-03-14: **10-02 complete** - Alembic migration 007 adds ix_price_cache_coin_date_desc on price_cache(coin_id, date DESC); DB_POOL_MIN/MAX configurable via env vars (default 1/10) with validate_env() pool constraint checks; pool_stats() introspection in indexers/db.py; sanitize_for_log() in config.py; pyproject.toml has [project] table with requires-python >= 3.11.
 - 2026-03-14: **09-03 complete** - N+1 queries eliminated: batch staking/lockup event loading per wallet in classifier (_load_staking_event_index, _load_lockup_event_index); NearBlocks API hardened with 2^attempt+jitter exponential backoff for 429/Timeout/ConnectionError, max 5 retries before RuntimeError; balance_snapshot.fetch_ft_balances_nearblocks same pattern; validate_env() added to config.py.
 - 2026-03-13: **07-07 complete** - Docker deployment finalized: api/Dockerfile (python:3.11-slim, project root context, 2 uvicorn workers), docker-compose.prod.yml updated to 4 services (postgres/migrate/web/api/indexer), rolling restart api->web->indexer, healthcheck.sh adds FastAPI /health, 75 Next.js API routes deleted, web/lib DB files deleted, middleware simplified.
@@ -329,5 +337,9 @@ None currently.
 | 2026-03-14 | ValueError for pool constraint violations vs RuntimeError for missing vars | Distinct error types for distinct failure modes in validate_env() |
 | 2026-03-14 | sanitize_for_log() uses case-insensitive substring matching on _SENSITIVE_KEY_PATTERNS | Catches key variants (NEARBLOCKS_API_KEY, SESSION_TOKEN, DB_PASSWORD) without exhaustive allowlist |
 | 2026-03-14 | DB_POOL_MIN/MAX defaults 1/10 in config.py, imported as get_pool() defaults | Pool sizing tunable via env vars without code changes; 1/10 suits single-process indexer |
+| 2026-03-14 | audit_log uses JSONB old_value/new_value instead of typed columns | Single table handles all entity types without ALTER TABLE; flexible for future mutation points |
+| 2026-03-14 | entity_id nullable in audit_log | Report generation and invariant violations have no single entity PK |
+| 2026-03-14 | write_audit() conn=None silently skips | Test-compatibility pattern (RESEARCH.md Pitfall 5); callers skip DB provisioning without mocking |
+| 2026-03-14 | ClassificationAuditLog = AuditLog alias in __init__.py | Downstream code imports by old name without breakage during transition |
 
-*Last updated: 2026-03-14 — Phase 10 complete: 5/5 plans, 14/14 requirements verified. All 10 phases complete.*
+*Last updated: 2026-03-14 — Phase 11 started: plan 11-01 complete (1/5 plans).*
