@@ -10,6 +10,13 @@ Provides:
   - admin_auth_headers: Patches get_current_user to return mock_admin
 """
 
+import os
+
+# Set DATABASE_URL for test environment before any module-level imports.
+# Tests use a mocked DB pool; this value is never used to connect,
+# but validate_env() checks for its presence on startup.
+os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/test")
+
 from unittest.mock import MagicMock, patch
 
 import pytest

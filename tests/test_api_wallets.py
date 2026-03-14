@@ -155,7 +155,8 @@ def test_create_wallet_evm(mock_pool, mock_conn, mock_cursor, mock_user):
     for client in make_client(mock_pool, mock_user):
         resp = client.post(
             "/api/wallets",
-            json={"account_id": "0xdeadbeef", "chain": "ethereum"},
+            # Use a valid 40-char EVM address (EVM address validation added in 09-01)
+            json={"account_id": "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", "chain": "ethereum"},
         )
         assert resp.status_code == 201, resp.json()
         body = resp.json()

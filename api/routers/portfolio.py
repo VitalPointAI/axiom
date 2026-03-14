@@ -8,7 +8,7 @@ Staking positions from latest staking_events per validator.
 All endpoints filter by user_id for multi-user isolation.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 
 from api.dependencies import get_effective_user, get_pool_dep
@@ -136,5 +136,10 @@ async def get_portfolio_summary(
 
 @router.get("")
 async def get_portfolio_stub(user=Depends(get_effective_user)):
-    """Stub root endpoint — enforces auth so unauthenticated returns 401."""
-    return {}
+    """Stub root endpoint — enforces auth so unauthenticated returns 401.
+
+    STUB: Portfolio root endpoint is not implemented. Use /api/portfolio/summary
+    for holdings and staking positions. This endpoint exists only to enforce
+    authentication for unauthenticated access tests.
+    """
+    raise HTTPException(status_code=501, detail="Portfolio staking positions: not yet implemented")
