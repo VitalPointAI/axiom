@@ -369,11 +369,11 @@ Phase 2 ──┘                                              │
 **Plans:** 5 plans in 2 waves
 
 Plans:
-- [ ] 09-01-PLAN.md — CI quality gates (ci.yml + ruff) + legacy SQLite cleanup + stub documentation (Wave 1) [QH-01, QH-08, QH-12]
-- [ ] 09-02-PLAN.md — API rate limiting (slowapi) + env validation + SQL whitelist + rollback consistency (Wave 1) [QH-04, QH-05, QH-06, QH-07]
+- [x] 09-01-PLAN.md — CI quality gates (ci.yml + ruff) + legacy SQLite cleanup + stub documentation (Wave 1) [QH-01, QH-08, QH-12] ✅ DONE (2026-03-14)
+- [x] 09-02-PLAN.md — API rate limiting (slowapi) + env validation + SQL whitelist + rollback consistency (Wave 1) [QH-04, QH-05, QH-06, QH-07] ✅ DONE (2026-03-14)
 - [x] 09-03-PLAN.md — Classifier N+1 fix (batch event loading) + NearBlocks retry hardening (Wave 1) [QH-02, QH-03] ✅ DONE (2026-03-14)
-- [ ] 09-04-PLAN.md — Test coverage: authorization isolation + indexer edge cases + parser robustness (Wave 2) [QH-09, QH-10, QH-11]
-- [ ] 09-05-PLAN.md — Reconcile module refactor: extract diagnosis helpers (Wave 2) [QH-02]
+- [x] 09-04-PLAN.md — Test coverage: authorization isolation + indexer edge cases + parser robustness (Wave 2) [QH-09, QH-10, QH-11] ✅ DONE (2026-03-14)
+- [x] 09-05-PLAN.md — Reconcile module refactor: extract diagnosis helpers (Wave 2) [QH-02] ✅ DONE (2026-03-14)
 
 **Requirements:**
 - QH-01: SQLite->PostgreSQL: migrate/remove remaining SQLite modules
