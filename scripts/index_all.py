@@ -143,7 +143,7 @@ def main():
             break
     
     print(f"\n{'='*60}")
-    print(f"BATCH COMPLETE")
+    print("BATCH COMPLETE")
     print(f"  Processed: {processed}")
     print(f"  Errors: {errors}")
     print(f"{'='*60}")

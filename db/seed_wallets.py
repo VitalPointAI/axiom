@@ -66,11 +66,11 @@ def seed_wallets():
     
     conn.close()
     
-    print(f"\nSeeding complete:")
+    print("\nSeeding complete:")
     print(f"  Processed: {inserted + skipped}")
     print(f"  Inserted/Updated: {inserted}")
     print(f"  Skipped (errors): {skipped}")
-    print(f"\nDatabase status:")
+    print("\nDatabase status:")
     print(f"  Total wallets: {wallet_count}")
     print(f"  Pending indexing: {pending_count}")
     

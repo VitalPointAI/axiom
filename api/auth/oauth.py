@@ -12,7 +12,6 @@ Configuration via environment variables:
 Uses httpx for synchronous HTTP calls (called from run_in_threadpool in router).
 """
 
-import json
 import os
 import secrets
 from datetime import datetime, timezone, timedelta

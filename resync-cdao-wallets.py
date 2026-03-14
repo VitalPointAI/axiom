@@ -73,7 +73,7 @@ def parse_transaction(tx, account_id, wallet_id):
     receiver = tx.get('receiver_account_id', '')
     
     actions = tx.get('actions', [])
-    actions_agg = tx.get('actions_agg', {})
+    tx.get('actions_agg', {})
     
     # Calculate fee (from outcomes_agg)
     outcomes_agg = tx.get('outcomes_agg', {})
@@ -161,7 +161,7 @@ def sync_wallet(account_id):
     print(f"{account_id}: {len(existing)} existing transactions")
     
     # Fetch all from NearBlocks
-    print(f"Fetching from NearBlocks...")
+    print("Fetching from NearBlocks...")
     all_txns = fetch_all_txns(account_id)
     print(f"  Got {len(all_txns)} total transactions")
     

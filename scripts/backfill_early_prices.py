@@ -94,7 +94,7 @@ def backfill_early_prices(db_path: str = '/home/deploy/neartax/neartax.db'):
     for i, date_str in enumerate(missing_dates):
         try:
             date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-        except:
+        except Exception:
             continue
             
         # Convert to CoinGecko format (dd-mm-yyyy)

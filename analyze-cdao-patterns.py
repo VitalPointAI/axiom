@@ -2,7 +2,6 @@
 """Analyze CDAO contract transaction patterns to understand fund flows."""
 
 import sqlite3
-import json
 import requests
 
 conn = sqlite3.connect("neartax.db")

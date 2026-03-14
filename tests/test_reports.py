@@ -18,7 +18,7 @@ import tempfile
 import unittest
 from datetime import date
 from decimal import Decimal
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 
 # ---------------------------------------------------------------------------
@@ -546,7 +546,6 @@ class TestLedgerReport(unittest.TestCase):
         #   category, direction, counterparty, amount_raw, token_id,
         #   fee_raw, fmv_usd, fmv_cad, classification_source, confidence,
         #   needs_review, notes
-        from datetime import datetime
         return (
             '2024-03-15 10:00:00',   # date_str (formatted from TO_TIMESTAMP)
             'near',                   # chain
@@ -801,7 +800,7 @@ class TestT1135Checker(unittest.TestCase):
         pool, conn, cur = self._make_pool(peak_rows=rows)
         report = T1135Checker(pool)
         with tempfile.TemporaryDirectory() as tmpdir:
-            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
             csv_path = os.path.join(tmpdir, 't1135_check_2024.csv')
             self.assertTrue(os.path.exists(csv_path))
             with open(csv_path) as f:
@@ -988,7 +987,7 @@ class TestInventoryHoldings(unittest.TestCase):
         pool, conn, cur = self._make_pool(holdings_rows=rows)
         report = InventoryHoldingsReport(pool)
         with tempfile.TemporaryDirectory() as tmpdir:
-            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
             csv_path = os.path.join(tmpdir, 'inventory_holdings_2024.csv')
             self.assertTrue(os.path.exists(csv_path))
             with open(csv_path) as f:
@@ -1013,7 +1012,7 @@ class TestInventoryHoldings(unittest.TestCase):
         # Provide current prices: NEAR=$6.00 (above ACB $4.50 = unrealized gain)
         current_prices = {'NEAR': Decimal('6.00'), 'ETH': Decimal('3000.00')}
         with tempfile.TemporaryDirectory() as tmpdir:
-            summary = report.generate(
+            report.generate(
                 user_id=1, tax_year=2024, output_dir=tmpdir,
                 current_prices=current_prices,
             )
@@ -1035,7 +1034,7 @@ class TestInventoryHoldings(unittest.TestCase):
         pool, conn, cur = self._make_pool(holdings_rows=rows)
         report = InventoryHoldingsReport(pool)
         with tempfile.TemporaryDirectory() as tmpdir:
-            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
             csv_path = os.path.join(tmpdir, 'inventory_holdings_2024.csv')
             with open(csv_path) as f:
                 reader = csv.reader(f)
@@ -1173,7 +1172,7 @@ class TestCOGS(unittest.TestCase):
         )
         report = COGSReport(pool)
         with tempfile.TemporaryDirectory() as tmpdir:
-            summary = report.generate(
+            report.generate(
                 user_id=1, tax_year=2024, output_dir=tmpdir,
                 tax_treatment='capital',
             )
@@ -1306,7 +1305,7 @@ class TestBusinessIncome(unittest.TestCase):
         )
         report = BusinessIncomeStatement(pool)
         with tempfile.TemporaryDirectory() as tmpdir:
-            summary = report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
+            report.generate(user_id=1, tax_year=2024, output_dir=tmpdir)
             csv_path = os.path.join(tmpdir, 'business_income_2024.csv')
             self.assertTrue(os.path.exists(csv_path))
             with open(csv_path) as f:
@@ -1653,10 +1652,10 @@ class TestAccountingExports(unittest.TestCase):
             exporter.generate_all(user_id=1, tax_year=2024, output_dir=tmpdir)
             iif_path = os.path.join(tmpdir, 'quickbooks_2024.iif')
             with open(iif_path) as f:
-                lines = [l.rstrip('\n') for l in f.readlines()]
-        trns_count    = sum(1 for l in lines if l.startswith('TRNS\t'))
-        spl_count     = sum(1 for l in lines if l.startswith('SPL\t'))
-        endtrns_count = sum(1 for l in lines if l.strip() == 'ENDTRNS')
+                lines = [ln.rstrip('\n') for ln in f.readlines()]
+        trns_count    = sum(1 for ln in lines if ln.startswith('TRNS\t'))
+        spl_count     = sum(1 for ln in lines if ln.startswith('SPL\t'))
+        endtrns_count = sum(1 for ln in lines if ln.strip() == 'ENDTRNS')
         self.assertEqual(trns_count, spl_count)
         self.assertEqual(trns_count, endtrns_count)
         self.assertGreater(trns_count, 0)
@@ -1864,7 +1863,6 @@ class TestPackageBuilder(unittest.TestCase):
     def test_build_calls_all_base_reports(self):
         """Test 1: build() calls CapitalGainsReport, IncomeReport, LedgerReport, T1135Checker."""
         import tempfile
-        from reports.generate import PackageBuilder
         pool = self._make_pool()
         with tempfile.TemporaryDirectory() as tmpdir:
             manifest, patchers = self._build_with_mocks(pool, tmpdir=tmpdir)
@@ -1885,7 +1883,6 @@ class TestPackageBuilder(unittest.TestCase):
         """Test 2: Output directory output/{year}_tax_package/ is created."""
         import tempfile
         import os
-        from reports.generate import PackageBuilder
         pool = self._make_pool()
         with tempfile.TemporaryDirectory() as tmpdir:
             manifest, _ = self._build_with_mocks(pool, tmpdir=tmpdir, tax_year=2024)
@@ -1896,7 +1893,6 @@ class TestPackageBuilder(unittest.TestCase):
     def test_build_returns_manifest_with_required_keys(self):
         """Test 3 + 10: build() returns manifest dict with files, summaries, tax_year, output_dir."""
         import tempfile
-        from reports.generate import PackageBuilder
         pool = self._make_pool()
         with tempfile.TemporaryDirectory() as tmpdir:
             manifest, _ = self._build_with_mocks(pool, tmpdir=tmpdir)
@@ -1910,7 +1906,6 @@ class TestPackageBuilder(unittest.TestCase):
     def test_build_includes_koinly_export(self):
         """Test 4: Koinly export (year + full) is included."""
         import tempfile
-        from reports.generate import PackageBuilder
         pool = self._make_pool()
         with tempfile.TemporaryDirectory() as tmpdir:
             manifest, patchers = self._build_with_mocks(pool, tmpdir=tmpdir)
@@ -1922,7 +1917,6 @@ class TestPackageBuilder(unittest.TestCase):
     def test_build_includes_accounting_exports(self):
         """Test 5: Accounting exports (QB, Xero, Sage, double-entry) are included."""
         import tempfile
-        from reports.generate import PackageBuilder
         pool = self._make_pool()
         with tempfile.TemporaryDirectory() as tmpdir:
             manifest, patchers = self._build_with_mocks(pool, tmpdir=tmpdir)
@@ -1933,7 +1927,6 @@ class TestPackageBuilder(unittest.TestCase):
     def test_capital_treatment_skips_cogs(self):
         """Test 6: tax_treatment='capital' skips COGSReport."""
         import tempfile
-        from reports.generate import PackageBuilder
         pool = self._make_pool()
         with tempfile.TemporaryDirectory() as tmpdir:
             manifest, patchers = self._build_with_mocks(
@@ -1946,7 +1939,6 @@ class TestPackageBuilder(unittest.TestCase):
     def test_business_inventory_includes_cogs_and_business_income(self):
         """Test 7: tax_treatment='business_inventory' includes COGSReport and BusinessIncomeStatement."""
         import tempfile
-        from reports.generate import PackageBuilder
         pool = self._make_pool()
         with tempfile.TemporaryDirectory() as tmpdir:
             manifest, patchers = self._build_with_mocks(
@@ -1962,7 +1954,6 @@ class TestPackageBuilder(unittest.TestCase):
     def test_hybrid_treatment_includes_both_views(self):
         """Test 8: tax_treatment='hybrid' generates both capital and business views."""
         import tempfile
-        from reports.generate import PackageBuilder
         pool = self._make_pool()
         with tempfile.TemporaryDirectory() as tmpdir:
             manifest, patchers = self._build_with_mocks(
@@ -1978,7 +1969,6 @@ class TestPackageBuilder(unittest.TestCase):
     def test_gate_check_runs_once(self):
         """Test 9: Gate check runs once at top level, not per-report (mocked so 0 gate calls in report modules)."""
         import tempfile
-        from reports.generate import PackageBuilder
         pool = self._make_pool()
         with tempfile.TemporaryDirectory() as tmpdir:
             manifest, _ = self._build_with_mocks(pool, tmpdir=tmpdir)
@@ -2040,7 +2030,7 @@ class TestReportHandler(unittest.TestCase):
             }
             mock_pb_cls.return_value = mock_pb
 
-            with tempfile.TemporaryDirectory() as tmpdir:
+            with tempfile.TemporaryDirectory():
                 stats = handler.run(job_row, conn=MagicMock())
 
         self.assertIn('files_generated', stats)

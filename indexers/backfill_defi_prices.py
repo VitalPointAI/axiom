@@ -6,7 +6,6 @@ Uses Ref Finance API for current prices and applies them to historical events.
 
 import psycopg2
 import requests
-from datetime import datetime
 
 PG_CONN = 'postgresql://neartax:lqxBcUTkcgZdzrNdqYxcsFVGEwkEldMx@localhost:5432/neartax'
 

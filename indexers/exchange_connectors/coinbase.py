@@ -13,8 +13,7 @@ import hmac
 import hashlib
 import json
 import requests
-from typing import Optional, Dict, List, Any
-from datetime import datetime
+from typing import Optional, Dict, List
 from pathlib import Path
 import sys
 
@@ -237,7 +236,7 @@ def index_coinbase_account(user_id: int, api_key: str, api_secret: str) -> int:
             for tx in transactions:
                 tx_type = tx.get('type', 'unknown')
                 amount = tx.get('amount', {}).get('amount', '0')
-                native_amount = tx.get('native_amount', {}).get('amount', '0')
+                tx.get('native_amount', {}).get('amount', '0')
                 
                 # Determine direction
                 if tx_type in ['buy', 'fiat_deposit', 'receive', 'interest', 'staking_reward']:

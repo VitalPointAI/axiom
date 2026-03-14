@@ -1,5 +1,4 @@
 import sqlite3
-import requests
 
 conn = sqlite3.connect("neartax.db")
 cur = conn.cursor()

@@ -144,7 +144,7 @@ def get_lockup_summary(lockup_account=LOCKUP_ACCOUNT):
 def print_lockup_summary(result):
     """Pretty print lockup summary."""
     print(f"\n{'='*60}")
-    print(f"LOCKUP CONTRACT SUMMARY")
+    print("LOCKUP CONTRACT SUMMARY")
     print(f"{'='*60}")
     
     print(f"\nAccount: {result['lockup_account']}")
@@ -153,13 +153,13 @@ def print_lockup_summary(result):
     
     state = result['account_state']
     if 'error' not in state:
-        print(f"\nAccount State:")
+        print("\nAccount State:")
         print(f"  Balance: {state['balance']:.4f} NEAR")
         print(f"  Storage: {state['storage_used']:,} bytes")
     
     info = result['contract_info']
     if info:
-        print(f"\nContract Info:")
+        print("\nContract Info:")
         for key, value in info.items():
             if isinstance(value, float):
                 print(f"  {key}: {value:.4f} NEAR")
@@ -168,7 +168,7 @@ def print_lockup_summary(result):
     
     print(f"\nTransaction Count: {result['transaction_count']}")
     
-    print(f"\nTax Treatment:")
+    print("\nTax Treatment:")
     tax = result['tax_treatment']
     print(f"  {tax['summary']}")
     print(f"  Action: {tax['action_needed']}")

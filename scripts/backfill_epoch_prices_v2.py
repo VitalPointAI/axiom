@@ -4,13 +4,10 @@ Backfill historical NEAR prices for staking epoch rewards.
 Uses local price_cache first, then falls back to APIs.
 """
 
-import os
-import sys
 import time
 import requests
 import psycopg2
 from datetime import datetime, timedelta
-from collections import defaultdict
 
 # Database connection
 DB_URL = "postgresql://neartax:lqxBcUTkcgZdzrNdqYxcsFVGEwkEldMx@localhost:5432/neartax"

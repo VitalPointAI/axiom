@@ -299,7 +299,7 @@ async def resolve_verification_issue(
             # Verify ownership and fetch info for audit row
             cur.execute(
                 """
-                SELECT vr.id, vr.diagnosis_category, vr.verification_type
+                SELECT vr.id, vr.diagnosis_category, vr.status
                 FROM verification_results vr
                 JOIN wallets w ON w.id = vr.wallet_id
                 WHERE vr.id = %s AND w.user_id = %s
@@ -310,7 +310,7 @@ async def resolve_verification_issue(
             if row is None:
                 return False
 
-            _vr_id, diagnosis_category, verification_type = row
+            _vr_id, diagnosis_category, old_status = row
 
             cur.execute(
                 """
@@ -331,7 +331,7 @@ async def resolve_verification_issue(
                 new_value={
                     "status": "resolved",
                     "diagnosis_category": diagnosis_category,
-                    "verification_type": verification_type,
+                    "old_status": old_status,
                 },
                 actor_type="user",
                 notes=body.resolution_notes if hasattr(body, "resolution_notes") else None,

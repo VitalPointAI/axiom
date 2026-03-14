@@ -45,7 +45,7 @@ def get_pool_balance(account_id, pool_id):
             balance_str = balance_bytes.decode().strip('"')
             if balance_str.isdigit():
                 return int(balance_str) / 1e24
-    except Exception as e:
+    except Exception:
         pass  # Silently fail - pool might not exist or account not staked
     
     return 0
@@ -144,14 +144,14 @@ def print_staking_summary(result):
     print(f"Total Estimated Rewards: {result['total_estimated_rewards']:.4f} NEAR")
     
     if result['active_stakes']:
-        print(f"\nActive Stakes:")
+        print("\nActive Stakes:")
         for stake in result['active_stakes']:
             print(f"  {stake['validator']}")
             print(f"    Staked:  {stake['staked']:.4f} NEAR")
             print(f"    Rewards: {stake['rewards']:.4f} NEAR")
     
     if result['withdrawn_validators']:
-        print(f"\nWithdrawn Validators (rewards unknown):")
+        print("\nWithdrawn Validators (rewards unknown):")
         for v in result['withdrawn_validators']:
             print(f"  - {v}")
     

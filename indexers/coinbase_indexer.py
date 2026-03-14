@@ -11,8 +11,7 @@ import sqlite3
 import time
 import secrets
 import requests
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import List, Dict
 
 # Try to import JWT libraries
 try:

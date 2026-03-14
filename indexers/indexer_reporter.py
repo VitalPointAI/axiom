@@ -15,7 +15,6 @@ Usage in indexers:
 import os
 import time
 import psycopg2
-from datetime import datetime
 
 DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://neartax:lqxBcUTkcgZdzrNdqYxcsFVGEwkEldMx@localhost:5432/neartax')
 

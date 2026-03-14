@@ -18,8 +18,7 @@ UNION ALL query pattern:
 
 import json
 import math
-from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.concurrency import run_in_threadpool
@@ -32,7 +31,6 @@ from api.schemas.transactions import (
     ApplyChangesResponse,
     ClassificationUpdate,
     ReviewQueueResponse,
-    TransactionFilters,
     TransactionListResponse,
     TransactionResponse,
 )
@@ -487,7 +485,7 @@ async def patch_classification(
             # Verify ownership and fetch old classification values for audit
             cur.execute(
                 """
-                SELECT tc.id, tc.tax_category, tc.confidence_score
+                SELECT tc.id, tc.category, tc.confidence
                 FROM transaction_classifications tc
                 LEFT JOIN transactions t ON tc.tx_hash = t.tx_hash
                 LEFT JOIN wallets w ON t.wallet_id = w.id

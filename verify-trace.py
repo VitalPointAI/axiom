@@ -93,7 +93,7 @@ for wallet in ["vpacademy.cdao.near", "vpointai.cdao.near"]:
     computed = totalIn - outSum - fees - deleteAccountOutflows
     diff = computed - onChain
     
-    print(f"\n--- SUMMARY ---")
+    print("\n--- SUMMARY ---")
     print(f"Total IN:          {totalIn:12.4f} NEAR")
     print(f"Computed:          {computed:12.4f} NEAR")
     print(f"On-chain:          {onChain:12.4f} NEAR")

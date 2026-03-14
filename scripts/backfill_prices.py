@@ -10,7 +10,7 @@ import sqlite3
 import requests
 from datetime import datetime, timezone
 import time
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict
 import sys
 
 # CryptoCompare API (free tier: 100,000 calls/month)
@@ -243,7 +243,7 @@ if __name__ == '__main__':
     print(f"Backfilling prices for up to {limit} transactions...")
     result = backfill_transaction_prices(db_path, limit)
     
-    print(f"\nResults:")
+    print("\nResults:")
     print(f"  Transactions updated: {result['transactions_updated']}")
     print(f"  FT transactions updated: {result['ft_updated']}")
     print(f"  Price cache entries: {result['price_cache_size']}")

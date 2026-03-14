@@ -12,7 +12,6 @@ Inherits ReportEngine for gate check, pool wiring, and CSV helpers.
 
 import logging
 import os
-from datetime import date
 from decimal import Decimal
 from typing import Optional
 

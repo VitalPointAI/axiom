@@ -6,11 +6,10 @@ Fixed version that properly handles deposits and balance tracking.
 """
 
 import os
-import sys
 import json
 import requests
 import psycopg2
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from decimal import Decimal, getcontext
 import time
 
@@ -169,7 +168,7 @@ def calculate_epoch_rewards_backfill(wallet_id: int, account_id: str, validator_
     
     events = get_staking_history(wallet_id, validator_id)
     if not events:
-        print(f"  No staking events found")
+        print("  No staking events found")
         return 0
     
     # Build deposit/withdrawal timeline
@@ -187,7 +186,7 @@ def calculate_epoch_rewards_backfill(wallet_id: int, account_id: str, validator_
             deposit_events.append((event['timestamp'], -event['amount']))
     
     if first_stake_ts is None:
-        print(f"  No stake events found")
+        print("  No stake events found")
         return 0
     
     print(f"  First stake: {nanoseconds_to_datetime(first_stake_ts).strftime('%Y-%m-%d %H:%M')}")
@@ -199,7 +198,7 @@ def calculate_epoch_rewards_backfill(wallet_id: int, account_id: str, validator_
     
     current_epoch_info = get_current_epoch_info()
     current_epoch = current_epoch_info['epoch_height']
-    now_ns = int(datetime.now(timezone.utc).timestamp() * 1e9)
+    int(datetime.now(timezone.utc).timestamp() * 1e9)
     
     # Calculate epochs
     first_stake_dt = nanoseconds_to_datetime(first_stake_ts)
@@ -226,7 +225,7 @@ def calculate_epoch_rewards_backfill(wallet_id: int, account_id: str, validator_
     print(f"  Existing epoch data starts at: {min_existing_epoch}")
     
     if first_epoch >= backfill_to_epoch:
-        print(f"  No epochs to backfill")
+        print("  No epochs to backfill")
         conn.close()
         return 0
     
@@ -259,7 +258,7 @@ def calculate_epoch_rewards_backfill(wallet_id: int, account_id: str, validator_
     print(f"  Total rewards earned: {total_rewards / YOCTO:.4f} NEAR")
     
     if total_rewards <= 0:
-        print(f"  No positive rewards to backfill")
+        print("  No positive rewards to backfill")
         conn.close()
         return 0
     
@@ -408,7 +407,7 @@ def main():
             count = calculate_epoch_rewards_backfill(wallet_id, account_id, validator_id)
             total_inserted += count
         
-        print(f"\n=== COMPLETE ===")
+        print("\n=== COMPLETE ===")
         print(f"Total epoch rewards inserted: {total_inserted}")
     else:
         print("Backfilling Kevin's staking rewards (wallet 97, vitalpoint.pool.near)")

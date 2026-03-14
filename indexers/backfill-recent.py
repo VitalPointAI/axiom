@@ -6,7 +6,6 @@ import logging
 import requests
 import json
 import time
-from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -147,7 +146,6 @@ def main():
         print(f"Checking {len(wallets)} active wallets...")
 
         # Feb 25, 2026 00:00 UTC in nanoseconds
-        cutoff_ts = 1740441600000000000
         total_new = 0
 
         for wallet_id, account_id in wallets:
@@ -179,7 +177,7 @@ def main():
                 total_new += new_count
                 print(f"  Saved {new_count} new transactions")
             else:
-                print(f"  No new transactions")
+                print("  No new transactions")
 
             time.sleep(0.5)  # Rate limit
 

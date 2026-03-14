@@ -17,9 +17,8 @@ For Canadian taxes:
 import logging
 import sys
 from pathlib import Path
-from datetime import datetime
 from collections import defaultdict
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
 logger = logging.getLogger(__name__)
 

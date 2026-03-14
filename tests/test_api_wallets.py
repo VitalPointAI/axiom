@@ -10,12 +10,12 @@ Tests cover:
 """
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-from api.dependencies import get_current_user, get_effective_user, get_pool_dep
+from api.dependencies import get_current_user, get_pool_dep
 from api.main import create_app
 
 
@@ -255,7 +255,6 @@ def test_sync_status(mock_pool, mock_conn, mock_cursor, mock_user):
     # fetchone for wallet ownership check
     # fetchall for job list
     call_count = [0]
-    original_fetchone = mock_cursor.fetchone
 
     def fetchone_side_effect():
         call_count[0] += 1

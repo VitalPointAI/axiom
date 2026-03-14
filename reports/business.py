@@ -19,7 +19,7 @@ import logging
 from decimal import Decimal
 from typing import Optional
 
-from reports.engine import ReportEngine, fiscal_year_range, fmt_cad
+from reports.engine import ReportEngine, fmt_cad
 
 logger = logging.getLogger(__name__)
 

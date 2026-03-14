@@ -5,8 +5,8 @@ All tests verify the matching algorithm (asset+amount+timestamp+direction) and f
 """
 
 import pytest
-from unittest.mock import MagicMock, patch, call
-from datetime import datetime, timezone, timedelta
+from unittest.mock import MagicMock
+from datetime import datetime, timezone
 
 
 class TestDedupHandlerInit:
@@ -40,7 +40,7 @@ class TestDedupMatchingLogic:
         mock_conn.cursor.return_value = mock_cur
 
         # Exchange tx: received 1.0 ETH, timestamp within 10 min of on-chain tx
-        exchange_tx = {
+        {
             "id": 101,
             "exchange": "coinbase",
             "tx_id": "CB-001",
@@ -51,7 +51,7 @@ class TestDedupMatchingLogic:
         }
 
         # On-chain tx: 'in' direction, 1 ETH = 1e18 wei, timestamp 3 min later
-        onchain_tx = {
+        {
             "tx_hash": "0xabc123",
             "chain": "ethereum",
             "action_type": "in",

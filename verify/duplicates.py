@@ -12,7 +12,7 @@ verification_results for audit trail.
 
 import logging
 from decimal import Decimal, InvalidOperation
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Optional
 
 from indexers.dedup_handler import ASSET_DECIMALS, AMOUNT_TOLERANCE

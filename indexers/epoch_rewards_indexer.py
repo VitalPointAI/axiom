@@ -9,12 +9,11 @@ Reward formula: reward = current_balance - previous_balance - deposits + withdra
 """
 
 import os
-import sys
 import json
 import base64
 import requests
 import psycopg2
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from decimal import Decimal
 
 PG_CONN = os.environ.get('DATABASE_URL', 
@@ -370,11 +369,6 @@ Fixed version that properly handles deposits and balance tracking.
 """
 
 import os
-import sys
-import json
-import requests
-import psycopg2
-from datetime import datetime, timezone, timedelta
 from decimal import Decimal, getcontext
 import time
 
@@ -389,7 +383,7 @@ YOCTO = Decimal('1e24')
 EPOCH_DURATION_NS = int(12 * 3600 * 1e9)  # 12 hours in nanoseconds
 
 
-def get_db():
+def get_db():  # noqa: F811 — standalone script section
     return psycopg2.connect(PG_CONN)
 
 
@@ -442,7 +436,7 @@ def get_near_price_cached(date_str: str, currency: str = 'usd') -> Decimal:
     return None
 
 
-def get_exchange_rate(date_str: str, from_currency: str = 'USD', to_currency: str = 'CAD') -> Decimal:
+def get_exchange_rate(date_str: str, from_currency: str = 'USD', to_currency: str = 'CAD') -> Decimal:  # noqa: F811
     conn = get_db()
     cur = conn.cursor()
     
@@ -502,7 +496,6 @@ def get_staking_history(wallet_id: int, validator_id: str):
 
 
 def get_current_staked_balance(validator_id: str, account_id: str) -> Decimal:
-    import base64
     args = json.dumps({'account_id': account_id})
     args_b64 = base64.b64encode(args.encode()).decode()
     
@@ -533,7 +526,7 @@ def calculate_epoch_rewards_backfill(wallet_id: int, account_id: str, validator_
     
     events = get_staking_history(wallet_id, validator_id)
     if not events:
-        print(f"  No staking events found")
+        print("  No staking events found")
         return 0
     
     # Build deposit/withdrawal timeline
@@ -551,7 +544,7 @@ def calculate_epoch_rewards_backfill(wallet_id: int, account_id: str, validator_
             deposit_events.append((event['timestamp'], -event['amount']))
     
     if first_stake_ts is None:
-        print(f"  No stake events found")
+        print("  No stake events found")
         return 0
     
     print(f"  First stake: {nanoseconds_to_datetime(first_stake_ts).strftime('%Y-%m-%d %H:%M')}")
@@ -563,7 +556,7 @@ def calculate_epoch_rewards_backfill(wallet_id: int, account_id: str, validator_
     
     current_epoch_info = get_current_epoch_info()
     current_epoch = current_epoch_info['epoch_height']
-    now_ns = int(datetime.now(timezone.utc).timestamp() * 1e9)
+    int(datetime.now(timezone.utc).timestamp() * 1e9)
     
     # Calculate epochs
     first_stake_dt = nanoseconds_to_datetime(first_stake_ts)
@@ -590,7 +583,7 @@ def calculate_epoch_rewards_backfill(wallet_id: int, account_id: str, validator_
     print(f"  Existing epoch data starts at: {min_existing_epoch}")
     
     if first_epoch >= backfill_to_epoch:
-        print(f"  No epochs to backfill")
+        print("  No epochs to backfill")
         conn.close()
         return 0
     
@@ -623,7 +616,7 @@ def calculate_epoch_rewards_backfill(wallet_id: int, account_id: str, validator_
     print(f"  Total rewards earned: {total_rewards / YOCTO:.4f} NEAR")
     
     if total_rewards <= 0:
-        print(f"  No positive rewards to backfill")
+        print("  No positive rewards to backfill")
         conn.close()
         return 0
     
@@ -772,7 +765,7 @@ def main():
             count = calculate_epoch_rewards_backfill(wallet_id, account_id, validator_id)
             total_inserted += count
         
-        print(f"\n=== COMPLETE ===")
+        print("\n=== COMPLETE ===")
         print(f"Total epoch rewards inserted: {total_inserted}")
     else:
         print("Backfilling Kevin's staking rewards (wallet 97, vitalpoint.pool.near)")

@@ -10,8 +10,7 @@ Coverage:
 import sys
 import os
 from decimal import Decimal
-from unittest.mock import MagicMock, patch, call
-import pytest
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -212,11 +211,11 @@ class TestACBEngine:
 
     def test_staking_income_fmv(self):
         """Staking rewards use pre-captured fmv_cad from StakingEvent as acquisition cost."""
-        from engine.acb import ACBEngine, ACBPool
+        from engine.acb import ACBPool
 
         # Test ACBPool directly: staking reward of 1.5 NEAR at fmv_cad=$10.50
         pool = ACBPool("NEAR")
-        result = pool.acquire(Decimal("1.5"), Decimal("10.50"))
+        pool.acquire(Decimal("1.5"), Decimal("10.50"))
         assert pool.total_units == Decimal("1.5")
         assert pool.total_cost_cad == Decimal("10.50")
         # acb_per_unit = 10.50 / 1.5 = 7.00000000
@@ -237,7 +236,7 @@ class TestACBEngine:
         eth_pool = ACBPool("ETH")
         # ETH FMV = $3000 * 0.5 * 1.40 = $2100 CAD
         # fee_leg = 2 USDC = $2.80 CAD added to buy cost
-        eth_result = eth_pool.acquire(Decimal("0.5"), Decimal("2100"), fee_cad=Decimal("2.80"))
+        eth_pool.acquire(Decimal("0.5"), Decimal("2100"), fee_cad=Decimal("2.80"))
         assert eth_pool.total_cost_cad == Decimal("2102.80")
         # acb_per_unit = 2102.80 / 0.5 = 4205.60000000
         assert eth_pool.acb_per_unit == Decimal("4205.60000000")

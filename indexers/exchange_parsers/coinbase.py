@@ -54,7 +54,7 @@ class CoinbaseParser(BaseExchangeParser):
 
         # Get price/value info
         spot_price = row.get("Spot Price at Transaction") or row.get("spot_price")
-        subtotal = row.get("Subtotal") or row.get("subtotal")
+        row.get("Subtotal") or row.get("subtotal")
         total = row.get("Total") or row.get("total")
         fees = row.get("Fees") or row.get("fees") or row.get("Fee")
         currency = row.get("Spot Price Currency") or row.get("Native Currency") or "CAD"

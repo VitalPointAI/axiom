@@ -4,11 +4,9 @@ Staking indexer for NEAR Protocol.
 Tracks staking deposits, withdrawals, and rewards across all validators.
 """
 
-import os
 import time
 import requests
 from pathlib import Path
-from datetime import datetime
 import sys
 
 PROJECT_ROOT = Path(__file__).parent.parent

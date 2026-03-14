@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 from api.main import create_app
-from api.dependencies import get_current_user, get_pool_dep
+from api.dependencies import get_pool_dep
 
 
 # ---------------------------------------------------------------------------

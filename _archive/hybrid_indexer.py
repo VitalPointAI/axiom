@@ -34,8 +34,7 @@ import signal
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Set, Dict, List, Any
-from dataclasses import dataclass
+from typing import Optional, Set, Dict, List
 
 # Paths
 BASE = Path(__file__).parent.parent
@@ -279,7 +278,7 @@ class WalletHistoryFetcher:
                 
                 async with self.session.get(url, params=params) as r:
                     if r.status == 429:
-                        log.warning(f"  Rate limited, waiting 30s...")
+                        log.warning("  Rate limited, waiting 30s...")
                         await asyncio.sleep(30)
                         continue
                     
@@ -321,7 +320,7 @@ class WalletHistoryFetcher:
                     
                     # Safety limit
                     if page > 100:
-                        log.warning(f"  Hit page limit (100), stopping")
+                        log.warning("  Hit page limit (100), stopping")
                         break
                         
             except Exception as e:
@@ -380,7 +379,7 @@ class RealtimeMonitor:
                         return json.loads(text) if text and text != 'null' else None
                     elif r.status == 429:
                         await asyncio.sleep(2 ** attempt)
-            except:
+            except Exception:
                 await asyncio.sleep(1)
         return None
     
@@ -477,7 +476,7 @@ class RealtimeMonitor:
                 with open(STATE_PATH) as f:
                     data = json.load(f)
                     return data.get('last_block', 0)
-            except:
+            except Exception:
                 pass
         return 0
     
@@ -603,7 +602,7 @@ async def main():
     args = parser.parse_args()
     
     if args.add_wallet:
-        wallet_id = add_wallet(args.add_wallet, args.user_id)
+        add_wallet(args.add_wallet, args.user_id)
         if args.backfill is None:
             # Auto-backfill after adding
             args.backfill = args.add_wallet

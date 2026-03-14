@@ -11,11 +11,9 @@ Tests cover:
 - Cronos uses custom_api URL
 """
 
-import json
 import sys
 import os
-from unittest.mock import MagicMock, patch, call
-import pytest
+from unittest.mock import MagicMock, patch
 
 # Ensure project root is on path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -23,15 +21,10 @@ sys.path.insert(0, PROJECT_ROOT)
 
 from tests.fixtures.etherscan_responses import (
     NORMAL_TX,
-    NORMAL_TX_RESPONSE,
     ERC20_TX,
-    ERC20_TX_RESPONSE,
     INTERNAL_TX,
-    INTERNAL_TX_RESPONSE,
     NFT_TX,
-    NFT_TX_RESPONSE,
     EMPTY_RESPONSE,
-    BALANCE_RESPONSE,
     make_page,
 )
 from indexers.evm_fetcher import EVMFetcher, CHAIN_CONFIG

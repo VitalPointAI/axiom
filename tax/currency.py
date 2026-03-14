@@ -8,9 +8,8 @@ free APIs for historical USD/CAD rates.
 For CRA compliance, use Bank of Canada noon rate on transaction date.
 """
 
-import time
 import requests
-from datetime import datetime, date
+from datetime import datetime
 from pathlib import Path
 import sys
 
@@ -51,7 +50,7 @@ def get_bank_of_canada_rate(date_str: str) -> float | None:
     """
     try:
         # Bank of Canada API
-        url = f"https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json"
+        url = "https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json"
         params = {
             "start_date": date_str,
             "end_date": date_str,
@@ -76,7 +75,7 @@ def get_exchangerate_api_rate(date_str: str) -> float | None:
     Fallback: Get USD/CAD from exchangerate.host (free, no key required).
     """
     try:
-        url = f"https://api.exchangerate.host/timeseries"
+        url = "https://api.exchangerate.host/timeseries"
         params = {
             "start_date": date_str,
             "end_date": date_str,
@@ -133,7 +132,7 @@ def get_usd_cad_rate(timestamp_ns: int = None, date_str: str = None) -> float:
             _rate_cache[cache_key] = row[0]
             conn.close()
             return row[0]
-    except:
+    except Exception:
         pass
     
     # Fetch from Bank of Canada (preferred)
@@ -158,7 +157,7 @@ def get_usd_cad_rate(timestamp_ns: int = None, date_str: str = None) -> float:
             (date_str, "USD", "CAD", rate, source)
         )
         conn.commit()
-    except:
+    except Exception:
         pass
     
     conn.close()
@@ -241,7 +240,7 @@ def backfill_cad_values(batch_size: int = 500):
             value_usd = float(amount) / (10 ** decimals) * price if amount and price else 0
             cad = usd_to_cad(value_usd, ts)
             conn.execute("UPDATE ft_transactions SET value_cad = ? WHERE id = ?", (cad, tx_id))
-        except:
+        except Exception:
             pass
         if (i + 1) % batch_size == 0:
             conn.commit()
@@ -316,7 +315,7 @@ def get_yearly_exchange_rates(year: int) -> dict:
         try:
             rate = get_usd_cad_rate(date_str=date_str)
             rates.append(rate)
-        except:
+        except Exception:
             pass
     
     avg_rate = sum(rates) / len(rates) if rates else year_end_rate

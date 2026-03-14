@@ -30,8 +30,7 @@ import signal
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Set, Dict, List, Any
-from dataclasses import dataclass
+from typing import Optional, Set, List
 
 # Paths
 BASE = Path(__file__).parent.parent
@@ -131,7 +130,7 @@ class FastIndexer:
                         return json.loads(text) if text and text != 'null' else None
                     elif r.status == 429:
                         await asyncio.sleep(2 ** attempt)
-            except:
+            except Exception:
                 if attempt == MAX_RETRIES - 1:
                     self.stats['errors'] += 1
                 await asyncio.sleep(1)

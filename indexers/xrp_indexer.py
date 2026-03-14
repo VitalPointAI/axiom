@@ -9,11 +9,9 @@ No API key required - uses public JSON-RPC endpoint.
 import time
 import requests
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from decimal import Decimal
-from datetime import datetime
 import sys
-import os
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -82,7 +80,7 @@ class XRPIndexer:
             
             return data
             
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException:
             if retries < MAX_RETRIES:
                 # Try a different endpoint
                 endpoint_idx = (XRPL_ENDPOINTS.index(self.endpoint) + 1) % len(XRPL_ENDPOINTS)
@@ -299,7 +297,7 @@ def index_xrp_account(address: str, force: bool = False) -> int:
         print(f"  Current balance: {balance:.6f} XRP")
         
         # Fetch transactions
-        print(f"  Fetching transactions...")
+        print("  Fetching transactions...")
         txs = indexer.get_all_transactions(address, start_ledger)
         print(f"  Found {len(txs)} transactions")
         

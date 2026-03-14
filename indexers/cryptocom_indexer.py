@@ -12,8 +12,7 @@ import time
 import hmac
 import hashlib
 import requests
-from datetime import datetime
-from typing import List, Dict, Any
+from typing import List
 
 # API Configuration
 API_KEY = os.environ.get('CRYPTOCOM_API_KEY', '')
@@ -31,7 +30,7 @@ def load_credentials():
             creds = json.load(f)
             API_KEY = creds.get('api_key', API_KEY)
             API_SECRET = creds.get('api_secret', API_SECRET)
-    except:
+    except Exception:
         pass
 
 def sign_request(method: str, request_id: int, params: dict = None) -> dict:

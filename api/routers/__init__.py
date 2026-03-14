@@ -4,9 +4,9 @@ Imports real router implementations as they are built. Stub routers remain
 for endpoints not yet implemented, with auth-enforcing GET handlers.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends  # noqa: F401 — re-exported for sub-routers
 
-from api.dependencies import get_effective_user
+from api.dependencies import get_effective_user  # noqa: F401 — re-exported
 
 # ---------------------------------------------------------------------------
 # Real router implementations (added as each plan completes)

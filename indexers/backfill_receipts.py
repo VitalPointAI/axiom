@@ -12,7 +12,6 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-import config
 from db.init import get_connection
 from indexers.nearblocks_client import NearBlocksClient
 

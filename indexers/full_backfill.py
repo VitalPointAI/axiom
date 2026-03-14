@@ -9,13 +9,11 @@ Processes:
 4. db59d3239f2939bb7d8a4a578aceaa8c85ee8e3f.lockup.near (wallet 34) - ALL validators
 """
 
-import os
-import sys
 import json
 import logging
 import requests
 import psycopg2
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from decimal import Decimal, getcontext, InvalidOperation
 import time
 import traceback
@@ -186,7 +184,7 @@ def calculate_epoch_rewards_backfill(wallet_id, account_id, validator_id, curren
     
     events = get_staking_history(wallet_id, validator_id)
     if not events:
-        print(f"  No staking events found")
+        print("  No staking events found")
         return 0, Decimal('0')
     
     deposit_events = []
@@ -205,7 +203,7 @@ def calculate_epoch_rewards_backfill(wallet_id, account_id, validator_id, curren
             deposit_events.append((event['timestamp'], -event['amount']))
     
     if first_stake_ts is None:
-        print(f"  No stake events found")
+        print("  No stake events found")
         return 0, Decimal('0')
     
     print(f"  First stake: {nanoseconds_to_datetime(first_stake_ts).strftime('%Y-%m-%d %H:%M')}")
@@ -221,7 +219,7 @@ def calculate_epoch_rewards_backfill(wallet_id, account_id, validator_id, curren
     
     print(f"  Current balance: {current_balance / YOCTO:.2f} NEAR")
     
-    now_ns = int(datetime.now(timezone.utc).timestamp() * 1e9)
+    int(datetime.now(timezone.utc).timestamp() * 1e9)
     first_stake_dt = nanoseconds_to_datetime(first_stake_ts)
     now = datetime.now(timezone.utc)
     time_delta = now - first_stake_dt
@@ -245,7 +243,7 @@ def calculate_epoch_rewards_backfill(wallet_id, account_id, validator_id, curren
     print(f"  Existing epoch data starts at: {min_existing_epoch}")
     
     if first_epoch >= backfill_to_epoch:
-        print(f"  No epochs to backfill")
+        print("  No epochs to backfill")
         conn.close()
         return 0, Decimal('0')
     
@@ -267,7 +265,7 @@ def calculate_epoch_rewards_backfill(wallet_id, account_id, validator_id, curren
     net_deposits = total_deposits - total_withdrawals
     
     if net_deposits <= 0:
-        print(f"  Net deposits <= 0, position closed")
+        print("  Net deposits <= 0, position closed")
         conn.close()
         return 0, Decimal('0')
     
@@ -275,7 +273,7 @@ def calculate_epoch_rewards_backfill(wallet_id, account_id, validator_id, curren
     print(f"  Total rewards earned: {total_rewards / YOCTO:.4f} NEAR")
     
     if total_rewards <= 0:
-        print(f"  No positive rewards to backfill - using minimum 8% APY estimate")
+        print("  No positive rewards to backfill - using minimum 8% APY estimate")
         implied_rate = Decimal('0.00005')  # ~7.4% APY
     else:
         try:
@@ -454,7 +452,7 @@ def main():
     for account, data in results.items():
         print(f"  {account}: {data['records']} records, {data['rewards_near']:.4f} NEAR")
     
-    print(f"\nGRAND TOTALS:")
+    print("\nGRAND TOTALS:")
     print(f"  Total records inserted: {grand_total_records}")
     print(f"  Total rewards: {float(grand_total_rewards):.4f} NEAR")
     

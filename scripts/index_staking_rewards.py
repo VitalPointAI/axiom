@@ -13,10 +13,9 @@ import argparse
 import json
 import requests
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List
 import csv
 import sys
-import os
 
 # NEAR RPC endpoints
 NEAR_RPC = "https://rpc.mainnet.near.org"

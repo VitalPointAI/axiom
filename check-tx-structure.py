@@ -25,7 +25,7 @@ if row:
     
     if raw_json:
         tx = json.loads(raw_json)
-        print(f"\nTransaction structure:")
+        print("\nTransaction structure:")
         print(f"  predecessor_account_id: {tx.get('predecessor_account_id')}")
         print(f"  receiver_account_id: {tx.get('receiver_account_id')}")
         
@@ -41,10 +41,10 @@ if row:
         # and we shouldn't attribute the fee to us
         predecessor = tx.get('predecessor_account_id', '')
         if predecessor == wallet:
-            print(f"\n  -> This wallet IS the predecessor (we initiated)")
+            print("\n  -> This wallet IS the predecessor (we initiated)")
         else:
             print(f"\n  -> This wallet is NOT the predecessor ({predecessor} initiated)")
-            print(f"  -> Fee should NOT be attributed to us!")
+            print("  -> Fee should NOT be attributed to us!")
 else:
     print("No matching transaction found")
 

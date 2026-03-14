@@ -13,7 +13,6 @@ access self.spam_detector, self.wallet_graph, self.REVIEW_THRESHOLD, etc.
 """
 
 import logging
-from decimal import Decimal
 
 from tax.categories import TaxCategory
 
@@ -254,7 +253,7 @@ def classify_near_tx(
 
     # Step 2: Internal transfer check
     from_addr = tx.get("counterparty") or ""
-    to_addr = tx.get("counterparty") or ""
+    tx.get("counterparty") or ""
     # Use direction to determine who is from/to relative to owned wallet
     # If direction=in, counterparty is sender; if out, counterparty is receiver
     if direction == "in":

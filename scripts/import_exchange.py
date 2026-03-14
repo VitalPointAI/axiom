@@ -85,7 +85,7 @@ def import_csv(filepath, exchange=None, dry_run=False):
     # Import to database
     result = parser.import_to_db(filepath)
     
-    print(f"\nImport complete:")
+    print("\nImport complete:")
     print(f"  Imported: {result['imported']}")
     print(f"  Errors: {result['errors']}")
     print(f"  Batch ID: {result['batch_id']}")

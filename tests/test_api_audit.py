@@ -8,7 +8,6 @@ Tests cover:
   - User isolation (user A cannot see user B's rows)
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 

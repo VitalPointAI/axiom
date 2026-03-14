@@ -21,7 +21,7 @@ from typing import Optional
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 
-from api.dependencies import get_current_user, get_db_conn, get_pool_dep
+from api.dependencies import get_current_user, get_db_conn
 from api.rate_limit import limiter
 from api.schemas.auth import (
     LoginFinishRequest,
@@ -85,7 +85,7 @@ async def register_finish(
     # Load user info
     from api.auth._user_helpers import load_user_by_id, get_session_expires_at
     user_row = await run_in_threadpool(load_user_by_id, user_id, conn)
-    session_token = await run_in_threadpool(create_session, user_id, response, conn)
+    await run_in_threadpool(create_session, user_id, response, conn)
     expires_at = get_session_expires_at()
 
     return SessionResponse(

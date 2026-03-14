@@ -16,8 +16,6 @@ Burrow is a lending/borrowing protocol on NEAR. Tax implications:
 import logging
 import sys
 from pathlib import Path
-from datetime import datetime
-from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 

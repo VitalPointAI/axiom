@@ -70,7 +70,7 @@ def get_historical_price(token_symbol: str, timestamp_ns: int) -> float | None:
         resp = requests.get(url, headers=COINGECKO_HEADERS, timeout=30)
         
         if resp.status_code == 429:
-            print(f"  Rate limited, waiting 60s...")
+            print("  Rate limited, waiting 60s...")
             time.sleep(60)
             return get_historical_price(token_symbol, timestamp_ns)
         

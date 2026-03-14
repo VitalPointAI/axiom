@@ -19,7 +19,6 @@ Priority ordering (checked first = higher number):
 """
 
 import json
-from typing import Optional
 
 from engine.evm_decoder import EVMDecoder
 

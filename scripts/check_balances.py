@@ -3,7 +3,6 @@
 
 import json
 import requests
-import sys
 import os
 from decimal import Decimal
 import base64
@@ -50,7 +49,7 @@ def get_balance(account_id: str) -> tuple:
         if "result" in data and data["result"].get("result"):
             result_bytes = bytes(data["result"]["result"])
             staked = Decimal(result_bytes.decode().strip('"')) / Decimal(10**24)
-    except:
+    except Exception:
         pass
     
     return liquid, staked, None
@@ -81,7 +80,7 @@ def main():
             total_staked += staked
     
     print(f"\n{'='*60}")
-    print(f"SUMMARY")
+    print("SUMMARY")
     print(f"{'='*60}")
     print(f"Accounts checked: {len(accounts)}")
     print(f"Accounts with errors: {len(errors)}")
@@ -91,7 +90,7 @@ def main():
     
     # Top 10 by balance
     results.sort(key=lambda x: x[3], reverse=True)
-    print(f"\nTop 10 accounts:")
+    print("\nTop 10 accounts:")
     for acc, liq, stk, tot in results[:10]:
         print(f"  {acc}: {tot:.4f} NEAR")
     
@@ -101,12 +100,12 @@ def main():
         "total_liquid": float(total_liquid),
         "total_staked": float(total_staked),
         "total": float(total_liquid + total_staked),
-        "accounts": [{"account": a, "liquid": float(l), "staked": float(s), "total": float(t)} for a, l, s, t in results],
+        "accounts": [{"account": a, "liquid": float(liq), "staked": float(s), "total": float(t)} for a, liq, s, t in results],
         "errors": [{"account": a, "error": e} for a, e in errors]
     }
     with open("balance_check.json", "w") as f:
         json.dump(output, f, indent=2)
-    print(f"\nResults saved to balance_check.json")
+    print("\nResults saved to balance_check.json")
 
 if __name__ == "__main__":
     main()

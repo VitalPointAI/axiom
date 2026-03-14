@@ -5,15 +5,12 @@ For FT tokens, we'll use NearBlocks API (with rate limiting).
 """
 
 import os
-import sys
 import argparse
 import random
 import requests
 import time
-import json
 import logging
 from datetime import datetime
-from pathlib import Path
 
 import psycopg2
 from psycopg2.extras import execute_values
@@ -155,9 +152,9 @@ def run_snapshot(snapshot_date: str = None, skip_ft: bool = False):
     if snapshot_date is None:
         snapshot_date = datetime.now().strftime('%Y-%m-%d')
     
-    print(f"=" * 60)
+    print("=" * 60)
     print(f"Balance Snapshot: {snapshot_date}")
-    print(f"=" * 60)
+    print("=" * 60)
     
     conn = get_connection()
     cur = conn.cursor()

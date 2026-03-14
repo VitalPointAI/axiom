@@ -63,6 +63,6 @@ print(f"Difference: {db_out - nb_out_total:+.4f} NEAR")
 cur.execute("SELECT COUNT(*) FROM transactions WHERE wallet_id = ?", (wallet_id,))
 db_count = cur.fetchone()[0]
 print(f"\nOur DB transaction count: {db_count}")
-print(f"NearBlocks says total: 403")
+print("NearBlocks says total: 403")
 
 conn.close()

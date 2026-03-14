@@ -18,7 +18,6 @@ Tax implications:
 
 import logging
 import psycopg2
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 

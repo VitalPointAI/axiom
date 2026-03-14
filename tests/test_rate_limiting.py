@@ -2,8 +2,6 @@
 
 Covers QH-05: Rate limits on auth and job trigger endpoints.
 """
-import pytest
-from unittest.mock import MagicMock, patch
 
 
 class TestRateLimiting:

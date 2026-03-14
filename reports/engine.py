@@ -18,7 +18,6 @@ import logging
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 

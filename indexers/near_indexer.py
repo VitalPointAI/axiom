@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Resumable NEAR transaction indexer with progress tracking."""
 
-import time
 from pathlib import Path
 import sys
 

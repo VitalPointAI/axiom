@@ -7,12 +7,10 @@ Tests cover:
 - Duplicate handling (ON CONFLICT DO NOTHING)
 """
 
-import json
 import sys
 import os
 import unittest
-from unittest.mock import MagicMock, patch, call
-import pytest
+from unittest.mock import MagicMock, patch
 
 # Ensure project root is on path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

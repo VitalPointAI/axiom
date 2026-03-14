@@ -3,9 +3,7 @@
 Covers QH-10: Production resilience when APIs misbehave.
 """
 
-import json
-import logging
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import requests

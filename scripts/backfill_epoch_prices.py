@@ -4,13 +4,10 @@ Backfill historical NEAR prices for staking epoch rewards.
 Uses CryptoCompare API (CoinGecko is blocked).
 """
 
-import os
-import sys
 import time
 import requests
 import psycopg2
 from datetime import datetime, timedelta
-from collections import defaultdict
 
 # Database connection
 DB_URL = "postgresql://neartax:lqxBcUTkcgZdzrNdqYxcsFVGEwkEldMx@localhost:5432/neartax"
@@ -85,7 +82,7 @@ def fetch_cad_rates(dates: list[str]) -> dict:
     
     print(f"Fetching CAD rates from {min_date} to {max_date}...")
     
-    url = f"https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json"
+    url = "https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json"
     params = {
         'start_date': min_date,
         'end_date': max_date

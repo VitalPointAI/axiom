@@ -32,7 +32,6 @@ All superficial losses are flagged needs_review=True for specialist confirmation
 
 from decimal import Decimal, ROUND_HALF_UP
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +202,7 @@ class SuperficialLossDetector:
                 gain_loss_cad = Decimal(str(row[2]))
                 units_disposed = Decimal(str(row[3]))
                 disposal_ts = int(row[4])
-                classification_id = row[5]
+                row[5]
                 parent_classification_id = row[6]
             except (TypeError, KeyError, AttributeError):
                 # Named attribute access (mock objects in tests)
@@ -212,7 +211,6 @@ class SuperficialLossDetector:
                 gain_loss_cad = Decimal(str(row.gain_loss_cad))
                 units_disposed = Decimal(str(row.units_disposed))
                 disposal_ts = int(row.block_timestamp)
-                classification_id = row.classification_id
                 parent_classification_id = row.parent_classification_id
 
             if gain_loss_cad >= Decimal("0"):

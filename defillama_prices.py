@@ -14,10 +14,8 @@ NEAR chain identifier: "near"
 
 import sqlite3
 import requests
-import json
 import time
-from datetime import datetime, timezone
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List
 import sys
 
 DEFILLAMA_API = "https://coins.llama.fi"
@@ -234,7 +232,7 @@ class DefiLlamaPriceFetcher:
                 """, (price, value_usd, value_cad, tx_id))
                 
                 updated += 1
-            except Exception as e:
+            except Exception:
                 pass
         
         self.conn.commit()

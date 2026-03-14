@@ -41,7 +41,7 @@ for tx_id, timestamp_ns, amount in transactions:
     try:
         dt = datetime.utcfromtimestamp(timestamp_ns / 1_000_000_000)
         date_str = dt.strftime("%Y-%m-%d")
-    except:
+    except Exception:
         continue
     
     price = price_map.get(date_str)

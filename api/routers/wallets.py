@@ -97,7 +97,7 @@ def _compute_stage(jobs: list) -> tuple:
     # Check if all jobs are completed/failed
     active_statuses = {"queued", "running", "retrying"}
     all_statuses = {row[3] for row in jobs}
-    job_types = {row[2] for row in jobs}
+    {row[2] for row in jobs}
 
     # Determine the highest pipeline stage that has completed
     completed_job_types = {row[2] for row in jobs if row[3] == "completed"}

@@ -6,7 +6,6 @@ Surfaces issues that need manual resolution.
 
 from enum import Enum
 from dataclasses import dataclass
-from typing import Optional
 import sys
 from pathlib import Path
 

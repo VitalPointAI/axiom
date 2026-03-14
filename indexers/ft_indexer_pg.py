@@ -14,7 +14,6 @@ import time
 import requests
 import psycopg2
 from decimal import Decimal, ROUND_DOWN
-from datetime import datetime
 
 # Configuration
 NEARBLOCKS_BASE = "https://api.nearblocks.io/v1"
@@ -98,7 +97,7 @@ def parse_ft_transaction(tx: dict, wallet_id: int) -> dict | None:
         human_amount = Decimal(raw_amount) / Decimal(10 ** decimals)
         # Round to reasonable precision
         human_amount = human_amount.quantize(Decimal('0.000001'), rounding=ROUND_DOWN)
-    except:
+    except Exception:
         human_amount = Decimal(raw_amount)
     
     # Counterparty - very important for tax tracking
@@ -204,7 +203,7 @@ def index_wallet_ft(wallet_id: int, account_id: str, force: bool = False,
         return 0
     
     if total_expected == 0:
-        print(f"  No FT transactions found")
+        print("  No FT transactions found")
         conn.close()
         return 0
     

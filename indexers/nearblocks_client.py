@@ -15,7 +15,6 @@ from config import (
     NEARBLOCKS_BASE_URL,
     RATE_LIMIT_DELAY,
     MAX_RETRIES,
-    INTER_WALLET_DELAY,
 )
 
 logger = logging.getLogger(__name__)

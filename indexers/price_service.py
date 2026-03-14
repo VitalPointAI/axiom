@@ -16,10 +16,9 @@ Database:
 """
 
 import time
-import base64
 import requests
-from datetime import date, datetime, timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Optional
 import sys
 import os

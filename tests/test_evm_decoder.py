@@ -6,7 +6,6 @@ Groups multi-token ERC20/NFT transfers sharing a base tx_hash into unified
 operations (prevents Pitfall 3: multiple SELL classifications for one swap).
 """
 
-import struct
 import pytest
 from engine.evm_decoder import EVMDecoder
 

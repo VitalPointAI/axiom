@@ -21,13 +21,12 @@ Accounting account codes used as generic placeholders:
   - 4200 = Crypto Income
 """
 
-import csv
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
-from reports.engine import ReportEngine, fiscal_year_range, fmt_cad, fmt_units
+from reports.engine import ReportEngine, fiscal_year_range, fmt_cad
 
 logger = logging.getLogger(__name__)
 
@@ -236,7 +235,6 @@ class KoinlyExport(ReportEngine):
                 tx_date_obj = tx_date if hasattr(tx_date, 'year') else tx_date
             else:
                 date_str = str(tx_date)
-                from datetime import date as _date
                 try:
                     tx_date_obj = datetime.strptime(str(tx_date), '%Y-%m-%d').date()
                 except ValueError:

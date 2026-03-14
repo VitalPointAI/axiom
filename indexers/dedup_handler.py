@@ -27,7 +27,7 @@ Usage:
 
 import logging
 from decimal import Decimal, InvalidOperation
-from datetime import datetime, timezone, timedelta
+from datetime import timezone, timedelta
 from typing import Optional
 
 logger = logging.getLogger(__name__)

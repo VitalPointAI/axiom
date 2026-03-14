@@ -12,7 +12,6 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-import config
 from db.init import get_connection
 from indexers.nearblocks_client import NearBlocksClient
 
@@ -60,7 +59,7 @@ def backfill_missing_transfers():
         # Fetch full transaction from NearBlocks
         tx = fetch_tx_from_nearblocks(tx_hash)
         if not tx:
-            print(f"  Could not fetch transaction")
+            print("  Could not fetch transaction")
             continue
         
         actions = tx.get("actions", [])
@@ -79,7 +78,7 @@ def backfill_missing_transfers():
                 """, (wallet_id, tx_hash)).fetchone()
                 
                 if existing:
-                    print(f"  TRANSFER already exists")
+                    print("  TRANSFER already exists")
                     continue
                 
                 # Add the missing TRANSFER

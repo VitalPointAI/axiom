@@ -9,7 +9,6 @@ Tests cover:
 All tests use mocked DB pool (no real PostgreSQL needed).
 """
 
-from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -277,8 +276,8 @@ class TestClassificationEdit:
 
     def test_patch_classification(self, mock_pool, mock_conn, mock_cursor, mock_user):
         """PATCH /api/transactions/{tx_hash}/classification updates tax_category and reviewer_notes."""
-        # fetchone for ownership check (wallet_id found)
-        mock_cursor.fetchone.return_value = (42,)  # classification row id
+        # fetchone for ownership check: (id, old_category, old_confidence)
+        mock_cursor.fetchone.return_value = (42, "income", 0.95)
 
         for client in make_client(mock_pool, mock_user):
             resp = client.patch(
@@ -291,7 +290,7 @@ class TestClassificationEdit:
 
     def test_patch_mark_reviewed(self, mock_pool, mock_conn, mock_cursor, mock_user):
         """PATCH with needs_review=false sets reviewed_at timestamp."""
-        mock_cursor.fetchone.return_value = (42,)
+        mock_cursor.fetchone.return_value = (42, "income", 0.95)
 
         for client in make_client(mock_pool, mock_user):
             resp = client.patch(

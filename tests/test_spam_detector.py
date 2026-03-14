@@ -11,9 +11,8 @@ Covers:
 All tests use mocked DB connections — no live database required.
 """
 
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
-import pytest
 
 from engine.spam_detector import SpamDetector
 

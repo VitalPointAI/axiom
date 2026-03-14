@@ -10,8 +10,7 @@ import sys
 import json
 import sqlite3
 import requests
-from datetime import datetime
-from typing import Optional, List, Dict, Any, Set
+from typing import Optional, List, Dict, Set
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)
@@ -278,7 +277,7 @@ def index_wallet(wallet_id: int, address: str, chain: str) -> Dict[str, int]:
     print(f"  {len(value_txs)} value transactions, {len(our_sent_hashes)} sent txs (we pay fees)")
     
     # Fetch receipts for transactions we sent (to get gas fees)
-    print(f"  Fetching receipts for fee calculation...")
+    print("  Fetching receipts for fee calculation...")
     receipts = batch_get_receipts(chain, our_sent_hashes)
     print(f"  Got {len(receipts)} receipts")
     

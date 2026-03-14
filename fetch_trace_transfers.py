@@ -3,7 +3,6 @@
 import requests
 import os
 import sqlite3
-from datetime import datetime
 
 ALCHEMY_API_KEY = os.environ.get('ALCHEMY_API_KEY', '')
 url = f'https://eth-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}'

@@ -5,10 +5,8 @@ Fetches current staking positions from FastNEAR and populates the DB.
 """
 
 import os
-import sys
 import requests
 import psycopg2
-from datetime import datetime
 
 # PostgreSQL connection
 PG_CONN = "postgresql://neartax:lqxBcUTkcgZdzrNdqYxcsFVGEwkEldMx@localhost:5432/neartax"
@@ -131,7 +129,7 @@ def sync_staking(user_id: int = None):
         # Get staking pools
         pools = get_staking_pools(account_id)
         if not pools:
-            print(f"  No staking pools found")
+            print("  No staking pools found")
             continue
         
         print(f"  Found {len(pools)} pools")
@@ -177,7 +175,7 @@ def sync_staking(user_id: int = None):
             
             for tx in txns:
                 tx_hash = tx.get("transaction_hash", "")
-                block_height = tx.get("included_in_block_height", 0)
+                tx.get("included_in_block_height", 0)
                 block_ts = int(tx.get("block_timestamp", 0))
                 receiver = tx.get("receiver_account_id", "")
                 actions = tx.get("actions", [])
@@ -220,20 +218,20 @@ def sync_staking(user_id: int = None):
                         ON CONFLICT DO NOTHING
                     """, (wallet_id, validator, event_type, str(amount), tx_hash, block_ts))
                     events_added += 1
-                except Exception as e:
+                except Exception:
                     conn.rollback()  # Rollback and continue
         
         # Commit after each wallet
         try:
             conn.commit()
-        except:
+        except Exception:
             conn.rollback()
     
     conn.commit()
     conn.close()
     
     print(f"\n{'='*50}")
-    print(f"Sync complete!")
+    print("Sync complete!")
     print(f"  Total staked: {total_staked:.2f} NEAR")
     print(f"  Positions added/updated: {positions_added}")
     print(f"  Events added: {events_added}")

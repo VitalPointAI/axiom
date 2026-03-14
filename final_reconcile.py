@@ -74,7 +74,7 @@ total_out = eth_out_value + int_out + eth_out_gas
 computed = total_in - total_out
 
 print(f"\n{'='*60}")
-print(f"ETHERSCAN TOTALS:")
+print("ETHERSCAN TOTALS:")
 print(f"  Total IN:  {total_in:.6f} ETH")
 print(f"  Total OUT: {total_out:.6f} ETH")
 print(f"  Computed:  {computed:.6f} ETH")
@@ -101,7 +101,7 @@ print(f"  IN:  {our_in:.6f} ETH")
 print(f"  OUT: {our_out:.6f} ETH")
 print(f"  Computed: {our_in - our_out:.6f} ETH")
 
-print(f"\nDISCREPANCY:")
+print("\nDISCREPANCY:")
 print(f"  IN diff:  {our_in - total_in:.6f} ETH")
 print(f"  OUT diff: {our_out - total_out:.6f} ETH")
 

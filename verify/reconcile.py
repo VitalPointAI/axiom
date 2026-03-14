@@ -24,7 +24,6 @@ from config import FASTNEAR_RPC, RECONCILIATION_TOLERANCES
 from indexers.evm_fetcher import (
     CHAIN_CONFIG,
     CHAIN_KEY_MAP,
-    CHAIN_NAME_MAP,
     ETHERSCAN_V2_URL,
 )
 from db.audit import write_audit

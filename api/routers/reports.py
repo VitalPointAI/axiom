@@ -30,7 +30,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
-from api.dependencies import get_effective_user, get_pool_dep, require_admin
+from api.dependencies import get_effective_user, get_pool_dep
 from api.rate_limit import limiter
 from api.schemas.reports import (
     ExchangeImportResponse,

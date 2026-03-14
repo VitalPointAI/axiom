@@ -75,7 +75,7 @@ def main():
 
     # Clear old staking positions and insert fresh data
     c.execute("DELETE FROM staking_positions WHERE wallet_id IN (SELECT id FROM wallets WHERE user_id = 1)")
-    print(f"Cleared old staking positions")
+    print("Cleared old staking positions")
 
     # Insert new positions
     for wid, pool, amount in updates:

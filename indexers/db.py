@@ -32,7 +32,6 @@ from psycopg2.extensions import cursor as PgCursor
 
 # Import DATABASE_URL from project config — no hardcoded fallbacks.
 # config.py already prints a warning if DATABASE_URL is None.
-import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import DATABASE_URL, DB_POOL_MIN, DB_POOL_MAX

@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 
 # ---------------------------------------------------------------------------

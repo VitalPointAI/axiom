@@ -2,7 +2,6 @@
 """Find exactly where the missing NEAR is in CDAO wallets."""
 import sqlite3
 import requests
-import json
 
 conn = sqlite3.connect("neartax.db")
 cur = conn.cursor()
@@ -122,6 +121,6 @@ for wallet in ["vpacademy.cdao.near"]:  # Start with one
                 
                 # If missing, check what we have for this tx
                 if tx_hash not in our_hashes:
-                    print(f"    ^ This transaction is NOT in our database!")
+                    print("    ^ This transaction is NOT in our database!")
 
 conn.close()

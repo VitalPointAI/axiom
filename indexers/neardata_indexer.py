@@ -33,9 +33,8 @@ import signal
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Set, Dict, List, Any, Tuple
+from typing import Optional, Set, Dict, List, Tuple
 from dataclasses import dataclass, asdict
-from collections import defaultdict
 import hashlib
 
 # Configuration
@@ -433,7 +432,6 @@ class NEARDataIndexer:
         for tx in transactions:
             # Find wallet_id for this transaction (check both signer and receiver)
             wallet_id = None
-            matched_account = None
             
             for check_field in ['signer_id', 'receiver_id']:
                 cursor.execute(
@@ -443,7 +441,7 @@ class NEARDataIndexer:
                 row = cursor.fetchone()
                 if row:
                     wallet_id = row[0]
-                    matched_account = row[1]
+                    row[1]
                     break
             
             if wallet_id:
@@ -487,10 +485,10 @@ class NEARDataIndexer:
         txs = self.extract_transactions_for_wallets(block_data)
         
         if txs:
-            new_count = self.save_transactions(txs)
+            self.save_transactions(txs)
             self.stats['blocks_with_matches'] += 1
         else:
-            new_count = 0
+            pass
         
         self.stats['blocks_processed'] += 1
         

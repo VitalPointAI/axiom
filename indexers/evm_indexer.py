@@ -10,7 +10,7 @@ Now uses unified V2 endpoint with chainid parameter.
 import time
 import requests
 from pathlib import Path
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List
 from decimal import Decimal
 import sys
 import os
@@ -143,7 +143,7 @@ class EVMIndexer:
                     raise Exception(f"Chain requires paid API plan: {msg}")
             
             return data
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException:
             if retries < MAX_RETRIES:
                 time.sleep(RATE_LIMIT_DELAY)
                 return self._request(params, retries + 1)
@@ -303,7 +303,7 @@ def index_evm_account(address: str, chain: str, api_key: Optional[str] = None, f
         print(f"  Current balance: {balance:.6f} {config['symbol']}")
         
         # 1. Normal transactions
-        print(f"  Fetching normal transactions...")
+        print("  Fetching normal transactions...")
         normal_txs = indexer.get_normal_transactions(address, start_block)
         print(f"  Found {len(normal_txs)} normal transactions")
         
@@ -342,7 +342,7 @@ def index_evm_account(address: str, chain: str, api_key: Optional[str] = None, f
         conn.commit()
         
         # 2. Internal transactions (contract calls with value)
-        print(f"  Fetching internal transactions...")
+        print("  Fetching internal transactions...")
         internal_txs = indexer.get_internal_transactions(address, start_block)
         print(f"  Found {len(internal_txs)} internal transactions")
         
@@ -380,7 +380,7 @@ def index_evm_account(address: str, chain: str, api_key: Optional[str] = None, f
         conn.commit()
         
         # 3. ERC20 token transfers
-        print(f"  Fetching ERC20 transfers...")
+        print("  Fetching ERC20 transfers...")
         erc20_txs = indexer.get_erc20_transfers(address, start_block)
         print(f"  Found {len(erc20_txs)} ERC20 transfers")
         
@@ -421,7 +421,7 @@ def index_evm_account(address: str, chain: str, api_key: Optional[str] = None, f
         conn.commit()
         
         # 4. NFT transfers (ERC721)
-        print(f"  Fetching NFT transfers...")
+        print("  Fetching NFT transfers...")
         nft_txs = indexer.get_erc721_transfers(address, start_block)
         print(f"  Found {len(nft_txs)} NFT transfers")
         

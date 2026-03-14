@@ -93,7 +93,7 @@ def slow_sync_all():
             time.sleep(INTER_WALLET_DELAY)
     
     print()
-    print(f"📊 Summary:")
+    print("📊 Summary:")
     print(f"  ✅ Synced: {synced}")
     print(f"  ❌ Errors: {errors}")
     print(f"  ⏳ Remaining: {len(wallets) - synced - errors}")

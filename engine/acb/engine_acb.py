@@ -9,7 +9,7 @@ Persists per-transaction ACBSnapshot rows and delegates gain/income
 ledger writes to GainsCalculator.
 """
 
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from typing import Optional
 import logging
 

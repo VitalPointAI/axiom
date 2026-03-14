@@ -10,7 +10,6 @@ Decimal handling (CORRECTED):
 """
 
 import json
-import sys
 import base64
 import requests
 import psycopg2

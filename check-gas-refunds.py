@@ -2,7 +2,6 @@
 """Check for gas refunds in CDAO transactions."""
 import sqlite3
 import requests
-import json
 
 conn = sqlite3.connect("neartax.db")
 cur = conn.cursor()

@@ -9,7 +9,7 @@ Covers:
   - User isolation — only shows issues for user's wallets
 """
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -190,7 +190,7 @@ def test_user_isolation(auth_client, mock_cursor):
 
 def test_verification_resolve(auth_client, mock_cursor):
     """POST /api/verification/resolve/{id} marks issue as resolved."""
-    mock_cursor.fetchone.return_value = (1,)  # ownership check
+    mock_cursor.fetchone.return_value = (1, "missing_staking_rewards", "open")  # id, diagnosis_category, status
 
     resp = auth_client.post("/api/verification/resolve/1", json={"mark_reviewed": True})
     assert resp.status_code == 200

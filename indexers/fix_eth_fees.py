@@ -65,7 +65,7 @@ with sqlite3.connect('/home/deploy/neartax/neartax.db') as conn:
         db_fees = row[2] or 0
         computed = total_in - total_out - db_fees
 
-        print(f'\nFinal verification:')
+        print('\nFinal verification:')
         print(f'  IN: {total_in:.6f} ETH')
         print(f'  OUT: {total_out:.6f} ETH')
         print(f'  Fees: {db_fees:.6f} ETH')

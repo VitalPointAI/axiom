@@ -19,7 +19,6 @@ Job is marked failed by IndexerService with the error message.
 
 import json
 import logging
-from typing import Optional
 
 from reports.generate import PackageBuilder
 from reports.engine import ReportBlockedError

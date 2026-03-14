@@ -9,7 +9,7 @@ import sqlite3
 import requests
 from datetime import datetime, timezone
 import time
-from typing import Dict, Optional
+from typing import Dict
 import sys
 
 # CryptoCompare API
@@ -115,7 +115,7 @@ def update_transaction_prices(db_path: str = 'neartax.db'):
             dt = datetime.strptime(row['date'], '%Y-%m-%d %H:%M')
             hour_ts = int(dt.replace(tzinfo=timezone.utc).timestamp())
             prices[hour_ts] = row['price']
-        except:
+        except Exception:
             pass
     
     print(f"Loaded {len(prices)} prices into memory")

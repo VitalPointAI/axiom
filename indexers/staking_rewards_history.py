@@ -12,8 +12,7 @@ This script analyzes balance changes over time to identify reward events.
 """
 
 import time
-import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 import sys
 

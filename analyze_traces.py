@@ -2,7 +2,6 @@
 """Full trace analysis to find missing ETH"""
 import requests
 import os
-import json
 
 ALCHEMY_API_KEY = os.environ.get('ALCHEMY_API_KEY', '')
 url = f'https://eth-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}'

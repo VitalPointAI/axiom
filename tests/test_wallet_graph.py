@@ -7,9 +7,8 @@ All tests use mocked DB connections — no live database required.
 """
 
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from engine.wallet_graph import WalletGraph
 

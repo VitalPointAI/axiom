@@ -2,7 +2,6 @@
 """Trace full transaction flow to find any missing receipts."""
 import sqlite3
 import requests
-import time
 
 conn = sqlite3.connect("neartax.db")
 cur = conn.cursor()
@@ -64,18 +63,18 @@ print("ANALYSIS:")
 print("="*70)
 
 # Check if gap matches storage
-print(f"\n1. Storage check:")
-print(f"   If storage was funded from deposits, gap should be ~= -storage")
+print("\n1. Storage check:")
+print("   If storage was funded from deposits, gap should be ~= -storage")
 print(f"   Storage: {storage_cost:.6f} NEAR")
 print(f"   Gap:     {gap:.6f} NEAR")
 print(f"   Gap + Storage = {gap + storage_cost:.6f} NEAR")
 
 # Check total fees vs expected
-print(f"\n2. Fee analysis:")
+print("\n2. Fee analysis:")
 print(f"   Total fees recorded: {fees:.6f} NEAR")
 
 # Check if there are any transactions with unusual amounts
-print(f"\n3. Checking for precision issues:")
+print("\n3. Checking for precision issues:")
 cur.execute("""
     SELECT COUNT(*) FROM transactions 
     WHERE wallet_id = ? AND (
@@ -86,7 +85,7 @@ non_round = cur.fetchone()[0]
 print(f"   Transactions with non-integer yoctoNEAR amounts: {non_round}")
 
 # The most likely explanation
-print(f"\n4. Likely explanation:")
+print("\n4. Likely explanation:")
 if abs(gap + storage_cost) < 0.5:
     print("   Gap is approximately equal to storage cost.")
     print("   The storage was funded from initial deposits but isn't counted as OUT.")

@@ -8,10 +8,9 @@ Tests verify:
 
 import os
 import sys
-import json
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock
 from datetime import datetime
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -25,7 +24,6 @@ from tests.fixtures.exchange_csv_samples import (
     UPHOLD_CSV,
     COINSQUARE_CSV,
 )
-from indexers.exchange_parsers.base import BaseExchangeParser
 from indexers.exchange_parsers.coinbase import CoinbaseParser
 from indexers.exchange_parsers.crypto_com import CryptoComParser
 from indexers.exchange_parsers.wealthsimple import WealthsimpleParser
@@ -334,7 +332,7 @@ class TestImportToDb(unittest.TestCase):
         mock_cursor.execute.side_effect = Exception("DB error")
 
         try:
-            result = parser.import_to_db(path, user_id=1, pool=mock_pool)
+            parser.import_to_db(path, user_id=1, pool=mock_pool)
         finally:
             os.unlink(path)
 
@@ -454,7 +452,7 @@ class TestParserRobustness(unittest.TestCase):
         }
         # Should not raise — may return None or partial
         try:
-            result = parser.parse_row(row)
+            parser.parse_row(row)
         except Exception:
             self.fail("parse_row raised exception on malformed amount")
 
@@ -472,7 +470,7 @@ class TestParserRobustness(unittest.TestCase):
         }
         # Should return None or handle gracefully
         try:
-            result = parser.parse_row(row)
+            parser.parse_row(row)
         except Exception:
             self.fail("parse_row raised exception on empty date")
 

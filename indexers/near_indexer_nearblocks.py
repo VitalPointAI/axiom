@@ -4,20 +4,16 @@
 Replaces Pikespeak with NearBlocks for more accurate transaction data.
 """
 
-import json
 import sys
 import time
 import requests
 from pathlib import Path
-from datetime import datetime
 from typing import Optional
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import psycopg2
-from psycopg2.extras import execute_values
-import os
 
 # Load API key from .env file
 def _load_env_key():
@@ -53,7 +49,7 @@ def get_transactions(account_id: str, after_timestamp: Optional[int] = None, lim
         try:
             resp = requests.get(url, params=params, headers={'Authorization': f'Bearer {NEARBLOCKS_API_KEY}'} if NEARBLOCKS_API_KEY else {}, timeout=30)
             if resp.status_code == 429:
-                print(f"  Rate limited, waiting 10s...")
+                print("  Rate limited, waiting 10s...")
                 time.sleep(10)
                 continue
             if resp.status_code != 200:
@@ -102,7 +98,7 @@ def get_ft_transfers(account_id: str, after_timestamp: Optional[int] = None, lim
         try:
             resp = requests.get(url, params=params, headers={'Authorization': f'Bearer {NEARBLOCKS_API_KEY}'} if NEARBLOCKS_API_KEY else {}, timeout=30)
             if resp.status_code == 429:
-                print(f"  Rate limited on FT, waiting 10s...")
+                print("  Rate limited on FT, waiting 10s...")
                 time.sleep(10)
                 continue
             if resp.status_code != 200:

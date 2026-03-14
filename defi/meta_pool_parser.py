@@ -37,7 +37,7 @@ def parse_meta_pool_transactions():
     # Check if defi_events table exists
     try:
         conn.execute("SELECT 1 FROM defi_events LIMIT 1")
-    except:
+    except Exception:
         from defi.burrow_parser import create_defi_events_table
         create_defi_events_table()
     
@@ -70,7 +70,7 @@ def parse_meta_pool_transactions():
         try:
             decimals = decimals or 24  # NEAR uses 24 decimals
             amount_decimal = float(amount) / (10 ** decimals) if amount else 0
-        except:
+        except Exception:
             amount_decimal = 0
         
         event_type = None

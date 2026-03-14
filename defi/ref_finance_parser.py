@@ -13,7 +13,6 @@ Ref Finance is the main DEX on NEAR. Tax implications:
 import logging
 import sys
 from pathlib import Path
-from datetime import datetime
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)

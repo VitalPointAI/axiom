@@ -6,7 +6,6 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-import config
 from db.init import get_connection
 from indexers.near_indexer import index_account
 
@@ -37,7 +36,7 @@ for wallet in wallets:
     conn.execute("DELETE FROM indexing_progress WHERE wallet_id = ?", (wallet_id,))
     
     conn.commit()
-    print(f"  Cleared. Re-indexing...")
+    print("  Cleared. Re-indexing...")
 
 conn.close()
 

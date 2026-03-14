@@ -52,7 +52,7 @@ def process_mpdao_lock(tx, wallet_id, account_id):
         
         try:
             args = json.loads(args_str) if isinstance(args_str, str) else args_str
-        except:
+        except Exception:
             args = {}
         
         # LOCK: claim_and_lock or bond_mpdao
@@ -68,7 +68,7 @@ def process_mpdao_lock(tx, wallet_id, account_id):
         
         # UNLOCK: claim_unlocked_mpdao or delegated_claim_unlocked_mpdao
         elif method in ("claim_unlocked_mpdao", "delegated_claim_unlocked_mpdao"):
-            print(f"  [mpDAO] Unlock detected, refreshing from contract...")
+            print("  [mpDAO] Unlock detected, refreshing from contract...")
             refresh_locked_position(wallet_id, account_id)
 
 

@@ -7,9 +7,7 @@ CLASS-05 (EVM classification), and multi-leg decomposition.
 All database interactions are mocked so no live DB is required.
 """
 
-from decimal import Decimal
-from unittest.mock import MagicMock, patch, call
-import pytest
+from unittest.mock import MagicMock, patch
 
 from engine.classifier import TransactionClassifier
 from tax.categories import TaxCategory
@@ -398,7 +396,6 @@ class TestEVMClassification:
                 "raw_data": {"input": "0x38ed1739000000000000000"},
                 "chain": "ethereum",
             }
-            groups = {"0xabc123": [tx]}
             results = clf._classify_evm_tx_group(
                 user_id=1,
                 txs=[tx],
@@ -716,8 +713,8 @@ class TestSwapDecomposition:
         assert "fee_leg" in leg_types
 
         # All children reference the parent (parent_classification_id)
-        parent_row = next(r for r in results if r["leg_type"] == "parent")
-        children = [r for r in results if r["leg_type"] != "parent"]
+        next(r for r in results if r["leg_type"] == "parent")
+        [r for r in results if r["leg_type"] != "parent"]
         fee = next(r for r in results if r["leg_type"] == "fee_leg")
         assert fee["leg_index"] == 2, f"fee_leg index should be 2, got {fee['leg_index']}"
 

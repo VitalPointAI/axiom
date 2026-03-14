@@ -16,9 +16,8 @@ For crypto:
 import sqlite3
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 from dataclasses import dataclass
-import json
 
 @dataclass
 class TaxLot:

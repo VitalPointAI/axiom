@@ -48,7 +48,7 @@ class CryptoOrgIndexer:
             response = requests.get(url, params=params, timeout=30)
             response.raise_for_status()
             return response.json()
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException:
             if retries < MAX_RETRIES:
                 if len(CRYPTOORG_LCD_ENDPOINTS) > 1:
                     endpoint_idx = (CRYPTOORG_LCD_ENDPOINTS.index(self.endpoint) + 1) % len(CRYPTOORG_LCD_ENDPOINTS)
@@ -223,7 +223,7 @@ def parse_cryptoorg_transaction(tx_resp: Dict, wallet_address: str) -> Dict:
     try:
         dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
         unix_timestamp = int(dt.timestamp())
-    except:
+    except Exception:
         unix_timestamp = 0
     
     tx = tx_resp.get('tx', {})
@@ -308,9 +308,9 @@ def index_cryptoorg_account(address: str, force: bool = False) -> int:
         for denom, amount in balances.items():
             print(f"  Balance: {amount:.6f} {denom}")
         if not balances:
-            print(f"  Balance: 0 CRO")
+            print("  Balance: 0 CRO")
         
-        print(f"  Fetching transactions...")
+        print("  Fetching transactions...")
         txs = indexer.get_all_transactions(address)
         print(f"  Found {len(txs)} transactions")
         

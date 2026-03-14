@@ -9,17 +9,15 @@ import json
 import logging
 import sys
 import os
-from decimal import Decimal
 from typing import Optional, Tuple
 
 import requests
-from psycopg2.extras import execute_values
 
 # Ensure project root is importable
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from config import FASTNEAR_RPC, NEARBLOCKS_API_KEY
+from config import FASTNEAR_RPC
 from indexers.nearblocks_client import NearBlocksClient
 
 logger = logging.getLogger(__name__)

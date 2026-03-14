@@ -27,7 +27,7 @@ import base64
 import logging
 import time
 import requests
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from decimal import Decimal, getcontext
 from typing import Optional
 import sys

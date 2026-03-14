@@ -6,16 +6,14 @@ Fetches transaction history from Coinbase Pro / Advanced Trade API
 """
 
 import os
-import sys
 import hmac
 import hashlib
 import time
 import json
 import warnings
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 import psycopg2
-from psycopg2.extras import execute_values
 
 warnings.warn(
     "coinbase_pro_indexer.py is deprecated. "
@@ -182,7 +180,7 @@ def sync_coinbase_connection(conn, connection_id: int, api_key: str, api_secret:
             side = order.get("side", "").upper()
             size = float(order.get("size", 0))
             price = float(order.get("price", 0))
-            fee = float(order.get("fee", 0))
+            float(order.get("fee", 0))
             trade_time = order.get("trade_time", datetime.utcnow().isoformat())
             
             # Buy = receive base asset, spend quote
@@ -292,7 +290,7 @@ def main():
             try:
                 config_data = json.loads(config) if isinstance(config, str) else config
                 passphrase = config_data.get("passphrase")
-            except:
+            except Exception:
                 pass
         
         sync_coinbase_connection(conn, conn_id, api_key, api_secret, passphrase)

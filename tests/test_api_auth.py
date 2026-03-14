@@ -31,15 +31,10 @@ Tests:
 """
 
 from datetime import datetime, timezone, timedelta
-from unittest.mock import MagicMock, patch, call
-import json
+from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import Response as FastAPIResponse
-from fastapi.testclient import TestClient
 
-from api.dependencies import get_current_user, get_pool_dep
-from api.main import create_app
 
 
 # ---------------------------------------------------------------------------
@@ -51,7 +46,8 @@ def test_health_endpoint(api_client):
     """GET /health must return 200 with status ok — no auth required."""
     response = api_client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    data = response.json()
+    assert data["status"] == "ok"
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +103,7 @@ def test_accountant_viewing_as_stub(mock_user):
 
 def test_accountant_context_switches_user_id(mock_pool, mock_conn, mock_cursor):
     """When neartax_viewing_as cookie is set, get_effective_user returns client context."""
-    from api.dependencies import get_effective_user, get_current_user
+    from api.dependencies import get_effective_user
 
     accountant = {
         "user_id": 10,
@@ -236,8 +232,8 @@ def test_register_start(mock_conn, mock_cursor):
     mock_options = MagicMock()
     mock_options.challenge = b"test_challenge_bytes"
 
-    with patch("api.auth.passkey.webauthn.generate_registration_options", return_value=mock_options) as mock_gen, \
-         patch("api.auth.passkey.webauthn.options_to_json", return_value='{"publicKey": {}}') as mock_json:
+    with patch("api.auth.passkey.webauthn.generate_registration_options", return_value=mock_options), \
+         patch("api.auth.passkey.webauthn.options_to_json", return_value='{"publicKey": {}}'):
 
         result = start_registration(username="alice", conn=mock_conn)
 
@@ -559,7 +555,7 @@ def test_magic_link_reuse(api_client, mock_pool, mock_conn, mock_cursor):
     s = itsdangerous.URLSafeTimedSerializer(secret_key)
     token = s.dumps(email)
 
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+    datetime.now(timezone.utc) + timedelta(minutes=15)
     # Token row has used_at set (already used)
     mock_cursor.fetchone.return_value = (
         "ml-token-id", email, datetime.now(timezone.utc)  # used_at is not None

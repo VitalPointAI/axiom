@@ -6,7 +6,6 @@ routes to the correct parser, and updates the file_imports table with results.
 """
 
 import logging
-from typing import Optional
 
 from indexers.exchange_parsers.coinbase import CoinbaseParser
 from indexers.exchange_parsers.crypto_com import CryptoComParser

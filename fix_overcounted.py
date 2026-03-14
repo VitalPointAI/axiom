@@ -90,7 +90,7 @@ cursor.execute('''
 ''')
 fixed_data = dict(cursor.fetchall())
 
-print(f"\nAFTER FIX (excluding INTERNAL_TRANSFER):")
+print("\nAFTER FIX (excluding INTERNAL_TRANSFER):")
 print(f"  IN:  {fixed_data.get('IN', 0):.6f} ETH")
 print(f"  OUT: {fixed_data.get('OUT', 0):.6f} ETH")
 print(f"  Computed: {fixed_data.get('IN', 0) - fixed_data.get('OUT', 0):.6f} ETH")

@@ -17,7 +17,6 @@ Usage:
 """
 
 import sqlite3
-from datetime import datetime, timezone
 import sys
 
 # Thresholds for categorization
@@ -55,7 +54,7 @@ def fix_system_deposits(db_path: str):
         
         try:
             amount_near = float(amount_raw) / 1e24
-        except:
+        except Exception:
             continue
         
         total_near += amount_near
@@ -84,7 +83,7 @@ def fix_system_deposits(db_path: str):
     
     conn.commit()
     
-    print(f"\nResults:")
+    print("\nResults:")
     print(f"  Total system deposits: {total_near:,.2f} NEAR")
     print(f"  Recategorized as unstake_return: {returns_near:,.2f} NEAR ({returns_near/total_near*100:.1f}%)")
     print(f"  Recategorized as staking_income: {rewards_near:,.2f} NEAR ({rewards_near/total_near*100:.1f}%)")
@@ -98,7 +97,7 @@ def fix_system_deposits(db_path: str):
         GROUP BY tax_category
     """)
     
-    print(f"\nSystem deposits after fix:")
+    print("\nSystem deposits after fix:")
     for row in cur.fetchall():
         print(f"  {row[0]}: {row[1]} txs, {row[2]:,.2f} NEAR")
     

@@ -1,6 +1,6 @@
 """Exchange CSV parsers for various crypto exchanges."""
 
-from .base import BaseExchangeParser
+from .base import BaseExchangeParser  # noqa: F401 — re-exported
 from .coinbase import CoinbaseParser
 from .crypto_com import CryptoComParser
 from .wealthsimple import WealthsimpleParser

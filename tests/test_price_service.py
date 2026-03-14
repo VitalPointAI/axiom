@@ -14,7 +14,7 @@ Coverage:
 
 import pytest
 from decimal import Decimal
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 import sys
 import os
 
@@ -96,8 +96,8 @@ class TestCacheMissCoingecko:
         svc = PriceService(pool)
 
         with patch.object(svc, "_fetch_coingecko", return_value=Decimal("6.00")) as mock_cg, \
-             patch.object(svc, "_fetch_cryptocompare", return_value=None) as mock_cc, \
-             patch.object(svc, "_cache_price") as mock_cache:
+             patch.object(svc, "_fetch_cryptocompare", return_value=None), \
+             patch.object(svc, "_cache_price"):
             price = svc.get_price("near", "2025-01-15", "usd")
 
         assert price == Decimal("6.00")
@@ -220,7 +220,7 @@ class TestOutlierFiltering:
 class TestCoinSymbolMapping:
     def test_near_maps_to_NEAR_symbol(self):
         """coin_id 'near' should map to 'NEAR' for CryptoCompare API."""
-        from indexers.price_service import PriceService, COIN_SYMBOL_MAP
+        from indexers.price_service import COIN_SYMBOL_MAP
 
         assert COIN_SYMBOL_MAP.get("near") == "NEAR"
 
@@ -255,7 +255,7 @@ class TestGetPriceBatch:
 
         svc = PriceService(pool)
 
-        with patch.object(svc, "get_price", side_effect=lambda c, d, cur="usd": Decimal("5.00")) as mock_gp:
+        with patch.object(svc, "get_price", side_effect=lambda c, d, cur="usd": Decimal("5.00")):
             result = svc.get_price_batch("near", "2025-01-01", "2025-01-03", "usd")
 
         assert "2025-01-01" in result
@@ -306,7 +306,7 @@ class TestGetCadRate:
 
         # If not cached, should attempt to fetch (we mock to prevent real HTTP)
         with patch.object(svc, "_fetch_cad_rate", return_value=Decimal("1.38")) as mock_fetch:
-            rate = svc.get_cad_rate("2025-01-15")
+            svc.get_cad_rate("2025-01-15")
 
         mock_fetch.assert_called_once_with("2025-01-15")
 
@@ -381,7 +381,7 @@ class TestMinutePriceCache:
 
         Expect: no DB or HTTP call made for stablecoin coin_ids
         """
-        from indexers.price_service import PriceService, STABLECOIN_MAP
+        from indexers.price_service import PriceService
 
         pool, conn, cur = make_mock_pool()
         svc = PriceService(pool)

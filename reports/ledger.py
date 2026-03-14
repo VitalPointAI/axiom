@@ -9,11 +9,10 @@ Exports:
 """
 
 import logging
-from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
-from reports.engine import ReportEngine, fiscal_year_range, fmt_cad, fmt_units
+from reports.engine import ReportEngine, fiscal_year_range, fmt_cad
 
 logger = logging.getLogger(__name__)
 
@@ -78,9 +77,9 @@ class LedgerReport(ReportEngine):
 
         # Convert dates to epoch nanoseconds for NEAR block_timestamp comparison
         # and use plain date for exchange tx_date comparison
-        start_epoch_ns = int(start_date.strftime('%s')) * 1_000_000_000 \
+        int(start_date.strftime('%s')) * 1_000_000_000 \
             if hasattr(start_date, 'strftime') else 0
-        end_epoch_ns = int(end_date.strftime('%s')) * 1_000_000_000 \
+        int(end_date.strftime('%s')) * 1_000_000_000 \
             if hasattr(end_date, 'strftime') else 0
 
         # Compute epoch seconds from dates for timestamp comparison

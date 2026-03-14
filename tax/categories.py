@@ -149,7 +149,7 @@ def categorize_near_transaction(
             return CategoryResult(TaxCategory.LIQUIDITY_OUT, 0.90, "LP withdrawal")
     
     # === LENDING / BURROW ===
-    if any(l in counter for l in LENDING_CONTRACTS):
+    if any(lc in counter for lc in LENDING_CONTRACTS):
         if method in ["supply", "deposit"]:
             return CategoryResult(TaxCategory.COLLATERAL_IN, 0.90, "Lending deposit")
         if method in ["withdraw"]:

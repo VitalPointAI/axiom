@@ -9,7 +9,6 @@ Contains:
 """
 
 import logging
-from decimal import Decimal
 
 from db.audit import write_audit
 

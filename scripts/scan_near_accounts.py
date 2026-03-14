@@ -14,7 +14,7 @@ import requests
 import sys
 import os
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from decimal import Decimal
 import time
 
@@ -82,7 +82,7 @@ def get_staked_balance(account_id: str, pool_id: str) -> Optional[Decimal]:
             result_bytes = bytes(data["result"]["result"])
             balance_str = result_bytes.decode().strip('"')
             return Decimal(balance_str) / Decimal(10**24)
-    except Exception as e:
+    except Exception:
         pass
     return Decimal(0)
 
@@ -122,7 +122,7 @@ def get_ft_transfers(account_id: str) -> List[Dict]:
         resp = requests.get(url, params=params, timeout=30)
         if resp.status_code == 200:
             return resp.json().get("txns", [])
-    except:
+    except Exception:
         pass
     return []
 
@@ -134,7 +134,7 @@ def get_nft_transfers(account_id: str) -> List[Dict]:
         resp = requests.get(url, params=params, timeout=30)
         if resp.status_code == 200:
             return resp.json().get("txns", [])
-    except:
+    except Exception:
         pass
     return []
 
@@ -155,7 +155,6 @@ def classify_transaction(txn: Dict, account_id: str, own_accounts: set) -> Dict:
     
     # Determine direction
     is_incoming = receiver == account_id
-    is_outgoing = sender == account_id
     
     # Check if transfer between own accounts
     counterparty = sender if is_incoming else receiver
@@ -293,14 +292,14 @@ def main():
         print(f"Results saved to {args.output}", file=sys.stderr)
     
     # Print summary
-    print(f"\n=== SCAN SUMMARY ===")
+    print("\n=== SCAN SUMMARY ===")
     print(f"Accounts scanned: {len(results)}")
     print(f"Total NEAR balance: {total_balance:.4f} NEAR")
     
     # Show top 10 by balance
     sorted_results = sorted([r for r in results if "total_balance" in r], 
                            key=lambda x: x["total_balance"], reverse=True)
-    print(f"\nTop 10 accounts by balance:")
+    print("\nTop 10 accounts by balance:")
     for r in sorted_results[:10]:
         print(f"  {r['account']}: {r['total_balance']:.4f} NEAR")
 

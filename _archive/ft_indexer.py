@@ -8,7 +8,6 @@ import os
 import time
 import requests
 from pathlib import Path
-from decimal import Decimal
 import sys
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -324,7 +323,6 @@ def index_all_ft(force: bool = False):
     print("-" * 50)
     
     total_txns = 0
-    tokens_seen = set()
     
     for wallet_id, account_id in wallets:
         try:

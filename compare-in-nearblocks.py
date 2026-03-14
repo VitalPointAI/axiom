@@ -60,7 +60,7 @@ print(f"NearBlocks total IN: {nb_in_total:.4f} NEAR")
 print(f"Difference: {db_total - nb_in_total:+.4f} NEAR")
 
 # Check if the difference explains our gap
-print(f"\nOur verification gap: -1.10 NEAR")
+print("\nOur verification gap: -1.10 NEAR")
 print(f"IN difference:        {db_total - nb_in_total:+.4f} NEAR")
 
 if db_total > nb_in_total:

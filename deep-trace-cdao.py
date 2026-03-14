@@ -25,13 +25,13 @@ with sqlite3.connect("neartax.db") as conn:
         storage_bytes = result.get("storage_usage", 0)
         storage_cost = storage_bytes * 1e-5
 
-        print(f"\nRPC State:")
+        print("\nRPC State:")
         print(f"  Available balance: {rpc_balance:12.4f} NEAR")
         print(f"  Storage ({storage_bytes:,} bytes): {storage_cost:12.4f} NEAR (locked)")
         print(f"  Total in account:  {rpc_balance + storage_cost:12.4f} NEAR")
 
         # Trace all IN by action type
-        print(f"\n--- INFLOWS ---")
+        print("\n--- INFLOWS ---")
         cur.execute("""
             SELECT action_type, method_name, counterparty,
                    SUM(CAST(amount AS REAL)/1e24) as total,
@@ -54,7 +54,7 @@ with sqlite3.connect("neartax.db") as conn:
         print(f"\n  Total IN (excl self): {total_in:12.4f} NEAR")
 
         # Trace all OUT by counterparty
-        print(f"\n--- OUTFLOWS ---")
+        print("\n--- OUTFLOWS ---")
         cur.execute("""
             SELECT counterparty,
                    SUM(CAST(amount AS REAL)/1e24) as total,
@@ -88,7 +88,7 @@ with sqlite3.connect("neartax.db") as conn:
             )
         """, (wallet_id,))
         total_fees = cur.fetchone()[0] or 0
-        print(f"\n--- FEES ---")
+        print("\n--- FEES ---")
         print(f"  Total fees (unique per tx): {total_fees:12.6f} NEAR")
 
         # Calculate
@@ -96,12 +96,12 @@ with sqlite3.connect("neartax.db") as conn:
         diff = computed - rpc_balance
 
         print(f"\n{'='*70}")
-        print(f"SUMMARY")
+        print("SUMMARY")
         print(f"{'='*70}")
         print(f"  IN (excl self):    {total_in:12.4f} NEAR")
         print(f"  OUT (excl self):  -{total_out:12.4f} NEAR")
         print(f"  Fees:             -{total_fees:12.6f} NEAR")
-        print(f"  ─────────────────────────────────────")
+        print("  ─────────────────────────────────────")
         print(f"  Computed:          {computed:12.4f} NEAR")
         print(f"  RPC balance:       {rpc_balance:12.4f} NEAR")
         print(f"  DIFFERENCE:        {diff:+12.4f} NEAR")

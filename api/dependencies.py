@@ -9,12 +9,10 @@ fastapi.concurrency.run_in_threadpool() where needed so they don't block
 the async event loop in production.
 """
 
-from datetime import datetime, timezone
 from typing import Generator, Optional
 
 import psycopg2.extensions
 from fastapi import Cookie, Depends, HTTPException, status
-from fastapi.concurrency import run_in_threadpool
 
 import indexers.db as _db
 

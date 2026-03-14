@@ -13,7 +13,6 @@ import requests
 from datetime import datetime, timezone, timedelta
 import csv
 import sys
-import time
 
 def import_from_csv(db_path: str, csv_path: str):
     """Import prices from a CSV file with columns: date,price"""
@@ -34,10 +33,10 @@ def import_from_csv(db_path: str, csv_path: str):
             # Normalize date format
             try:
                 dt = datetime.strptime(date_str, '%Y-%m-%d')
-            except:
+            except Exception:
                 try:
                     dt = datetime.strptime(date_str, '%m/%d/%Y')
-                except:
+                except Exception:
                     continue
             
             store_date = f"{dt.strftime('%Y-%m-%d')} 12:00"

@@ -7,8 +7,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from defi.burrow_parser import parse_burrow_transactions, get_burrow_summary, get_burrow_tax_summary_by_year
-from defi.ref_finance_parser import parse_ref_transactions, get_ref_summary, get_ref_tax_summary_by_year
+from defi.burrow_parser import parse_burrow_transactions, get_burrow_summary
+from defi.ref_finance_parser import parse_ref_transactions, get_ref_summary
 from defi.meta_pool_parser import parse_meta_pool_transactions, get_meta_pool_summary
 from db.init import get_connection
 
@@ -20,7 +20,7 @@ def clear_defi_events():
         conn.execute("DELETE FROM defi_events")
         conn.commit()
         print("Cleared existing DeFi events")
-    except:
+    except Exception:
         pass
     conn.close()
 

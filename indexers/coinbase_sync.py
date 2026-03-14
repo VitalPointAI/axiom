@@ -5,7 +5,6 @@ Coinbase Transaction Sync using official SDK
 import json
 import sqlite3
 import hashlib
-from datetime import datetime
 
 DB_PATH = '/home/deploy/neartax/neartax.db'
 CREDS_PATH = '/home/deploy/neartax/.credentials/coinbase.json'
@@ -36,7 +35,6 @@ def sync_coinbase(user_id: int):
     
     for acc in accounts.accounts:
         currency = acc.currency
-        account_uuid = acc.uuid
         
         # Get transactions for this account
         try:
@@ -74,7 +72,7 @@ def sync_coinbase(user_id: int):
                 except Exception as e:
                     print(f"  Insert error: {e}")
                     skipped += 1
-        except Exception as e:
+        except Exception:
             # Not all currencies have USD pairs
             pass
     

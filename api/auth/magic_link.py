@@ -20,7 +20,6 @@ Configuration via environment variables:
 import os
 import secrets
 from datetime import datetime, timezone, timedelta
-from typing import Optional
 
 import boto3
 import itsdangerous

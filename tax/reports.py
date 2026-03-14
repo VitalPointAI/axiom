@@ -17,9 +17,7 @@ Supports filtering by:
 
 import sys
 from pathlib import Path
-from datetime import datetime, date
-from decimal import Decimal
-import json
+from datetime import datetime
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -225,7 +223,7 @@ class TaxReportGenerator:
             direction, amount, cost = row
             try:
                 amt = float(amount) / 1e24
-            except:
+            except Exception:
                 continue
             
             if direction == "in":
@@ -255,7 +253,7 @@ class TaxReportGenerator:
             try:
                 decimals = decimals or 18
                 amt = float(amount) / (10 ** decimals)
-            except:
+            except Exception:
                 continue
             
             if token not in ft_holdings:
@@ -343,7 +341,6 @@ def generate_t1135_report(year: int, threshold_cad: float = 100000) -> dict:
 
 def print_tax_report(year: int):
     """Print formatted tax report for a year."""
-    from datetime import timedelta
     
     gen = TaxReportGenerator(year)
     
@@ -354,7 +351,7 @@ def print_tax_report(year: int):
     
     # Capital Gains
     cg = gen.get_capital_gains_report(min_value=1.0)
-    print(f"\n📈 CAPITAL GAINS/LOSSES")
+    print("\n📈 CAPITAL GAINS/LOSSES")
     print("-" * 50)
     print(f"  Total Proceeds:    ${cg['summary']['total_proceeds']:>15,.2f}")
     print(f"  Total Cost Basis:  ${cg['summary']['total_cost']:>15,.2f}")
@@ -365,7 +362,7 @@ def print_tax_report(year: int):
     
     # Income
     income = gen.get_income_report()
-    print(f"\n💰 INCOME (Taxable)")
+    print("\n💰 INCOME (Taxable)")
     print("-" * 50)
     for itype, data in income["by_type"].items():
         print(f"  {itype}: ${data['total_usd']:,.2f} ({data['count']} events)")

@@ -9,11 +9,10 @@ No API key required - uses public endpoints.
 import time
 import requests
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from decimal import Decimal
 from datetime import datetime
 import sys
-import os
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -64,7 +63,7 @@ class AkashIndexer:
             response.raise_for_status()
             return response.json()
             
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException:
             if retries < MAX_RETRIES:
                 # Try a different endpoint
                 endpoint_idx = (AKASH_LCD_ENDPOINTS.index(self.endpoint) + 1) % len(AKASH_LCD_ENDPOINTS)
@@ -237,7 +236,7 @@ def parse_akash_transaction(tx_resp: Dict, wallet_address: str) -> Dict:
     try:
         dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
         unix_timestamp = int(dt.timestamp())
-    except:
+    except Exception:
         unix_timestamp = 0
     
     # Determine transaction type from messages
@@ -343,10 +342,10 @@ def index_akash_account(address: str, force: bool = False) -> int:
             print(f"  Balance: {amount:.6f} {denom}")
         
         if not balances:
-            print(f"  Balance: 0 AKT")
+            print("  Balance: 0 AKT")
         
         # Fetch transactions
-        print(f"  Fetching transactions...")
+        print("  Fetching transactions...")
         txs = indexer.get_all_transactions(address)
         print(f"  Found {len(txs)} transactions")
         

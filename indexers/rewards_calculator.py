@@ -10,7 +10,6 @@ For tax purposes, rewards are taxable as income at time of receipt.
 
 import time
 import requests
-from datetime import datetime
 from pathlib import Path
 import sys
 

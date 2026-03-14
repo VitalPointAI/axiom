@@ -23,7 +23,6 @@ Lockup event types tracked:
 import json
 import base64
 import logging
-import time
 import requests
 from datetime import datetime, timezone
 from decimal import Decimal, getcontext
@@ -311,8 +310,8 @@ class LockupFetcher:
         """
         tx_hash = tx.get("transaction_hash") or tx.get("hash")
         block_timestamp = tx.get("block_timestamp")
-        receiver = tx.get("receiver_account_id", "")
-        signer = tx.get("signer_account_id", "")
+        tx.get("receiver_account_id", "")
+        tx.get("signer_account_id", "")
 
         # Parse timestamp to integer nanoseconds
         if isinstance(block_timestamp, str):

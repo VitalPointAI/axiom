@@ -80,7 +80,7 @@ def get_historical_price(coin_id: str, date_str: str) -> float | None:
     try:
         resp = requests.get(url, params=params, headers=headers, timeout=30)
         if resp.status_code == 429:
-            print(f"  Rate limited, waiting 60s...")
+            print("  Rate limited, waiting 60s...")
             time.sleep(60)
             return get_historical_price(coin_id, date_str)
         

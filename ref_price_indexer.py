@@ -12,9 +12,7 @@ Usage:
 import sqlite3
 import requests
 import json
-import time
-from datetime import datetime, timezone
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, Tuple
 import sys
 
 # NEAR RPC endpoint
@@ -112,7 +110,7 @@ class RefPriceIndexer:
         timestamp_s = timestamp_ns // 1_000_000_000
         
         # Use CryptoCompare historical price API
-        url = f"https://min-api.cryptocompare.com/data/pricehistorical"
+        url = "https://min-api.cryptocompare.com/data/pricehistorical"
         params = {
             "fsym": "NEAR",
             "tsyms": "USD",
@@ -162,10 +160,10 @@ class RefPriceIndexer:
                             # Ref finance swap logs format:
                             # {"EVENT_JSON":{"standard":"ref_exchange","version":"1.0.0","event":"swap","data":[...]}}
                             if "EVENT_JSON" in log:
-                                event = json.loads(log.replace("EVENT_JSON:", ""))
+                                json.loads(log.replace("EVENT_JSON:", ""))
                                 # Extract swap data
                                 # ... parsing logic here
-                        except:
+                        except Exception:
                             pass
             
         except Exception as e:
@@ -225,23 +223,20 @@ class RefPriceIndexer:
         for row in rows:
             tx_id = row["id"]
             contract = row["token_contract"]
-            symbol = row["token_symbol"]
+            row["token_symbol"]
             amount_raw = row["amount"]
             timestamp = row["block_timestamp"]
-            tx_hash = row["tx_hash"]
+            row["tx_hash"]
             
             price_usd = None
-            method = None
             
             # 1. Stablecoins = $1
             if contract in STABLECOINS:
                 price_usd = 1.0
-                method = "stablecoin"
             
             # 2. Use current price as approximation (for recent txs)
             elif contract in self.current_prices:
                 price_usd = self.current_prices[contract]
-                method = "current_price"
             
             # 3. Try to estimate from pool ratio
             elif timestamp:
@@ -250,7 +245,6 @@ class RefPriceIndexer:
                     estimated = self.estimate_price_from_pool(contract, near_price)
                     if estimated:
                         price_usd = estimated
-                        method = "pool_ratio"
             
             if price_usd is not None:
                 # Calculate value
@@ -309,7 +303,7 @@ class RefPriceIndexer:
 def main():
     db_path = sys.argv[1] if len(sys.argv) > 1 else "neartax.db"
     
-    print(f"Ref.Finance Price Indexer")
+    print("Ref.Finance Price Indexer")
     print(f"Database: {db_path}")
     print("=" * 60)
     
@@ -320,7 +314,7 @@ def main():
     
     # Price transactions
     print("\nPricing transactions...")
-    priced = indexer.price_ft_transactions()
+    indexer.price_ft_transactions()
     
     # Show updated status
     indexer.get_price_summary()

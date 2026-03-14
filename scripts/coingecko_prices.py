@@ -144,7 +144,7 @@ def apply_prices_to_transactions(db_path: str = 'neartax.db'):
             # Parse date string
             date_str = row['date'].split(' ')[0]  # Just the date part
             prices[date_str] = row['price']
-        except:
+        except Exception:
             pass
     
     print(f"Loaded {len(prices)} daily prices")

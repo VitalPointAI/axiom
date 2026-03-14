@@ -42,7 +42,7 @@ from typing import Optional
 
 from db.audit import write_audit
 
-from reports.engine import ReportEngine, ReportBlockedError, fmt_cad
+from reports.engine import ReportEngine, fmt_cad
 from reports.capital_gains import CapitalGainsReport
 from reports.income import IncomeReport
 from reports.ledger import LedgerReport

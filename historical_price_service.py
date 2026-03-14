@@ -17,10 +17,8 @@ Usage:
 import logging
 import sqlite3
 import requests
-import json
 import time
-import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Optional, Dict, List, Tuple
 import sys
 

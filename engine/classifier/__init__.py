@@ -7,10 +7,10 @@ rules, ai_fallback. PostgreSQL only via psycopg2 pool.
 
 import json
 import logging
-import re
+import re  # noqa: F401 — used by sub-modules via classifier reference
 from decimal import Decimal
 
-from tax.categories import TaxCategory, CategoryResult
+from tax.categories import TaxCategory, CategoryResult  # noqa: F401 — re-exported
 from engine.wallet_graph import WalletGraph
 from engine.spam_detector import SpamDetector
 from engine.evm_decoder import EVMDecoder
