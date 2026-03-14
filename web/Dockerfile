@@ -11,8 +11,8 @@ RUN npm ci
 COPY . .
 
 # NEXT_PUBLIC_* vars must be present at build time for Next.js to inline them
-ARG NEXT_PUBLIC_API_URL=
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+# Write .env.production so Next.js picks it up during build
+RUN echo "NEXT_PUBLIC_API_URL=" > .env.production
 
 RUN npm run build
 
