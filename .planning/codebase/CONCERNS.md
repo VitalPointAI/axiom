@@ -4,11 +4,9 @@
 
 ## Tech Debt
 
-**Bare Exception Handling Throughout Codebase:**
-- Issue: Multiple files catch all exceptions with bare `except:` or `except Exception` without logging or handling specifics
-- Files: `indexers/balance_snapshot.py:79`, `indexers/burrow_history_parser.py:80`, `indexers/lockup_parser.py:121`, `indexers/full_backfill.py:282`, `indexers/backfill-recent.py:35-78`, `defi/burrow_parser.py:101`, `indexers/evm_indexer_alchemy.py:202`, `defi/ref_finance_parser.py:43`, `historical_price_service.py:340,368,462`, `tax/cost_basis.py:276,303`
-- Impact: Silent failures, difficult debugging, no audit trail of what failed and why
-- Fix approach: Replace bare `except:` with specific exception types; add logging with context before continuing
+**~~Bare Exception Handling Throughout Codebase~~ (FIXED 2026-03-13):**
+- Fixed: Replaced all bare `except:` with specific exception types + `logger.warning()` across 11 files
+- Commit: `2eadcc6`
 
 **Mixed Database Patterns (SQLite + PostgreSQL):**
 - Issue: Codebase uses both SQLite and PostgreSQL - some scripts use `sqlite3.connect()` directly while others use psycopg2 pools
@@ -16,11 +14,9 @@
 - Impact: Inconsistent connection management, connection leaks possible, different transaction semantics
 - Fix approach: Migrate all to PostgreSQL with unified connection pool; remove SQLite usage except for tests
 
-**Database Connection Resource Leaks:**
-- Issue: Many direct `sqlite3.connect()` calls without context managers or try/finally blocks ensuring cleanup
-- Files: `indexers/backfill-recent.py:131`, `indexers/fix_eth_fees.py:28`, `deep-trace-cdao.py:6`, `check-predecessor.py:6`
-- Impact: Open database connections never properly closed, resource exhaustion under load
-- Fix approach: Use context managers (`with sqlite3.connect(...) as conn:`) or psycopg2 pool with try/finally for all database operations
+**~~Database Connection Resource Leaks~~ (FIXED 2026-03-13):**
+- Fixed: Added `with sqlite3.connect()` context managers to all 4 scripts
+- Commit: `2eadcc6`
 
 **Overly Large Single Functions:**
 - Issue: Several core modules are monolithic functions with mixed concerns
@@ -34,11 +30,9 @@
 - Impact: APIs return incomplete data silently, users may not realize functionality is missing
 - Fix approach: Document clearly in API responses when data is unavailable; implement or remove stubs
 
-**Hardcoded API URLs and Configuration:**
-- Issue: Blockchain RPC URLs and API endpoints hardcoded in multiple indexer files
-- Files: `indexers/balance_snapshot.py:20`, `indexers/hybrid_indexer.py:46-47`, `indexers/neardata_indexer.py` (NEARDATA URL), `indexers/ft_indexer.py:21`
-- Impact: Difficult to switch between mainnet/testnet, hard to update endpoints without code changes
-- Fix approach: Move all URLs to environment variables or centralized config module
+**~~Hardcoded API URLs and Configuration~~ (FIXED 2026-03-13):**
+- Fixed: Extracted all URLs to `os.environ.get()` with existing defaults (NEAR_RPC_URL, NEARBLOCKS_API_URL, NEARDATA_API_URL, FASTNEAR_API_URL)
+- Commit: `2eadcc6`
 
 **No Transaction Rollback Pattern:**
 - Issue: Multi-step database operations lack rollback on partial failure
@@ -56,17 +50,13 @@
 - Trigger: Running full syncs during peak hours or with many wallets
 - Workaround: Manually retry operations with delays or reduce batch sizes
 
-**Path Traversal Validation Incomplete:**
-- Symptoms: File download endpoint checks for `..` but may not catch symlink attacks
-- Files: `api/routers/reports.py:368-410`
-- Trigger: If symlinks exist in report directory
-- Workaround: Ensure report directory doesn't contain untrusted symlinks
+**~~Path Traversal Validation Incomplete~~ (FIXED 2026-03-13):**
+- Fixed: Added `os.path.realpath()` symlink resolution check before serving files
+- Commit: `2eadcc6`
 
-**Empty Placeholder Conversions:**
-- Symptoms: Null values and empty strings in transaction fields can cause confusion
-- Files: `api/routers/transactions.py:46-86` (_row_to_tx conversion chains str() on nulls)
-- Trigger: Queries returning NULL for missing data
-- Workaround: Frontend must handle empty string values gracefully
+**~~Empty Placeholder Conversions~~ (FIXED 2026-03-13):**
+- Fixed: Removed `str()` wrapping on nullable fields; API now returns `null` instead of `"None"`
+- Commit: `2eadcc6`
 
 ---
 
@@ -84,11 +74,9 @@
 - Current mitigation: Parameterized queries used for values; placeholder counts manually managed
 - Recommendations: Use ORM or query builder to eliminate manual placeholder concatenation
 
-**No Input Validation on User-Provided Data:**
-- Risk: User IDs, wallet addresses, tax categories not validated before use
-- Files: `api/routers/transactions.py:505-514` (category update), `api/dependencies.py` (user context)
-- Current mitigation: FastAPI type hints provide basic validation
-- Recommendations: Add Pydantic validators for domain-specific constraints (e.g., valid NEAR address format, valid tax categories from enum)
+**~~No Input Validation on User-Provided Data~~ (FIXED 2026-03-13):**
+- Fixed: Added Pydantic `@field_validator` for tax categories (enum) and wallet addresses (NEAR/EVM format)
+- Commit: `2eadcc6`
 
 **No Rate Limiting on API Endpoints:**
 - Risk: Attackers can spam endpoints, causing DoS
@@ -204,11 +192,9 @@
 - Impact: May fail on Python <3.8; psycopg2 binary incompatibility on ARM Macs
 - Migration plan: Add `python_requires=">=3.9"` to setup.py; test on CI across versions
 
-**Hardcoded External URLs:**
-- Risk: FastNear, NearBlocks, Etherscan URLs may change or be deprecated
-- Files: Multiple indexer files
-- Impact: Entire indexing pipeline breaks if URLs change
-- Migration plan: Move URLs to configuration; implement URL fallback/retry logic
+**~~Hardcoded External URLs~~ (FIXED 2026-03-13):**
+- Fixed: All URLs now read from env vars (NEAR_RPC_URL, NEARBLOCKS_API_URL, NEARDATA_API_URL, FASTNEAR_API_URL) with existing defaults
+- Commit: `2eadcc6`
 
 ---
 
@@ -277,3 +263,5 @@
 ---
 
 *Concerns audit: 2026-03-13*
+*Fixed 7 concerns on 2026-03-13 (commit 2eadcc6): bare exceptions, DB connection leaks, hardcoded URLs, path traversal, NULL coercion, input validation, hardcoded external URLs*
+*Remaining concerns tracked for Phase 9: Code Quality & Hardening*
