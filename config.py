@@ -24,6 +24,12 @@ if env_path.exists():
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # ---------------------------------------------------------------------------
+# Connection pool sizing
+# ---------------------------------------------------------------------------
+DB_POOL_MIN = int(os.environ.get("DB_POOL_MIN", "1"))
+DB_POOL_MAX = int(os.environ.get("DB_POOL_MAX", "10"))
+
+# ---------------------------------------------------------------------------
 # Job scheduling
 # ---------------------------------------------------------------------------
 JOB_POLL_INTERVAL = int(os.environ.get("JOB_POLL_INTERVAL", "5"))          # seconds
@@ -72,11 +78,39 @@ RECONCILIATION_TOLERANCES = {
 REQUIRED_ENV_VARS = ["DATABASE_URL"]
 OPTIONAL_ENV_VARS_WARN = ["NEARBLOCKS_API_KEY", "COINGECKO_API_KEY"]
 
+# Keys (or substrings) that should be redacted from log output.
+_SENSITIVE_KEY_PATTERNS = {"DATABASE_URL", "API_KEY", "TOKEN", "SECRET", "PASSWORD"}
+
+
+def sanitize_for_log(env_dict: dict) -> dict:
+    """Return a copy of *env_dict* with sensitive values replaced by '***REDACTED***'.
+
+    Matching is case-insensitive and substring-based so that variants like
+    ``NEARBLOCKS_API_KEY``, ``SESSION_TOKEN``, and ``DB_PASSWORD`` are all
+    caught without an exhaustive allowlist.
+
+    Args:
+        env_dict: Mapping of key → value (e.g. os.environ or a config dict).
+
+    Returns:
+        New dict with the same keys but sensitive values redacted.
+        The original dict is never mutated.
+    """
+    redacted = {}
+    for key, value in env_dict.items():
+        upper_key = str(key).upper()
+        if any(pattern in upper_key for pattern in _SENSITIVE_KEY_PATTERNS):
+            redacted[key] = "***REDACTED***"
+        else:
+            redacted[key] = value
+    return redacted
+
 
 def validate_env() -> None:
     """Validate required environment variables at startup.
 
     Raises RuntimeError if any required variable is missing.
+    Raises ValueError if pool sizing constraints are violated (MIN <= MAX, both > 0).
     Logs a warning for missing optional variables.
 
     Called by api/main.py lifespan before the DB pool is opened so the
@@ -87,6 +121,21 @@ def validate_env() -> None:
         raise RuntimeError(
             f"Required environment variables not set: {', '.join(missing)}. "
             "Check .env file or container environment."
+        )
+    if DB_POOL_MIN <= 0:
+        raise ValueError(
+            f"DB_POOL_MIN must be > 0, got {DB_POOL_MIN}. "
+            "Set DB_POOL_MIN env var to a positive integer."
+        )
+    if DB_POOL_MAX <= 0:
+        raise ValueError(
+            f"DB_POOL_MAX must be > 0, got {DB_POOL_MAX}. "
+            "Set DB_POOL_MAX env var to a positive integer."
+        )
+    if DB_POOL_MIN > DB_POOL_MAX:
+        raise ValueError(
+            f"DB_POOL_MIN ({DB_POOL_MIN}) must be <= DB_POOL_MAX ({DB_POOL_MAX}). "
+            "Adjust DB_POOL_MIN or DB_POOL_MAX env vars."
         )
     for var in OPTIONAL_ENV_VARS_WARN:
         if not os.environ.get(var):
