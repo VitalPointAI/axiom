@@ -362,20 +362,21 @@ Phase 2 ──┘                                              │
 
 ### Phase 9: Code Quality & Hardening
 
-**Goal:** Refactor monolithic modules (classifier, reconcile), complete SQLite→PostgreSQL migration, fix N+1 query patterns, add test coverage, API rate limiting, CI/CD quality gates
+**Goal:** Refactor monolithic modules (classifier, reconcile), complete SQLite->PostgreSQL migration, fix N+1 query patterns, add test coverage, API rate limiting, CI/CD quality gates
 
 **Requirements:** QH-01 through QH-12 (derived from CONCERNS.md unfixed items)
 **Depends on:** Phase 8
-**Plans:** 4 plans in 2 waves
+**Plans:** 5 plans in 2 waves
 
 Plans:
 - [ ] 09-01-PLAN.md — CI quality gates (ci.yml + ruff) + legacy SQLite cleanup + stub documentation (Wave 1) [QH-01, QH-08, QH-12]
 - [ ] 09-02-PLAN.md — API rate limiting (slowapi) + env validation + SQL whitelist + rollback consistency (Wave 1) [QH-04, QH-05, QH-06, QH-07]
 - [ ] 09-03-PLAN.md — Classifier N+1 fix (batch event loading) + NearBlocks retry hardening (Wave 1) [QH-02, QH-03]
 - [ ] 09-04-PLAN.md — Test coverage: authorization isolation + indexer edge cases + parser robustness (Wave 2) [QH-09, QH-10, QH-11]
+- [ ] 09-05-PLAN.md — Reconcile module refactor: extract diagnosis helpers (Wave 2) [QH-02]
 
 **Requirements:**
-- QH-01: SQLite→PostgreSQL: migrate/remove remaining SQLite modules
+- QH-01: SQLite->PostgreSQL: migrate/remove remaining SQLite modules
 - QH-02: Refactor monolithic modules (classifier, reconcile)
 - QH-03: Fix N+1 query patterns in classifier
 - QH-04: Fix SQL injection risk in dynamic UPDATE
@@ -398,6 +399,7 @@ Plans:
 7. [ ] Cross-user data access returns 403/404 on all protected endpoints
 8. [ ] Indexer handles rate limits and malformed responses without crashing
 9. [ ] Exchange parsers handle missing columns and malformed CSV gracefully
+10. [ ] verify/reconcile.py diagnosis logic extracted into verify/diagnosis.py
 
 ---
-*Last updated: 2026-03-13 — Phase 9 planned: 4 plans in 2 waves covering 12 code quality requirements.*
+*Last updated: 2026-03-13 — Phase 9 planned: 5 plans in 2 waves covering 12 code quality requirements.*
