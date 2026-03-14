@@ -50,7 +50,11 @@ class ClassifierHandler:
             else:
                 logger.debug("classification_rules already populated (%d rules)", count)
             self._rules_seeded = True
+        except Exception:
+            conn.rollback()
+            raise
         finally:
+            cur.close()
             self.pool.putconn(conn)
 
     def run_classify(self, job: dict) -> None:
