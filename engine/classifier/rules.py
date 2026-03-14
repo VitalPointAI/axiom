@@ -165,11 +165,17 @@ def match_rules(classifier, tx: dict, rules: list, chain: str) -> dict | None:
 def decompose_swap(classifier, parent_tx: dict, category_result: dict) -> list:
     """Decompose a swap into parent + child legs.
 
-    Returns list of classification dicts:
+    For standard 2-hop swaps (token_path empty or 2 tokens) returns:
     - parent: leg_type='parent', category=TRADE
     - sell_leg: leg_type='sell_leg', leg_index=0, category=SELL
     - buy_leg: leg_type='buy_leg', leg_index=1, category=BUY
-    - fee_leg: leg_type='fee_leg', leg_index=2, category=FEE  (only if fee present)
+    - fee_leg: leg_type='fee_leg', leg_index=N, category=FEE  (only if fee present)
+
+    For multi-hop swaps (token_path has >2 tokens) additionally creates
+    intermediate legs for each token between the first and last:
+    - intermediate_leg_N: leg_type='intermediate_leg_1', 'intermediate_leg_2', ...
+      Distinct leg_type strings avoid conflict with the partial unique index
+      uq_tc_tx_leg on (user_id, transaction_id, leg_type).
     """
     tx_id = parent_tx.get("id")
     has_fee = bool(parent_tx.get("fee"))
@@ -181,19 +187,28 @@ def decompose_swap(classifier, parent_tx: dict, category_result: dict) -> list:
         notes = category_result.get("notes", "DEX swap")
         needs_review = category_result.get("needs_review", False)
         rule_id = category_result.get("rule_id")
+        token_path: list = category_result.get("token_path") or []
     else:
         cat = getattr(category_result, "category", TaxCategory.TRADE).value
         confidence = getattr(category_result, "confidence", 0.90)
         notes = getattr(category_result, "notes", "DEX swap")
         needs_review = getattr(category_result, "needs_review", False)
         rule_id = None
+        token_path = []
+
+    # Intermediate tokens are all tokens between the first (sold) and last (bought)
+    intermediate_tokens = token_path[1:-1] if len(token_path) > 2 else []
+    is_multi_hop = bool(intermediate_tokens)
+
+    # Multi-hop swaps always require review (missing intermediate FMV)
+    parent_needs_review = needs_review or is_multi_hop
 
     parent = classifier._make_record(
         transaction_id=tx_id,
         category=cat,
         confidence=confidence,
         notes=notes,
-        needs_review=needs_review,
+        needs_review=parent_needs_review,
         classification_source="rule",
         rule_id=rule_id,
         leg_type="parent",
@@ -212,6 +227,29 @@ def decompose_swap(classifier, parent_tx: dict, category_result: dict) -> list:
         leg_index=0,
     )
 
+    legs = [parent, sell_leg]
+
+    # Intermediate legs for multi-hop swaps
+    # Use 'intermediate_leg_N' as leg_type to avoid the partial unique index conflict
+    # on (user_id, transaction_id, leg_type) in the transaction_classifications table.
+    for i, _token in enumerate(intermediate_tokens, start=1):
+        intermediate_leg = classifier._make_record(
+            transaction_id=tx_id,
+            category=TaxCategory.TRADE.value,
+            confidence=0.50,
+            notes="Multi-hop intermediate: acquired and disposed in same transaction",
+            needs_review=True,
+            classification_source="rule",
+            rule_id=rule_id,
+            leg_type=f"intermediate_leg_{i}",
+            leg_index=i,
+            fmv_usd=None,
+            fmv_cad=None,
+        )
+        legs.append(intermediate_leg)
+
+    # buy_leg index is after all intermediate legs
+    buy_leg_index = len(intermediate_tokens) + 1
     buy_leg = classifier._make_record(
         transaction_id=tx_id,
         category=TaxCategory.BUY.value,
@@ -221,10 +259,9 @@ def decompose_swap(classifier, parent_tx: dict, category_result: dict) -> list:
         classification_source="rule",
         rule_id=rule_id,
         leg_type="buy_leg",
-        leg_index=1,
+        leg_index=buy_leg_index,
     )
-
-    legs = [parent, sell_leg, buy_leg]
+    legs.append(buy_leg)
 
     if has_fee:
         fee_leg = classifier._make_record(
@@ -236,7 +273,7 @@ def decompose_swap(classifier, parent_tx: dict, category_result: dict) -> list:
             classification_source="rule",
             rule_id=rule_id,
             leg_type="fee_leg",
-            leg_index=2,
+            leg_index=buy_leg_index + 1,
         )
         legs.append(fee_leg)
 
