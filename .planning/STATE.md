@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-03-14T03:22:38Z"
+last_updated: "2026-03-14T03:29:44Z"
 progress:
   total_phases: 9
   completed_phases: 8
   total_plans: 41
-  completed_plans: 40
+  completed_plans: 41
 ---
 
 # Project State
@@ -99,6 +99,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-14: **10-02 complete** - Alembic migration 007 adds ix_price_cache_coin_date_desc on price_cache(coin_id, date DESC); DB_POOL_MIN/MAX configurable via env vars (default 1/10) with validate_env() pool constraint checks; pool_stats() introspection in indexers/db.py; sanitize_for_log() in config.py; pyproject.toml has [project] table with requires-python >= 3.11.
 - 2026-03-14: **09-03 complete** - N+1 queries eliminated: batch staking/lockup event loading per wallet in classifier (_load_staking_event_index, _load_lockup_event_index); NearBlocks API hardened with 2^attempt+jitter exponential backoff for 429/Timeout/ConnectionError, max 5 retries before RuntimeError; balance_snapshot.fetch_ft_balances_nearblocks same pattern; validate_env() added to config.py.
 - 2026-03-13: **07-07 complete** - Docker deployment finalized: api/Dockerfile (python:3.11-slim, project root context, 2 uvicorn workers), docker-compose.prod.yml updated to 4 services (postgres/migrate/web/api/indexer), rolling restart api->web->indexer, healthcheck.sh adds FastAPI /health, 75 Next.js API routes deleted, web/lib DB files deleted, middleware simplified.
 - 2026-03-13: **07-06 complete** - Frontend FastAPI rewiring: apiClient (credentials:include), auth-provider (GET /auth/session), auth page (SimpleWebAuthn + OAuth + magic link to FastAPI), 4-stage pipeline progress bar, portfolio/wallets/transactions/reports all wired to FastAPI.
@@ -322,5 +323,10 @@ None currently.
 | 2026-03-14 | 2^attempt + uniform[0,1) jitter for NearBlocks retry | Matches plan spec; jitter prevents thundering herd on 429 bursts |
 | 2026-03-14 | RATE_LIMIT_DELAY pacing is orthogonal to retry backoff | Delay = normal inter-request pacing; backoff = failure recovery waits |
 | 2026-03-14 | validate_env() raises RuntimeError if DATABASE_URL not set | Fail fast at startup vs. failing at first DB query; clearer error message |
+| 2026-03-14 | ix_price_cache_coin_date_desc on (coin_id, date DESC) for price_cache index | Matches ACB/report query ordering pattern for efficient range lookups |
+| 2026-03-14 | IF NOT EXISTS on migration 007 indexes makes them idempotent | Safe to run against environments with manually-created indexes |
+| 2026-03-14 | ValueError for pool constraint violations vs RuntimeError for missing vars | Distinct error types for distinct failure modes in validate_env() |
+| 2026-03-14 | sanitize_for_log() uses case-insensitive substring matching on _SENSITIVE_KEY_PATTERNS | Catches key variants (NEARBLOCKS_API_KEY, SESSION_TOKEN, DB_PASSWORD) without exhaustive allowlist |
+| 2026-03-14 | DB_POOL_MIN/MAX defaults 1/10 in config.py, imported as get_pool() defaults | Pool sizing tunable via env vars without code changes; 1/10 suits single-process indexer |
 
-*Last updated: 2026-03-14 — Stopped at: Completed 09-code-quality-hardening 09-03-PLAN.md.*
+*Last updated: 2026-03-14 — Stopped at: Completed 10-remaining-concerns-remediation 10-02-PLAN.md.*
