@@ -98,7 +98,7 @@ function AuthContent() {
     clearError();
     try {
       // 1. Get challenge + options from FastAPI
-      const startData = await apiClient.post<LoginStartResponse>('/auth/login/start');
+      const startData = await apiClient.post<LoginStartResponse>('/auth/login/start', {});
 
       // 2. navigator.credentials.get via SimpleWebAuthn browser helper
       const credential = await startAuthentication(
