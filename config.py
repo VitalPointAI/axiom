@@ -1,7 +1,10 @@
 # Axiom / NearTax Configuration
 
+import logging
 import os
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Manual .env loading (no dotenv dependency)
 env_path = Path(__file__).parent / '.env'
@@ -19,12 +22,6 @@ if env_path.exists():
 # No SQLite — PostgreSQL only.
 # No hardcoded fallback: fail explicitly if DATABASE_URL is not set.
 DATABASE_URL = os.environ.get("DATABASE_URL")
-if DATABASE_URL is None:
-    print(
-        "WARNING: DATABASE_URL is not set. "
-        "Database operations will fail. "
-        "Set DATABASE_URL=postgres://user:pass@host:5432/dbname"
-    )
 
 # ---------------------------------------------------------------------------
 # Job scheduling
@@ -67,3 +64,30 @@ RECONCILIATION_TOLERANCES = {
     "cronos": "0.0001",    # +/- 0.0001 CRO
     "optimism": "0.0001",  # +/- 0.0001 ETH (Optimism)
 }
+
+# ---------------------------------------------------------------------------
+# Environment validation
+# ---------------------------------------------------------------------------
+
+REQUIRED_ENV_VARS = ["DATABASE_URL"]
+OPTIONAL_ENV_VARS_WARN = ["NEARBLOCKS_API_KEY", "COINGECKO_API_KEY"]
+
+
+def validate_env() -> None:
+    """Validate required environment variables at startup.
+
+    Raises RuntimeError if any required variable is missing.
+    Logs a warning for missing optional variables.
+
+    Called by api/main.py lifespan before the DB pool is opened so the
+    application fails fast rather than failing at first query.
+    """
+    missing = [v for v in REQUIRED_ENV_VARS if not os.environ.get(v)]
+    if missing:
+        raise RuntimeError(
+            f"Required environment variables not set: {', '.join(missing)}. "
+            "Check .env file or container environment."
+        )
+    for var in OPTIONAL_ENV_VARS_WARN:
+        if not os.environ.get(var):
+            logger.warning("Optional env var %s not set — some features will be limited", var)

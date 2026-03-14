@@ -209,11 +209,30 @@ class TransactionClassifier:
                 "fee": row[11],
             }
 
-        # Process NEAR transactions
+        # Process NEAR transactions — batch event loading per wallet (N+1 elimination)
+        # Group by wallet_id so we load staking/lockup indexes once per wallet
+        near_by_wallet: dict[int, list] = {}
         for row in near_txs:
-            tx = _row_to_near_dict(row)
-            records = self._classify_near_tx(user_id, tx, rules, owned_wallets)
-            self._write_records(user_id, records, stats)
+            wid = row[1]
+            near_by_wallet.setdefault(wid, []).append(row)
+
+        for wallet_id, wallet_rows in near_by_wallet.items():
+            # Load staking + lockup event indexes once for this wallet
+            conn = self.pool.getconn()
+            try:
+                staking_index = self._load_staking_event_index(conn, user_id, wallet_id)
+                lockup_index = self._load_lockup_event_index(conn, user_id, wallet_id)
+            finally:
+                self.pool.putconn(conn)
+
+            for row in wallet_rows:
+                tx = _row_to_near_dict(row)
+                records = self._classify_near_tx(
+                    user_id, tx, rules, owned_wallets,
+                    staking_index=staking_index,
+                    lockup_index=lockup_index,
+                )
+                self._write_records(user_id, records, stats)
 
         # Process exchange transactions
         for row in exchange_txs:
@@ -257,8 +276,15 @@ class TransactionClassifier:
     # ------------------------------------------------------------------
 
     def _classify_near_tx(self, user_id: int, tx: dict, rules: list,
-                          owned_wallets: set) -> list:
+                          owned_wallets: set,
+                          staking_index: dict | None = None,
+                          lockup_index: dict | None = None) -> list:
         """Classify a single NEAR transaction.
+
+        Args:
+            staking_index: Pre-loaded staking event index from _load_staking_event_index.
+                           If provided, O(1) hash lookups replace per-tx DB queries.
+            lockup_index: Pre-loaded lockup event index from _load_lockup_event_index.
 
         Returns list of classification record dicts (1 for simple, N for multi-leg).
         """
@@ -346,10 +372,11 @@ class TransactionClassifier:
         )
 
         # Step 4: Staking reward linkage (CLASS-03)
-        # Only link if category is reward and counterparty is a staking pool
+        # Only link if category is reward; use pre-loaded index if available
         if category_result["category"] == TaxCategory.REWARD.value:
             staking_event_id = self._find_staking_event(
-                user_id, wallet_id, tx.get("tx_hash", ""), tx.get("block_timestamp", 0)
+                user_id, wallet_id, tx.get("tx_hash", ""), tx.get("block_timestamp", 0),
+                index=staking_index,
             )
             if staking_event_id is not None:
                 record["staking_event_id"] = staking_event_id
@@ -362,7 +389,8 @@ class TransactionClassifier:
             TaxCategory.DEPOSIT.value,
         ):
             lockup_event_id = self._find_lockup_event(
-                user_id, wallet_id, tx.get("tx_hash", ""), tx.get("block_timestamp", 0)
+                user_id, wallet_id, tx.get("tx_hash", ""), tx.get("block_timestamp", 0),
+                index=lockup_index,
             )
             if lockup_event_id is not None:
                 record["lockup_event_id"] = lockup_event_id
@@ -663,16 +691,102 @@ class TransactionClassifier:
         return None  # No rule matched
 
     # ------------------------------------------------------------------
+    # Staking / lockup event index loading (N+1 elimination)
+    # ------------------------------------------------------------------
+
+    def _load_staking_event_index(self, conn, user_id: int, wallet_id: int) -> dict:
+        """Load all staking reward events for a wallet into an in-memory index.
+
+        Returns a dict with two lookup structures:
+            {
+                'by_hash': {tx_hash: event_id, ...},
+                'by_timestamp': [(block_timestamp, event_id), ...],  # sorted ascending
+            }
+
+        Loaded once per wallet (not per-transaction) to eliminate N+1 queries.
+        Per-wallet scope keeps memory bounded (research pitfall #5).
+        """
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, tx_hash, block_timestamp FROM staking_events "
+            "WHERE user_id = %s AND wallet_id = %s AND event_type = 'reward'",
+            (user_id, wallet_id),
+        )
+        rows = cur.fetchall()
+        cur.close()
+
+        by_hash = {}
+        by_timestamp = []
+        for event_id, tx_hash, block_ts in rows:
+            if tx_hash:
+                by_hash[tx_hash] = event_id
+            if block_ts is not None:
+                by_timestamp.append((int(block_ts), event_id))
+
+        by_timestamp.sort(key=lambda x: x[0])
+        return {"by_hash": by_hash, "by_timestamp": by_timestamp}
+
+    def _load_lockup_event_index(self, conn, user_id: int, wallet_id: int) -> dict:
+        """Load all lockup events for a wallet into an in-memory index.
+
+        Returns a dict with two lookup structures:
+            {
+                'by_hash': {tx_hash: event_id, ...},
+                'by_timestamp': [(block_timestamp, event_id), ...],  # sorted ascending
+            }
+
+        Loaded once per wallet (not per-transaction) to eliminate N+1 queries.
+        """
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, tx_hash, block_timestamp FROM lockup_events "
+            "WHERE user_id = %s AND wallet_id = %s",
+            (user_id, wallet_id),
+        )
+        rows = cur.fetchall()
+        cur.close()
+
+        by_hash = {}
+        by_timestamp = []
+        for event_id, tx_hash, block_ts in rows:
+            if tx_hash:
+                by_hash[tx_hash] = event_id
+            if block_ts is not None:
+                by_timestamp.append((int(block_ts), event_id))
+
+        by_timestamp.sort(key=lambda x: x[0])
+        return {"by_hash": by_hash, "by_timestamp": by_timestamp}
+
+    # ------------------------------------------------------------------
     # Staking / lockup linkage (CLASS-03, CLASS-04)
     # ------------------------------------------------------------------
 
     def _find_staking_event(self, user_id: int, wallet_id: int,
-                            tx_hash: str, block_timestamp: int) -> int | None:
+                            tx_hash: str, block_timestamp: int,
+                            index: dict | None = None) -> int | None:
         """Find staking_event matching this tx for reward linkage (CLASS-03).
 
-        Try exact tx_hash match first, then 60-second timestamp window.
+        If `index` is provided (loaded via _load_staking_event_index), performs
+        O(1) hash lookup then O(n) timestamp scan in memory — no DB query.
+        Falls back to direct DB query only when index is None (backward compat).
+
         Prevents Pitfall 1: double-counting staking rewards.
         """
+        if index is not None:
+            # Fast path: hash lookup
+            if tx_hash and tx_hash in index["by_hash"]:
+                return index["by_hash"][tx_hash]
+            # Fallback: timestamp range scan in the index (no DB query)
+            if block_timestamp:
+                ts = int(block_timestamp)
+                for event_ts, event_id in index["by_timestamp"]:
+                    if event_ts > ts + 60:
+                        break
+                    if ts - 60 <= event_ts <= ts + 60:
+                        return event_id
+            return None
+
+        # Legacy path (no index): direct DB query (backward compat)
         conn = self.pool.getconn()
         try:
             cur = conn.cursor()
@@ -708,11 +822,29 @@ class TransactionClassifier:
         return None
 
     def _find_lockup_event(self, user_id: int, wallet_id: int,
-                           tx_hash: str, block_timestamp: int) -> int | None:
+                           tx_hash: str, block_timestamp: int,
+                           index: dict | None = None) -> int | None:
         """Find lockup_event matching this tx for vest linkage (CLASS-04).
 
-        Try exact tx_hash match first, then 60-second timestamp window.
+        If `index` is provided (loaded via _load_lockup_event_index), performs
+        O(1) hash lookup then O(n) timestamp scan in memory — no DB query.
+        Falls back to direct DB query only when index is None (backward compat).
         """
+        if index is not None:
+            # Fast path: hash lookup
+            if tx_hash and tx_hash in index["by_hash"]:
+                return index["by_hash"][tx_hash]
+            # Fallback: timestamp range scan in the index (no DB query)
+            if block_timestamp:
+                ts = int(block_timestamp)
+                for event_ts, event_id in index["by_timestamp"]:
+                    if event_ts > ts + 60:
+                        break
+                    if ts - 60 <= event_ts <= ts + 60:
+                        return event_id
+            return None
+
+        # Legacy path (no index): direct DB query (backward compat)
         conn = self.pool.getconn()
         try:
             cur = conn.cursor()
