@@ -4,8 +4,10 @@
  */
 
 // In production, API calls use relative paths (proxied via Next.js rewrites).
+// The Docker build sets NEXT_PUBLIC_API_URL=__RELATIVE__ as a sentinel.
 // For local dev, set NEXT_PUBLIC_API_URL=http://localhost:8000 in .env.local.
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+const _raw = process.env.NEXT_PUBLIC_API_URL || '';
+export const API_URL = _raw === '__RELATIVE__' ? '' : _raw;
 
 export class ApiError extends Error {
   constructor(public status: number, public body: unknown) {
