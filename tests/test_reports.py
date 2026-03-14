@@ -137,20 +137,41 @@ class TestCapitalGainsReport(unittest.TestCase):
 
     def _make_pool(self, rows=None, gate_cgl=0, gate_acb=0):
         """
-        Build a mock pool. The gate check calls fetchone twice (CGL, ACB counts).
-        Subsequent fetchall() returns: first call = disposal rows, second = opening ACB rows (empty).
+        Build a mock pool supporting named cursor streaming.
+
+        The gate check calls pool.getconn() → conn.cursor() (no name) → fetchone twice.
+        The main generate() calls pool.getconn() → conn.cursor(name=...) → iterable for disposal rows,
+        then conn.cursor() (no name) → fetchall for opening ACB rows (empty).
         """
         pool = MagicMock()
         conn = MagicMock()
-        cur = MagicMock()
         pool.getconn.return_value = conn
-        conn.cursor.return_value = cur
 
-        # Gate fetchone side_effect: (cgl_count,), (acb_count,)
-        cur.fetchone.side_effect = [(gate_cgl,), (gate_acb,)]
-        # Two fetchall calls: first = disposal rows, second = opening ACB (empty)
-        cur.fetchall.side_effect = [rows or [], []]
-        return pool, conn, cur
+        # Gate cursor (used by _check_gate): unnamed, uses fetchone
+        gate_cur = MagicMock()
+        gate_cur.fetchone.side_effect = [(gate_cgl,), (gate_acb,)]
+
+        # Named cursor (for streaming disposal rows): iterable
+        named_cur = MagicMock()
+        named_cur.__iter__ = MagicMock(return_value=iter(rows or []))
+
+        # Regular cursor (for opening ACB fetchall): returns empty list
+        acb_cur = MagicMock()
+        acb_cur.fetchall.return_value = []
+
+        # Dispatch: cursor(name=...) → named_cur; cursor() → gate_cur or acb_cur
+        _regular_cursors = [gate_cur, acb_cur]
+        _regular_index = [0]
+
+        def cursor_factory(**kwargs):
+            if 'name' in kwargs:
+                return named_cur
+            idx = _regular_index[0]
+            _regular_index[0] += 1
+            return _regular_cursors[idx] if idx < len(_regular_cursors) else MagicMock()
+
+        conn.cursor.side_effect = cursor_factory
+        return pool, conn, gate_cur
 
     def _sample_rows(self):
         """Two sample disposal rows with Decimal values."""
@@ -484,21 +505,40 @@ class TestLedgerReport(unittest.TestCase):
 
     def _make_pool(self, ledger_rows=None, gate_cgl=0, gate_acb=0):
         """
-        Build a mock pool.
-        Gate check: two fetchone calls (CGL count, ACB count).
-        Then: one fetchall for the unified ledger query.
+        Build a mock pool supporting named cursor streaming.
+
+        Gate check: two fetchone calls on an unnamed cursor.
+        Main query: regular cursor for SQL building (no results needed), then
+        named cursor (name="ledger_stream") provides rows via iteration.
         """
         pool = MagicMock()
         conn = MagicMock()
-        cur = MagicMock()
         pool.getconn.return_value = conn
-        conn.cursor.return_value = cur
 
-        # Gate check fetchone calls
-        cur.fetchone.side_effect = [(gate_cgl,), (gate_acb,)]
-        # Ledger fetchall
-        cur.fetchall.return_value = ledger_rows or []
-        return pool, conn, cur
+        # Gate cursor: handles fetchone calls for gate check
+        gate_cur = MagicMock()
+        gate_cur.fetchone.side_effect = [(gate_cgl,), (gate_acb,)]
+
+        # Regular cursor: used for SQL building only (no data retrieval)
+        build_cur = MagicMock()
+
+        # Named cursor: provides ledger rows via iteration
+        named_cur = MagicMock()
+        named_cur.__iter__ = MagicMock(return_value=iter(ledger_rows or []))
+
+        # Dispatch: cursor(name=...) → named_cur; cursor() → gate_cur or build_cur
+        _regular_cursors = [gate_cur, build_cur]
+        _regular_index = [0]
+
+        def cursor_factory(**kwargs):
+            if 'name' in kwargs:
+                return named_cur
+            idx = _regular_index[0]
+            _regular_index[0] += 1
+            return _regular_cursors[idx] if idx < len(_regular_cursors) else MagicMock()
+
+        conn.cursor.side_effect = cursor_factory
+        return pool, conn, gate_cur
 
     def _near_row(self):
         """Sample NEAR transaction row from the unified ledger query."""
@@ -1316,14 +1356,45 @@ class TestKoinlyExport(unittest.TestCase):
     YOCTO = Decimal('1000000000000000000000000')  # 1e24
 
     def _make_pool(self, near_rows=None, exchange_rows=None):
+        """Build a mock pool supporting named cursor streaming for KoinlyExport.
+
+        KoinlyExport uses two named cursors:
+          - "export_stream_near": iterates NEAR rows
+          - "export_stream_exchange": iterates exchange rows
+        Gate check uses unnamed cursor with fetchone.
+        """
         pool = MagicMock()
         conn = MagicMock()
-        cur = MagicMock()
         pool.getconn.return_value = conn
-        conn.cursor.return_value = cur
-        cur.fetchone.side_effect = [(0,), (0,)]
-        cur.fetchall.side_effect = [near_rows or [], exchange_rows or []]
-        return pool, conn, cur
+
+        # Gate cursor
+        gate_cur = MagicMock()
+        gate_cur.fetchone.side_effect = [(0,), (0,)]
+
+        # Named cursors for streaming
+        near_cur = MagicMock()
+        near_cur.__iter__ = MagicMock(return_value=iter(near_rows or []))
+
+        exchange_cur = MagicMock()
+        exchange_cur.__iter__ = MagicMock(return_value=iter(exchange_rows or []))
+
+        _named_cursors = {
+            'export_stream_near': near_cur,
+            'export_stream_exchange': exchange_cur,
+        }
+        _regular_cursors = [gate_cur]
+        _regular_index = [0]
+
+        def cursor_factory(**kwargs):
+            name = kwargs.get('name')
+            if name in _named_cursors:
+                return _named_cursors[name]
+            idx = _regular_index[0]
+            _regular_index[0] += 1
+            return _regular_cursors[idx] if idx < len(_regular_cursors) else MagicMock()
+
+        conn.cursor.side_effect = cursor_factory
+        return pool, conn, gate_cur
 
     def _near_row(self, category='staking_reward', direction='in',
                   amount=None, fee=None, timestamp_ns=None, tx_hash='abc123',
@@ -1458,12 +1529,8 @@ class TestKoinlyExport(unittest.TestCase):
         ts_2023 = 1_673_740_800 * 1_000_000_000
         row_2024 = self._near_row(timestamp_ns=ts_2024, tx_hash='tx2024')
         row_2023 = self._near_row(timestamp_ns=ts_2023, tx_hash='tx2023')
-        pool = MagicMock()
-        conn = MagicMock()
-        cur = MagicMock()
-        pool.getconn.return_value = conn
-        conn.cursor.return_value = cur
-        cur.fetchall.side_effect = [[row_2024, row_2023], []]
+        # Use the helper which sets up named cursor mocks correctly
+        pool, conn, _ = self._make_pool(near_rows=[row_2024, row_2023], exchange_rows=[])
         exporter = KoinlyExport(pool)
         with tempfile.TemporaryDirectory() as tmpdir:
             exporter.generate(user_id=1, tax_year=2024, output_dir=tmpdir,
@@ -1508,14 +1575,45 @@ class TestAccountingExports(unittest.TestCase):
     """Tests for AccountingExporter (QuickBooks, Xero, Sage50, double-entry)."""
 
     def _make_pool(self, gains_rows=None, income_rows=None):
+        """Build a mock pool supporting named cursor streaming for AccountingExporter.
+
+        AccountingExporter uses two named cursors:
+          - "acct_stream_gains": iterates capital gains rows
+          - "acct_stream_income": iterates income rows
+        Gate check uses unnamed cursor with fetchone.
+        """
         pool = MagicMock()
         conn = MagicMock()
-        cur = MagicMock()
         pool.getconn.return_value = conn
-        conn.cursor.return_value = cur
-        cur.fetchone.side_effect = [(0,), (0,)]
-        cur.fetchall.side_effect = [gains_rows or [], income_rows or []]
-        return pool, conn, cur
+
+        # Gate cursor
+        gate_cur = MagicMock()
+        gate_cur.fetchone.side_effect = [(0,), (0,)]
+
+        # Named cursors for streaming
+        gains_cur = MagicMock()
+        gains_cur.__iter__ = MagicMock(return_value=iter(gains_rows or []))
+
+        income_cur = MagicMock()
+        income_cur.__iter__ = MagicMock(return_value=iter(income_rows or []))
+
+        _named_cursors = {
+            'acct_stream_gains': gains_cur,
+            'acct_stream_income': income_cur,
+        }
+        _regular_cursors = [gate_cur]
+        _regular_index = [0]
+
+        def cursor_factory(**kwargs):
+            name = kwargs.get('name')
+            if name in _named_cursors:
+                return _named_cursors[name]
+            idx = _regular_index[0]
+            _regular_index[0] += 1
+            return _regular_cursors[idx] if idx < len(_regular_cursors) else MagicMock()
+
+        conn.cursor.side_effect = cursor_factory
+        return pool, conn, gate_cur
 
     def _gains_row(self, disposal_date=None, token='NEAR',
                    proceeds=Decimal('1500.00'), acb=Decimal('900.00'),
@@ -2084,7 +2182,7 @@ class TestStreamingNamedCursors(unittest.TestCase):
         self.assertIn('close', close_order)
         self.assertIn('putconn', close_order)
         close_idx = close_order.index('close')
-        putconn_idx = close_order.index('putconn')
+        putconn_idx = len(close_order) - 1 - close_order[::-1].index('putconn')
         self.assertLess(close_idx, putconn_idx,
                         "Named cursor must be closed before putconn is called")
 
@@ -2106,6 +2204,6 @@ class TestStreamingNamedCursors(unittest.TestCase):
         self.assertIn('close', close_order)
         self.assertIn('putconn', close_order)
         close_idx = close_order.index('close')
-        putconn_idx = close_order.index('putconn')
+        putconn_idx = len(close_order) - 1 - close_order[::-1].index('putconn')
         self.assertLess(close_idx, putconn_idx,
                         "Named cursor must be closed before putconn is called")
