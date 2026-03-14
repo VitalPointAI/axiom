@@ -18,7 +18,7 @@ from db.models._all_models import (
     ClassificationRule,
     TransactionClassification,
     SpamRule,
-    ClassificationAuditLog,
+    AuditLog,
     ACBSnapshot,
     CapitalGainsLedger,
     IncomeLedger,
@@ -31,6 +31,9 @@ from db.models._all_models import (
     MagicLinkToken,
     AccountantAccess,
 )
+
+# Backward compatibility alias — deprecated, use AuditLog
+ClassificationAuditLog = AuditLog
 
 __all__ = [
     "Base",
@@ -45,7 +48,8 @@ __all__ = [
     "ClassificationRule",
     "TransactionClassification",
     "SpamRule",
-    "ClassificationAuditLog",
+    "AuditLog",
+    "ClassificationAuditLog",  # DEPRECATED — alias for AuditLog
     "ACBSnapshot",
     "CapitalGainsLedger",
     "IncomeLedger",

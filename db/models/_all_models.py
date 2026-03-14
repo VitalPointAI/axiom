@@ -389,11 +389,6 @@ class TransactionClassification(Base):
         foreign_keys=[parent_classification_id],
         back_populates="parent",
     )
-    audit_log = relationship(
-        "ClassificationAuditLog",
-        back_populates="classification",
-        cascade="all, delete-orphan",
-    )
 
 
 class SpamRule(Base):
@@ -428,43 +423,42 @@ class SpamRule(Base):
     creator = relationship("User", foreign_keys=[created_by])
 
 
-class ClassificationAuditLog(Base):
-    """Immutable audit trail for all classification changes.
+class AuditLog(Base):
+    """Unified audit trail for all data mutations.
 
-    Never updated — only inserted. Records every transition including initial
-    classification, rule updates, manual overrides, and specialist confirmations.
-    old_category=NULL indicates the first classification (no prior state).
+    Append-only. Never updated. Tracks classification changes, ACB corrections,
+    duplicate merges, verification resolutions, report generation, invariant violations.
+
+    entity_type values: 'transaction_classification', 'acb_snapshot',
+        'verification_result', 'report_package', 'duplicate_merge', 'manual_balance'
+    action values: 'initial_classify', 'reclassify', 'acb_correction',
+        'duplicate_merge', 'balance_override', 'report_generated',
+        'invariant_violation', 'verification_resolved'
+    actor_type values: 'system', 'user', 'specialist', 'ai'
     """
 
-    __tablename__ = "classification_audit_log"
+    __tablename__ = "audit_log"
     __table_args__ = (
-        Index("ix_cal_classification_id", "classification_id"),
-        Index("ix_cal_created_at", "created_at"),
+        Index("ix_al_entity", "entity_type", "entity_id"),
+        Index("ix_al_user_id", "user_id"),
+        Index("ix_al_created_at", "created_at"),
+        Index("ix_al_action", "action"),
     )
 
     id = mapped_column(Integer, primary_key=True, autoincrement=True)
-    classification_id = mapped_column(
-        Integer, ForeignKey("transaction_classifications.id"), nullable=False
-    )
-    changed_by_user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
-    # NULL = system-initiated change
-    changed_by_type = mapped_column(String(20), nullable=False)
-    # Values: 'system', 'specialist', 'user'
-    old_category = mapped_column(String(50), nullable=True)  # NULL on first classification
-    new_category = mapped_column(String(50), nullable=False)
-    old_confidence = mapped_column(Numeric(4, 3), nullable=True)
-    new_confidence = mapped_column(Numeric(4, 3), nullable=False)
-    change_reason = mapped_column(String(50), nullable=False)
-    # Values: 'initial', 'rule_update', 'manual_override', 're_import', 'specialist_confirm'
-    rule_id = mapped_column(Integer, ForeignKey("classification_rules.id"), nullable=True)
+    user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    entity_type = mapped_column(String(50), nullable=False)
+    entity_id = mapped_column(Integer, nullable=True)
+    action = mapped_column(String(50), nullable=False)
+    old_value = mapped_column(JSONB(astext_type=Text()), nullable=True)
+    new_value = mapped_column(JSONB(astext_type=Text()), nullable=False)
+    actor_type = mapped_column(String(20), nullable=False)
     notes = mapped_column(Text, nullable=True)
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    classification = relationship("TransactionClassification", back_populates="audit_log")
-    changed_by_user = relationship("User", foreign_keys=[changed_by_user_id])
-    rule = relationship("ClassificationRule", foreign_keys=[rule_id])
+    user = relationship("User", foreign_keys=[user_id])
 
 
 class ACBSnapshot(Base):
