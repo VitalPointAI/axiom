@@ -32,7 +32,7 @@ fi
 # Check api via HTTP health endpoint
 echo -n "API (FastAPI): "
 for i in $(seq 1 $MAX_RETRIES); do
-  if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+  if curl -sf http://localhost:3003/health > /dev/null 2>&1; then
     echo "OK"
     break
   fi
