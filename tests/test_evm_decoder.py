@@ -6,6 +6,7 @@ Groups multi-token ERC20/NFT transfers sharing a base tx_hash into unified
 operations (prevents Pitfall 3: multiple SELL classifications for one swap).
 """
 
+import struct
 import pytest
 from engine.evm_decoder import EVMDecoder
 
@@ -164,3 +165,140 @@ class TestMultiTokenGrouping:
         groups = decoder.group_by_base_tx_hash(txs)
         assert len(groups["0xabc"]) == 2
         assert len(groups["0xdef"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Helpers for constructing ABI-encoded exactInput calldata
+# ---------------------------------------------------------------------------
+
+def _build_v3_path(token_addrs: list[str], fees: list[int] | None = None) -> bytes:
+    """Build Uniswap V3 path bytes: [addr(20)][fee(3)][addr(20)]...
+
+    Args:
+        token_addrs: List of hex addresses (with or without 0x prefix).
+        fees: Optional list of fee values (len = len(token_addrs) - 1).
+              Defaults to 3000 (0.3%) for each hop.
+    """
+    if fees is None:
+        fees = [3000] * (len(token_addrs) - 1)
+
+    result = b""
+    for i, addr in enumerate(token_addrs):
+        addr_bytes = bytes.fromhex(addr.removeprefix("0x").zfill(40))
+        result += addr_bytes
+        if i < len(fees):
+            fee_val = fees[i]
+            result += fee_val.to_bytes(3, "big")
+    return result
+
+
+def _build_exact_input_calldata(path_bytes: bytes) -> str:
+    """ABI-encode exactInput(params) where params.path = path_bytes.
+
+    exactInput ABI: (bytes path, address recipient, uint256 deadline,
+                     uint256 amountIn, uint256 amountOutMinimum)
+    The tuple is ABI-encoded; path is a dynamic bytes at offset 0.
+
+    Layout after selector (4 bytes):
+      [0:32]   offset to path bytes within the tuple = 0x20 (32 = start of first dynamic param)
+      [32:64]  recipient (address, padded to 32 bytes)
+      [64:96]  deadline
+      [96:128] amountIn
+      [128:160] amountOutMinimum
+      [160:192] path length (uint256)
+      [192:...] path data (padded to 32-byte boundary)
+    """
+    # Selector for exactInput: 0xc04b8d59
+    selector = bytes.fromhex("c04b8d59")
+
+    # The tuple ABI encoding for (bytes, address, uint256, uint256, uint256)
+    # In a tuple, the first field (bytes) is dynamic, so the first 32 bytes
+    # is an offset pointing to the bytes data within the tuple.
+    # Offset = position where dynamic data starts = 5 * 32 = 160 bytes from start of tuple
+    offset_to_path = (5 * 32).to_bytes(32, "big")
+
+    recipient = (0xDEADBEEF).to_bytes(32, "big")
+    deadline = (9999999999).to_bytes(32, "big")
+    amount_in = (1000000000000000000).to_bytes(32, "big")
+    amount_out_min = (900000000000000000).to_bytes(32, "big")
+
+    path_len = len(path_bytes).to_bytes(32, "big")
+    # Pad path to 32-byte boundary
+    pad = (32 - len(path_bytes) % 32) % 32
+    path_padded = path_bytes + b"\x00" * pad
+
+    calldata = selector + offset_to_path + recipient + deadline + amount_in + amount_out_min + path_len + path_padded
+    return "0x" + calldata.hex()
+
+
+# ---------------------------------------------------------------------------
+# Multi-hop path decoding tests
+# ---------------------------------------------------------------------------
+
+class TestMultiHopPathDecoding:
+    """Uniswap V3 exactInput multi-hop path decoding."""
+
+    TOKEN_A = "0x" + "aa" * 20
+    TOKEN_B = "0x" + "bb" * 20
+    TOKEN_C = "0x" + "cc" * 20
+    TOKEN_D = "0x" + "dd" * 20
+
+    def test_multi_hop_2_token_path(self, decoder):
+        """decode_multi_hop_path with 2 tokens returns [tokenA, tokenB]."""
+        path = _build_v3_path([self.TOKEN_A, self.TOKEN_B])
+        result = decoder.decode_multi_hop_path(path)
+        assert len(result) == 2
+        assert result[0].lower() == self.TOKEN_A.lower()
+        assert result[1].lower() == self.TOKEN_B.lower()
+
+    def test_multi_hop_3_token_path(self, decoder):
+        """decode_multi_hop_path with 3 tokens (A->B->C) returns all 3 addresses."""
+        path = _build_v3_path([self.TOKEN_A, self.TOKEN_B, self.TOKEN_C])
+        result = decoder.decode_multi_hop_path(path)
+        assert len(result) == 3
+        assert result[0].lower() == self.TOKEN_A.lower()
+        assert result[1].lower() == self.TOKEN_B.lower()
+        assert result[2].lower() == self.TOKEN_C.lower()
+
+    def test_multi_hop_4_token_path(self, decoder):
+        """decode_multi_hop_path with 4 tokens returns all 4 addresses."""
+        path = _build_v3_path([self.TOKEN_A, self.TOKEN_B, self.TOKEN_C, self.TOKEN_D])
+        result = decoder.decode_multi_hop_path(path)
+        assert len(result) == 4
+        assert result[0].lower() == self.TOKEN_A.lower()
+        assert result[3].lower() == self.TOKEN_D.lower()
+
+    def test_multi_hop_detect_swap_hop_count_standard(self, decoder):
+        """detect_swap returns hop_count=1 for standard non-exactInput swap."""
+        tx = {"raw_data": {"input": "0x38ed1739" + "00" * 100}}
+        result = decoder.detect_swap(tx)
+        assert result["is_swap"] is True
+        assert result["hop_count"] == 1
+        assert result["token_path"] == []
+
+    def test_multi_hop_detect_swap_3_token_path(self, decoder):
+        """detect_swap on exactInput with 3-token path returns hop_count=2 and token_path."""
+        path = _build_v3_path([self.TOKEN_A, self.TOKEN_B, self.TOKEN_C])
+        calldata = _build_exact_input_calldata(path)
+        tx = {"raw_data": {"input": calldata}}
+        result = decoder.detect_swap(tx)
+        assert result["is_swap"] is True
+        assert result["hop_count"] == 2
+        assert len(result["token_path"]) == 3
+        assert result["token_path"][0].lower() == self.TOKEN_A.lower()
+        assert result["token_path"][2].lower() == self.TOKEN_C.lower()
+
+    def test_multi_hop_non_exact_input_hop_count_1(self, decoder):
+        """detect_swap with non-exactInput selector returns hop_count=1 (backward compat)."""
+        tx = {"raw_data": {"input": "0x414bf389" + "aa" * 100}}
+        result = decoder.detect_swap(tx)
+        assert result["is_swap"] is True
+        assert result["hop_count"] == 1
+
+    def test_multi_hop_malformed_path_returns_empty(self, decoder):
+        """decode_multi_hop_path with short input returns empty list (no crash)."""
+        result = decoder.decode_multi_hop_path(b"")
+        assert result == []
+
+        result = decoder.decode_multi_hop_path(b"\x00" * 10)
+        assert result == []
