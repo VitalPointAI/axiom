@@ -8,21 +8,17 @@
 - Fixed: Replaced all bare `except:` with specific exception types + `logger.warning()` across 11 files
 - Commit: `2eadcc6`
 
-**Mixed Database Patterns (SQLite + PostgreSQL):**
-- Issue: Codebase uses both SQLite and PostgreSQL - some scripts use `sqlite3.connect()` directly while others use psycopg2 pools
-- Files: `indexers/hybrid_indexer.py` (SQLite), `indexers/file_handler.py` (psycopg2 pool), `indexers/balance_snapshot.py` (psycopg2), `indexers/ft_indexer.py` (SQLite)
-- Impact: Inconsistent connection management, connection leaks possible, different transaction semantics
-- Fix approach: Migrate all to PostgreSQL with unified connection pool; remove SQLite usage except for tests
+**~~Mixed Database Patterns (SQLite + PostgreSQL)~~ (FIXED 2026-03-14):**
+- Fixed: Archived legacy SQLite modules (`engine/prices.py`, `hybrid_indexer.py`, `ft_indexer.py`) to `_archive/`; all production code now uses PostgreSQL only
+- Commit: `e4aea73` (09-01)
 
 **~~Database Connection Resource Leaks~~ (FIXED 2026-03-13):**
 - Fixed: Added `with sqlite3.connect()` context managers to all 4 scripts
 - Commit: `2eadcc6`
 
-**Overly Large Single Functions:**
-- Issue: Several core modules are monolithic functions with mixed concerns
-- Files: `engine/classifier.py` (1114 lines), `verify/reconcile.py` (1002 lines), `db/models.py` (961 lines), `engine/acb.py` (857 lines)
-- Impact: Difficult to test, modify, debug; hard to understand flow; prone to bugs
-- Fix approach: Refactor into smaller focused functions, extract validation/parsing into separate modules
+**Overly Large Single Functions (PARTIALLY FIXED 2026-03-14):**
+- Fixed: `verify/reconcile.py` reduced from 1002→721 lines; diagnosis logic extracted to `verify/diagnosis.py` (commit `261d983`, 09-05). Classifier N+1 batch loading added (commit `75458cf`, 09-03).
+- Remaining: `engine/classifier.py` (1114 lines), `db/models.py` (961 lines), `engine/acb.py` (857 lines) still large
 
 **Incomplete/Stub Implementations:**
 - Issue: Multiple functions return empty lists or None as placeholders
@@ -34,21 +30,17 @@
 - Fixed: Extracted all URLs to `os.environ.get()` with existing defaults (NEAR_RPC_URL, NEARBLOCKS_API_URL, NEARDATA_API_URL, FASTNEAR_API_URL)
 - Commit: `2eadcc6`
 
-**No Transaction Rollback Pattern:**
-- Issue: Multi-step database operations lack rollback on partial failure
-- Files: `indexers/classifier_handler.py`, `indexers/file_handler.py`, all transaction write patterns
-- Impact: Partial writes leave database in inconsistent state; no way to recover if classification fails midway
-- Fix approach: Implement transaction wrapping with rollback on exceptions; use explicit commits
+**~~No Transaction Rollback Pattern~~ (FIXED 2026-03-14):**
+- Fixed: Standardized rollback pattern in `classifier_handler.py` and `file_handler.py` with explicit `conn.rollback()` on exceptions
+- Commit: `fff17c9` (09-02)
 
 ---
 
 ## Known Bugs
 
-**Rate Limiting Not Fully Handled:**
-- Symptoms: API calls to NearBlocks fail silently when rate limited, sometimes returning incomplete data
-- Files: `indexers/balance_snapshot.py:48-94`, `indexers/ft_indexer.py`
-- Trigger: Running full syncs during peak hours or with many wallets
-- Workaround: Manually retry operations with delays or reduce batch sizes
+**~~Rate Limiting Not Fully Handled~~ (FIXED 2026-03-14):**
+- Fixed: NearBlocks API calls now use exponential backoff + jitter (2^attempt + random [0,1)) with max 5 retries; raises `RuntimeError` on exhaustion instead of silent failure
+- Commits: `cf0872b` (09-03), `75458cf` (09-03)
 
 **~~Path Traversal Validation Incomplete~~ (FIXED 2026-03-13):**
 - Fixed: Added `os.path.realpath()` symlink resolution check before serving files
@@ -62,27 +54,21 @@
 
 ## Security Considerations
 
-**Environment Variables Not Validated:**
-- Risk: Missing or incorrect env vars silently default to wrong values (e.g., wrong DB URL)
-- Files: `indexers/balance_snapshot.py:19`, all files using `os.environ.get()` with defaults
-- Current mitigation: None
-- Recommendations: Add startup validation that required env vars exist and are accessible; fail fast on misconfiguration
+**~~Environment Variables Not Validated~~ (FIXED 2026-03-14):**
+- Fixed: Added `validate_env()` in `config.py` called during FastAPI lifespan startup; fails fast on missing `DATABASE_URL`
+- Commit: `dc6c3b6` (09-02)
 
-**SQL Injection Risk in Dynamic Query Building:**
-- Risk: Some queries build WHERE clauses dynamically with string concatenation
-- Files: `api/routers/transactions.py:124`, `api/routers/wallets.py` (placeholders correctly used but pattern could be tighter)
-- Current mitigation: Parameterized queries used for values; placeholder counts manually managed
-- Recommendations: Use ORM or query builder to eliminate manual placeholder concatenation
+**~~SQL Injection Risk in Dynamic Query Building~~ (FIXED 2026-03-14):**
+- Fixed: Added SQL column whitelist in `transactions.py` to prevent injection via dynamic ORDER BY; all dynamic clauses validated against allowed set
+- Commit: `dc6c3b6` (09-02)
 
 **~~No Input Validation on User-Provided Data~~ (FIXED 2026-03-13):**
 - Fixed: Added Pydantic `@field_validator` for tax categories (enum) and wallet addresses (NEAR/EVM format)
 - Commit: `2eadcc6`
 
-**No Rate Limiting on API Endpoints:**
-- Risk: Attackers can spam endpoints, causing DoS
-- Files: `api/main.py`, all routers
-- Current mitigation: None detected
-- Recommendations: Add rate limiting middleware; log suspicious access patterns
+**~~No Rate Limiting on API Endpoints~~ (FIXED 2026-03-14):**
+- Fixed: Wired slowapi rate limiting on auth, wallet creation/resync, report generation, and transaction endpoints
+- Commit: `dc6c3b6` (09-02)
 
 **Sensitive Data in Logs:**
 - Risk: If transactions or balances are logged with amounts, PII could leak
@@ -94,11 +80,9 @@
 
 ## Performance Bottlenecks
 
-**N+1 Query Pattern in Classification:**
-- Problem: For each transaction, multiple queries to wallet_graph, rules table, staking_events
-- Files: `engine/classifier.py:80-200` (rule loading cached but per-transaction checks not batched)
-- Cause: Linear scan of rules for each tx, separate queries for linked events
-- Improvement path: Batch rule evaluation, use JOIN queries instead of separate lookups, cache staking_events per wallet
+**~~N+1 Query Pattern in Classification~~ (FIXED 2026-03-14):**
+- Fixed: Batch loading of staking_events and lockup_events per wallet; O(1) hash lookup via index dicts instead of per-transaction DB queries
+- Commit: `75458cf` (09-03)
 
 **Price Service Not Indexed:**
 - Problem: Price lookups for every transaction classification may scan large price_cache table
@@ -224,17 +208,13 @@
 
 ## Test Coverage Gaps
 
-**Indexer Edge Cases Untested:**
-- What's not tested: Rate limit handling, malformed API responses, network timeouts
-- Files: `indexers/neardata_indexer.py`, `indexers/evm_indexer.py`, `indexers/evm_indexer_alchemy.py`
-- Risk: Production failures when APIs misbehave
-- Priority: High
+**~~Indexer Edge Cases Untested~~ (FIXED 2026-03-14):**
+- Fixed: 7 tests covering 429 rate limits, timeouts, connection errors, empty responses, missing fields, None amounts
+- Commits: `5111afd`, `98cc69c` (09-04)
 
-**Exchange Parser Robustness:**
-- What's not tested: Missing columns, unexpected field order, duplicate rows in CSV
-- Files: `indexers/exchange_parsers/`
-- Risk: Silent data loss or incorrect classification
-- Priority: High
+**~~Exchange Parser Robustness~~ (FIXED 2026-03-14):**
+- Fixed: 7 tests covering missing columns, extra columns, empty CSV, malformed amounts, missing dates, Unicode BOM, wrong format detection
+- Commit: `98cc69c` (09-04)
 
 **Classification Rule Interactions:**
 - What's not tested: Multiple rules matching same transaction (priority resolution), rule conflicts
@@ -254,14 +234,12 @@
 - Risk: Lost writes, duplicate processing
 - Priority: Medium
 
-**API Endpoint Authorization:**
-- What's not tested: Users trying to access other users' data
-- Files: `api/routers/`, `api/dependencies.py`
-- Risk: Data leak or unauthorized modifications
-- Priority: High
+**~~API Endpoint Authorization~~ (FIXED 2026-03-14):**
+- Fixed: 6 cross-user isolation tests verifying user_id filtering on wallets, transactions, verification endpoints
+- Commit: `5111afd` (09-04)
 
 ---
 
-*Concerns audit: 2026-03-13*
+*Concerns audit: 2026-03-14*
 *Fixed 7 concerns on 2026-03-13 (commit 2eadcc6): bare exceptions, DB connection leaks, hardcoded URLs, path traversal, NULL coercion, input validation, hardcoded external URLs*
-*Remaining concerns tracked for Phase 9: Code Quality & Hardening*
+*Fixed 10 concerns on 2026-03-14 (Phase 9): SQLite cleanup, N+1 queries, rate limiting (API + NearBlocks), env validation, SQL injection, rollback pattern, reconcile refactor, authorization tests, indexer edge cases, parser robustness*
