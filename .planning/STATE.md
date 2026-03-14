@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-03-13T22:28:00Z"
+last_updated: "2026-03-14T03:22:38Z"
 progress:
-  total_phases: 8
+  total_phases: 9
   completed_phases: 8
-  total_plans: 37
-  completed_plans: 39
+  total_plans: 41
+  completed_plans: 40
 ---
 
 # Project State
@@ -98,6 +98,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-14: **09-03 complete** - N+1 queries eliminated: batch staking/lockup event loading per wallet in classifier (_load_staking_event_index, _load_lockup_event_index); NearBlocks API hardened with 2^attempt+jitter exponential backoff for 429/Timeout/ConnectionError, max 5 retries before RuntimeError; balance_snapshot.fetch_ft_balances_nearblocks same pattern; validate_env() added to config.py.
 - 2026-03-13: **07-07 complete** - Docker deployment finalized: api/Dockerfile (python:3.11-slim, project root context, 2 uvicorn workers), docker-compose.prod.yml updated to 4 services (postgres/migrate/web/api/indexer), rolling restart api->web->indexer, healthcheck.sh adds FastAPI /health, 75 Next.js API routes deleted, web/lib DB files deleted, middleware simplified.
 - 2026-03-13: **07-06 complete** - Frontend FastAPI rewiring: apiClient (credentials:include), auth-provider (GET /auth/session), auth page (SimpleWebAuthn + OAuth + magic link to FastAPI), 4-stage pipeline progress bar, portfolio/wallets/transactions/reports all wired to FastAPI.
 - 2026-03-13: **07-05 complete** - Report generation via job queue, 6 inline previews (LIMIT 50), FileResponse downloads with path-traversal guard, SHA-256 exchange CSV import, verification dashboard (summary+issues+resolve+resync+needs-review-count); 28 tests pass.
@@ -315,4 +316,10 @@ None currently.
 | 2026-03-13 | Rolling restart order: api -> web -> indexer | Backend ready before frontend serves requests; indexer is background worker and can start last |
 | 2026-03-13 | DATABASE_URL removed from web service env | Next.js no longer has any direct DB access; all data flows through FastAPI API |
 
-*Last updated: 2026-03-13 — Stopped at: Completed 07-web-ui 07-07-PLAN.md (checkpoint:human-verify pending).*
+| 2026-03-14 | Per-wallet staking/lockup index scope keeps memory bounded | Research pitfall #5: user-level scope would load all wallets into one index |
+| 2026-03-14 | index=None fallback to DB preserves backward compat | Direct test callers can use _find_staking_event without preloading indexes |
+| 2026-03-14 | 2^attempt + uniform[0,1) jitter for NearBlocks retry | Matches plan spec; jitter prevents thundering herd on 429 bursts |
+| 2026-03-14 | RATE_LIMIT_DELAY pacing is orthogonal to retry backoff | Delay = normal inter-request pacing; backoff = failure recovery waits |
+| 2026-03-14 | validate_env() raises RuntimeError if DATABASE_URL not set | Fail fast at startup vs. failing at first DB query; clearer error message |
+
+*Last updated: 2026-03-14 — Stopped at: Completed 09-code-quality-hardening 09-03-PLAN.md.*
