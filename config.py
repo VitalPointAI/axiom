@@ -36,6 +36,31 @@ JOB_POLL_INTERVAL = int(os.environ.get("JOB_POLL_INTERVAL", "5"))          # sec
 SYNC_INTERVAL_MINUTES = int(os.environ.get("SYNC_INTERVAL_MINUTES", "15"))  # minutes
 
 # ---------------------------------------------------------------------------
+# Offline / cached mode
+# ---------------------------------------------------------------------------
+# OFFLINE_MODE controls how the IndexerService handles network-dependent jobs.
+#   "true"  — always skip network jobs (explicit offline mode).
+#   "false" — never skip network jobs; failures will raise as usual.
+#   "auto"  — perform a startup health check to NearBlocks; if unreachable,
+#              activate offline mode automatically.
+OFFLINE_MODE = os.environ.get("OFFLINE_MODE", "auto").lower()
+
+# Job types that require external network access.
+# These are skipped (re-queued) when offline mode is active.
+NETWORK_JOB_TYPES = {
+    "full_sync",
+    "staking_sync",
+    "lockup_sync",
+    "evm_full_sync",
+    "evm_incremental",
+    "incremental_sync",
+    "xrp_full_sync",
+    "xrp_incremental",
+    "akash_full_sync",
+    "akash_incremental",
+}
+
+# ---------------------------------------------------------------------------
 # NearBlocks API
 # ---------------------------------------------------------------------------
 NEARBLOCKS_BASE_URL = "https://api.nearblocks.io/v1"

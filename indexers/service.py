@@ -24,7 +24,7 @@ from typing import Optional
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from config import JOB_POLL_INTERVAL, SYNC_INTERVAL_MINUTES
+from config import JOB_POLL_INTERVAL, SYNC_INTERVAL_MINUTES, OFFLINE_MODE, NETWORK_JOB_TYPES, NEARBLOCKS_BASE_URL
 from indexers.db import get_pool, close_pool
 from indexers.near_fetcher import NearFetcher
 from indexers.staking_fetcher import StakingFetcher
@@ -63,6 +63,9 @@ class IndexerService:
     def __init__(self):
         self.pool = get_pool(min_conn=2, max_conn=5)
         self.price_service = PriceService(self.pool)
+        self._is_offline: bool = False
+        self._offline_reason: str = ""
+        self._detect_offline_mode()
         self.handlers = {
             # job_type -> handler mapping
             "full_sync": NearFetcher(self.pool),           # Full transaction history
@@ -95,6 +98,47 @@ class IndexerService:
         """Signal handler — finish current job then exit cleanly."""
         logger.info("Shutdown signal received (signal %s). Finishing current job...", signum)
         self.running = False
+
+    # ------------------------------------------------------------------
+    # Offline mode detection
+    # ------------------------------------------------------------------
+
+    def _detect_offline_mode(self) -> None:
+        """Set self._is_offline based on OFFLINE_MODE config.
+
+        - "true"  → always offline (skip network jobs)
+        - "false" → never offline (network failures raise normally)
+        - "auto"  → attempt a GET to NEARBLOCKS_BASE_URL with a 3-second
+                     timeout; set offline if unreachable.
+        """
+        if OFFLINE_MODE == "true":
+            self._is_offline = True
+            self._offline_reason = "OFFLINE_MODE=true"
+            logger.info("Offline mode: FORCED (OFFLINE_MODE=true). Network jobs will be re-queued.")
+            return
+
+        if OFFLINE_MODE == "false":
+            self._is_offline = False
+            self._offline_reason = ""
+            logger.info("Offline mode: DISABLED (OFFLINE_MODE=false). Network failures will raise.")
+            return
+
+        # OFFLINE_MODE == "auto" (default) — probe NearBlocks
+        try:
+            import requests  # type: ignore
+            health_url = f"{NEARBLOCKS_BASE_URL}/health"
+            requests.get(health_url, timeout=3)
+            self._is_offline = False
+            self._offline_reason = ""
+            logger.info("Offline mode: auto-check PASSED. NearBlocks reachable.")
+        except Exception as exc:
+            self._is_offline = True
+            self._offline_reason = f"NearBlocks unreachable: {exc}"
+            logger.info(
+                "Offline mode activated: NearBlocks unreachable (%s). "
+                "Network jobs will be re-queued.",
+                exc,
+            )
 
     # ------------------------------------------------------------------
     # Main run loop
@@ -137,6 +181,18 @@ class IndexerService:
                 )
 
                 try:
+                    # Offline mode gate: skip network-dependent jobs when offline.
+                    # Move the job back to 'queued' with last_error='offline_mode'.
+                    if self._is_offline and job_type in NETWORK_JOB_TYPES:
+                        logger.info(
+                            "Offline mode: re-queuing job id=%s type=%s (%s)",
+                            job_id, job_type, self._offline_reason,
+                        )
+                        self._requeue_for_offline(job_id)
+                        if once:
+                            break
+                        continue
+
                     handler = self.handlers.get(job_type)
                     if handler is None:
                         raise ValueError(f"No handler registered for job_type '{job_type}'")
@@ -319,6 +375,34 @@ class IndexerService:
         except Exception:
             conn.rollback()
             raise
+        finally:
+            self.pool.putconn(conn)
+
+    def _requeue_for_offline(self, job_id: int) -> None:
+        """Move a network job back to 'queued' with last_error='offline_mode'.
+
+        This preserves the job for processing once connectivity is restored,
+        without consuming an attempt or applying backoff.
+        """
+        conn = self.pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                UPDATE indexing_jobs
+                SET status = 'queued',
+                    last_error = 'offline_mode',
+                    attempts = GREATEST(0, attempts - 1),
+                    updated_at = NOW()
+                WHERE id = %s
+                """,
+                (job_id,),
+            )
+            conn.commit()
+            cur.close()
+        except Exception:
+            conn.rollback()
+            logger.warning("Failed to re-queue job %s for offline mode", job_id)
         finally:
             self.pool.putconn(conn)
 
