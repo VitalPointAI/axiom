@@ -42,7 +42,7 @@ fi
 
 # Step 2: Build new images
 echo "==> Building Docker images"
-$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml build --parallel"
+$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml build --no-cache --parallel"
 
 # Step 3: Run migrations (one-shot container)
 echo "==> Running database migrations"

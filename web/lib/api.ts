@@ -3,7 +3,9 @@
  * All requests include credentials: 'include' for cross-origin cookie auth.
  */
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? '';
+// In production, API calls use relative paths (proxied via Next.js rewrites).
+// For local dev, set NEXT_PUBLIC_API_URL=http://localhost:8000 in .env.local.
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 export class ApiError extends Error {
   constructor(public status: number, public body: unknown) {
