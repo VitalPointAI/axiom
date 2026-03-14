@@ -1,3 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "axiom"
+version = "1.0.0"
+description = "Accurate crypto tax reporting for NEAR and multi-chain portfolios"
+requires-python = ">=3.11"
+
+[tool.setuptools]
+# Axiom is not installed as a package — scripts run directly from project root.
+packages = []
+
 [tool.ruff]
 line-length = 120
 target-version = "py311"

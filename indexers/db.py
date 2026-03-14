@@ -35,7 +35,7 @@ from psycopg2.extensions import cursor as PgCursor
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import DATABASE_URL
+from config import DATABASE_URL, DB_POOL_MIN, DB_POOL_MAX
 
 # ---------------------------------------------------------------------------
 # Module-level pool singleton
@@ -69,17 +69,42 @@ def get_connection() -> PgConnection:
     return psycopg2.connect(url)
 
 
-def get_pool(min_conn: int = 1, max_conn: int = 5) -> pg_pool.SimpleConnectionPool:
+def get_pool(
+    min_conn: int = DB_POOL_MIN, max_conn: int = DB_POOL_MAX
+) -> pg_pool.SimpleConnectionPool:
     """Return the module-level SimpleConnectionPool, creating it if needed.
 
-    Suitable for long-lived indexer processes that need connection reuse.
-    Thread-safe for reading; initialize before spawning threads.
+    Defaults for min_conn and max_conn are read from DB_POOL_MIN / DB_POOL_MAX
+    environment variables (via config.py) so pool sizing can be tuned without
+    code changes.  Suitable for long-lived indexer processes that need
+    connection reuse.  Thread-safe for reading; initialize before spawning threads.
     """
     global _pool
     if _pool is None:
         url = _require_database_url()
         _pool = pg_pool.SimpleConnectionPool(min_conn, max_conn, url)
     return _pool
+
+
+def pool_stats(pool: pg_pool.SimpleConnectionPool) -> dict:
+    """Return a snapshot of pool utilisation.
+
+    Args:
+        pool: A psycopg2 SimpleConnectionPool instance.
+
+    Returns:
+        dict with keys:
+            minconn   – configured minimum connections
+            maxconn   – configured maximum connections
+            available – idle connections currently in the pool
+            in_use    – connections currently checked out
+    """
+    return {
+        "minconn": pool.minconn,
+        "maxconn": pool.maxconn,
+        "available": len(pool._pool),
+        "in_use": len(pool._used),
+    }
 
 
 def close_pool() -> None:
