@@ -1,0 +1,31 @@
+name: CI Quality Gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt ruff pytest-cov
+
+      - name: Lint (ruff)
+        run: ruff check . --select E,W,F --ignore E501
+
+      - name: Run tests
+        run: pytest tests/ -q --tb=short -x
+
+      - name: Coverage report
+        run: pytest tests/ -q --cov=api --cov=engine --cov=indexers --cov=reports --cov-report=term-missing
