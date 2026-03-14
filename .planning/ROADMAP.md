@@ -401,5 +401,33 @@ Plans:
 9. [ ] Exchange parsers handle missing columns and malformed CSV gracefully
 10. [ ] verify/reconcile.py diagnosis logic extracted into verify/diagnosis.py
 
+### Phase 10: Remaining Concerns Remediation
+
+**Goal:** Address all remaining unfixed concerns from CONCERNS.md — refactor large modules, improve performance, harden robustness, fill test gaps, clean up dependencies.
+
+**Requirements:**
+- RC-01: Refactor large modules — split classifier.py, acb.py, db/models.py into focused sub-modules
+- RC-02: Add price_cache composite index (symbol, timestamp)
+- RC-03: Streaming report export (chunked CSV generation)
+- RC-04: Backfill generator pattern (increase batch size, streaming processing)
+- RC-05: API response caching for repeated NearBlocks calls
+- RC-06: Configure connection pool sizing with monitoring
+- RC-07: Add logging policy — sanitize sensitive fields before logging
+- RC-08: Remove or document stub implementations (xrp_fetcher, portfolio, akash_fetcher)
+- RC-09: Add python_requires constraint to pyproject.toml
+- RC-10: Classification rule interaction tests (priority resolution, conflicts)
+- RC-11: ACB gap data tests (missing transactions, missing prices)
+- RC-12: Concurrent classification tests (lost writes, duplicate processing)
+- RC-13: Deprecate Coinbase Pro indexer with migration warning
+- RC-14: Update scaling limits documentation (remove SQLite references)
+
+**Out of scope:** Audit log, multi-currency support, offline mode, export validation (feature work for future milestones)
+
+**Depends on:** Phase 9
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 10 to break down)
+
 ---
-*Last updated: 2026-03-13 — Phase 9 planned: 5 plans in 2 waves covering 12 code quality requirements.*
+*Last updated: 2026-03-14 — Phase 10 added: Remaining Concerns Remediation (14 requirements from CONCERNS.md unfixed items).*
