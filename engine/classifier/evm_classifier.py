@@ -42,6 +42,8 @@ def classify_evm_tx_group(
             "notes": f"EVM DEX swap: {swap_result['method_name']} ({swap_result['dex_type']})",
             "needs_review": False,
             "rule_id": None,
+            "token_path": swap_result.get("token_path", []),
+            "hop_count": swap_result.get("hop_count", 1),
         }
         return classifier._decompose_swap(primary_tx, category_result)
 
