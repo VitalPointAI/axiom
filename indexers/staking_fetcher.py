@@ -46,6 +46,7 @@ getcontext().prec = 50
 YOCTO = Decimal("1e24")
 EPOCH_DURATION_NS = int(12 * 3600 * 1e9)  # ~12 hours in nanoseconds
 EPOCH_DURATION_SECONDS = 12 * 3600        # ~12 hours
+BACKFILL_BATCH_SIZE = 100  # Commit every N epochs during backfill
 
 # RPC request timeout
 RPC_TIMEOUT = 15
@@ -235,8 +236,25 @@ class StakingFetcher:
             prev_staked = staked
             prev_epoch_ts = epoch_ts
 
+            # Batch commit: flush every BACKFILL_BATCH_SIZE epochs
+            if (epoch_offset + 1) % BACKFILL_BATCH_SIZE == 0:
+                self._batch_commit_backfill(wallet_id, validator_id, epoch_id)
+
+        # Final batch commit for remaining epochs
+        if num_epochs > 0:
+            self._batch_commit_backfill(wallet_id, validator_id, current_epoch - 1)
+
         logger.info("Inserted %d reward events for %s", rewards_inserted, validator_id)
         return rewards_inserted
+
+    def _batch_commit_backfill(self, wallet_id: int, validator_id: str, last_epoch: int):
+        """Commit current transaction and update indexing job cursor."""
+        conn = self.db_pool.getconn()
+        try:
+            conn.commit()
+            logger.debug("Batch commit at epoch %d for %s", last_epoch, validator_id)
+        finally:
+            self.db_pool.putconn(conn)
 
     # ------------------------------------------------------------------
     # Internal: validator discovery

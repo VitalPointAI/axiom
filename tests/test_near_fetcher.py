@@ -10,6 +10,7 @@ Tests cover:
 import json
 import sys
 import os
+import unittest
 from unittest.mock import MagicMock, patch, call
 import pytest
 
@@ -475,3 +476,77 @@ class TestVerifySync:
 
         # Should pass with small tolerance
         assert passed is True
+
+
+# ---------------------------------------------------------------------------
+# NearBlocks client caching tests
+# ---------------------------------------------------------------------------
+
+
+class TestNearBlocksCache(unittest.TestCase):
+    """Tests for NearBlocksClient TTL cache."""
+
+    def test_cache_hit_returns_without_api_call(self):
+        """Cached entry returns value without making an API request."""
+        from indexers.nearblocks_client import NearBlocksClient
+
+        client = NearBlocksClient(delay=0)
+        # Pre-populate cache
+        client._cache_set("txn_count:alice.near", 42)
+
+        # Mock _request to ensure it's NOT called
+        client._request = unittest.mock.MagicMock()
+
+        result = client.get_transaction_count("alice.near")
+        self.assertEqual(result, 42)
+        client._request.assert_not_called()
+
+    def test_cache_miss_makes_api_call(self):
+        """Missing cache entry triggers API call and caches result."""
+        from indexers.nearblocks_client import NearBlocksClient
+
+        client = NearBlocksClient(delay=0)
+        client._request = unittest.mock.MagicMock(
+            return_value={"txns": [{"count": "100"}]}
+        )
+
+        result = client.get_transaction_count("bob.near")
+        self.assertEqual(result, 100)
+        client._request.assert_called_once()
+
+        # Second call should hit cache
+        result2 = client.get_transaction_count("bob.near")
+        self.assertEqual(result2, 100)
+        # Still only 1 API call
+        client._request.assert_called_once()
+
+    def test_cache_expired_makes_fresh_api_call(self):
+        """Expired cache entry triggers fresh API call."""
+        import time as _time
+        from indexers.nearblocks_client import NearBlocksClient
+
+        client = NearBlocksClient(delay=0)
+        # Set cache entry with expired TTL
+        client._cache["txn_count:charlie.near"] = (50, _time.time() - 1)
+
+        client._request = unittest.mock.MagicMock(
+            return_value={"txns": [{"count": "75"}]}
+        )
+
+        result = client.get_transaction_count("charlie.near")
+        self.assertEqual(result, 75)
+        client._request.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Staking backfill batch commit tests
+# ---------------------------------------------------------------------------
+
+
+class TestBackfillBatchCommit(unittest.TestCase):
+    """Tests for BACKFILL_BATCH_SIZE batch commit pattern."""
+
+    def test_backfill_batch_size_constant_exists(self):
+        """BACKFILL_BATCH_SIZE is defined and equals 100."""
+        from indexers.staking_fetcher import BACKFILL_BATCH_SIZE
+        self.assertEqual(BACKFILL_BATCH_SIZE, 100)

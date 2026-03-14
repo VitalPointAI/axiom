@@ -30,6 +30,8 @@ class NearBlocksClient:
     - Max 5 retries before raising RuntimeError (no silent data loss)
     """
 
+    _CACHE_TTL = 300  # 5 minutes
+
     def __init__(self, base_url=None, delay=None, max_retries=None):
         self.base_url = base_url or NEARBLOCKS_BASE_URL
         self.delay = delay if delay is not None else RATE_LIMIT_DELAY
@@ -37,6 +39,22 @@ class NearBlocksClient:
         self.last_request_time = 0
         self.request_count = 0
         self.session = requests.Session()
+        self._cache: dict[str, tuple] = {}  # key -> (value, expiry_time)
+
+    def _cache_get(self, key: str):
+        """Get cached value if not expired. Returns None on miss."""
+        entry = self._cache.get(key)
+        if entry is None:
+            return None
+        value, expiry = entry
+        if time.time() > expiry:
+            del self._cache[key]
+            return None
+        return value
+
+    def _cache_set(self, key: str, value):
+        """Store value in cache with TTL."""
+        self._cache[key] = (value, time.time() + self._CACHE_TTL)
 
     def _wait_for_rate_limit(self):
         """Ensure minimum delay between requests (normal inter-request pacing)."""
@@ -109,9 +127,15 @@ class NearBlocksClient:
         return self._nearblocks_request(url, params=params)
 
     def get_transaction_count(self, account_id):
-        """Get total transaction count for account."""
+        """Get total transaction count for account (cached with TTL)."""
+        cache_key = f"txn_count:{account_id}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         data = self._request(f"account/{account_id}/txns/count")
-        return int(data["txns"][0]["count"])
+        count = int(data["txns"][0]["count"])
+        self._cache_set(cache_key, count)
+        return count
 
     def fetch_transactions(self, account_id, cursor=None, per_page=25):
         """Fetch one page of transactions.
