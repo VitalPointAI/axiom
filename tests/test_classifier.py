@@ -1064,3 +1064,107 @@ class TestRulePriorityAndChainFilter:
         assert results_first[0]["confidence"] == results_second[0]["confidence"], (
             "Repeated classification should produce same confidence"
         )
+
+
+# ---------------------------------------------------------------------------
+# TestMultiHopSwapDecomposition
+# ---------------------------------------------------------------------------
+
+class TestMultiHopSwapDecomposition:
+    """Multi-hop swap leg decomposition via _decompose_swap with token_path."""
+
+    TOKEN_A = "0x" + "aa" * 20
+    TOKEN_B = "0x" + "bb" * 20
+    TOKEN_C = "0x" + "cc" * 20
+    TOKEN_D = "0x" + "dd" * 20
+
+    def _make_clf(self):
+        pool, conn, cur = _make_pool()
+        cur.fetchone.return_value = (42,)  # upsert returns an id
+        clf = _make_classifier(pool)
+        return clf
+
+    def _swap_category_result(self, hop_count=1, token_path=None):
+        return {
+            "category": "trade",
+            "confidence": 0.90,
+            "notes": "EVM DEX swap: exactInput (uniswap_v3)",
+            "needs_review": False,
+            "rule_id": None,
+            "hop_count": hop_count,
+            "token_path": token_path or [],
+        }
+
+    def _parent_tx(self, tx_id=99, fee=None):
+        return {
+            "id": tx_id,
+            "raw_data": {},
+            "fee": fee,
+        }
+
+    def test_multi_hop_3_hop_swap_produces_4_legs(self):
+        """3-hop swap (A->B->C) produces parent + sell_leg + intermediate_leg_1 + buy_leg = 4 records."""
+        clf = self._make_clf()
+        parent_tx = self._parent_tx()
+        category_result = self._swap_category_result(
+            hop_count=2,
+            token_path=[self.TOKEN_A, self.TOKEN_B, self.TOKEN_C],
+        )
+        records = clf._decompose_swap(parent_tx, category_result)
+
+        assert len(records) == 4, f"Expected 4 records, got {len(records)}"
+        leg_types = [r["leg_type"] for r in records]
+        assert "parent" in leg_types
+        assert "sell_leg" in leg_types
+        assert "intermediate_leg_1" in leg_types
+        assert "buy_leg" in leg_types
+
+    def test_multi_hop_4_hop_swap_produces_5_legs(self):
+        """4-hop swap (A->B->C->D) produces parent + sell + 2 intermediate + buy = 5 records."""
+        clf = self._make_clf()
+        parent_tx = self._parent_tx()
+        category_result = self._swap_category_result(
+            hop_count=3,
+            token_path=[self.TOKEN_A, self.TOKEN_B, self.TOKEN_C, self.TOKEN_D],
+        )
+        records = clf._decompose_swap(parent_tx, category_result)
+
+        assert len(records) == 5, f"Expected 5 records, got {len(records)}"
+        leg_types = [r["leg_type"] for r in records]
+        assert "parent" in leg_types
+        assert "sell_leg" in leg_types
+        assert "intermediate_leg_1" in leg_types
+        assert "intermediate_leg_2" in leg_types
+        assert "buy_leg" in leg_types
+
+    def test_multi_hop_intermediate_has_needs_review(self):
+        """Multi-hop swap sets needs_review=True on parent and intermediate legs."""
+        clf = self._make_clf()
+        parent_tx = self._parent_tx()
+        category_result = self._swap_category_result(
+            hop_count=2,
+            token_path=[self.TOKEN_A, self.TOKEN_B, self.TOKEN_C],
+        )
+        records = clf._decompose_swap(parent_tx, category_result)
+
+        # Parent must be flagged needs_review due to missing intermediate FMV
+        parent_rec = next(r for r in records if r["leg_type"] == "parent")
+        assert parent_rec["needs_review"] is True, "Parent must have needs_review=True for multi-hop"
+
+        # Intermediate must be flagged
+        intermediate = next(r for r in records if r["leg_type"] == "intermediate_leg_1")
+        assert intermediate["needs_review"] is True
+
+    def test_standard_2_hop_swap_unchanged(self):
+        """Standard 2-hop swap (no token_path > 2) still produces 3 records: parent, sell, buy."""
+        clf = self._make_clf()
+        parent_tx = self._parent_tx()
+        category_result = self._swap_category_result(hop_count=1, token_path=[])
+        records = clf._decompose_swap(parent_tx, category_result)
+
+        assert len(records) == 3, f"Expected 3 records for standard swap, got {len(records)}"
+        leg_types = [r["leg_type"] for r in records]
+        assert "parent" in leg_types
+        assert "sell_leg" in leg_types
+        assert "buy_leg" in leg_types
+        assert not any("intermediate" in lt for lt in leg_types)
