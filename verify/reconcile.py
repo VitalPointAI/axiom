@@ -27,6 +27,7 @@ from indexers.evm_fetcher import (
     CHAIN_NAME_MAP,
     ETHERSCAN_V2_URL,
 )
+from db.audit import write_audit
 from verify.diagnosis import ReconcileDiagnoser
 
 logger = logging.getLogger(__name__)
@@ -121,6 +122,74 @@ class BalanceReconciler:
                     exc,
                 )
                 stats["errors"] += 1
+
+        # --- Wallet coverage invariant check ---
+        all_wallet_ids = {w[0] for w in wallets}
+        reconciled_wallet_ids = set()
+        for wallet_id, account_id, chain in wallets:
+            reconciled_wallet_ids.add(wallet_id)
+        skipped_wallets = all_wallet_ids - reconciled_wallet_ids
+        stats["coverage_complete"] = len(skipped_wallets) == 0
+
+        if skipped_wallets:
+            logger.warning(
+                "Reconciler wallet coverage: %d wallets skipped for user_id=%s: %s",
+                len(skipped_wallets), user_id, skipped_wallets,
+            )
+            conn = self.pool.getconn()
+            try:
+                write_audit(
+                    conn,
+                    user_id=user_id,
+                    entity_type="verification_result",
+                    action="invariant_violation",
+                    new_value={
+                        "skipped_wallets": list(skipped_wallets),
+                        "reason": "wallet_not_reconciled",
+                    },
+                    actor_type="system",
+                )
+                conn.commit()
+            except Exception:
+                logger.warning("Failed to write reconciler invariant audit", exc_info=True)
+            finally:
+                self.pool.putconn(conn)
+
+        # --- Undiagnosed discrepancy check ---
+        conn = self.pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT id FROM verification_results
+                WHERE user_id = %s AND status = 'open' AND diagnosis_category IS NULL
+                LIMIT 50
+                """,
+                (user_id,),
+            )
+            undiagnosed = cur.fetchall()
+            cur.close()
+            if undiagnosed:
+                logger.warning(
+                    "Reconciler: %d undiagnosed discrepancies for user_id=%s",
+                    len(undiagnosed), user_id,
+                )
+                write_audit(
+                    conn,
+                    user_id=user_id,
+                    entity_type="verification_result",
+                    action="invariant_violation",
+                    new_value={
+                        "undiagnosed_count": len(undiagnosed),
+                        "result_ids": [r[0] for r in undiagnosed[:10]],
+                    },
+                    actor_type="system",
+                )
+                conn.commit()
+        except Exception:
+            logger.warning("Failed to check undiagnosed discrepancies", exc_info=True)
+        finally:
+            self.pool.putconn(conn)
 
         logger.info(
             "Reconciliation complete for user_id=%s: %s",

@@ -2,11 +2,15 @@
 
 import csv
 import json
+import logging
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import List, Optional
 
 from indexers.exchange_plugin import ExchangeParser
+
+logger = logging.getLogger(__name__)
 
 
 class BaseExchangeParser(ExchangeParser):
@@ -46,6 +50,34 @@ class BaseExchangeParser(ExchangeParser):
         """
         raise NotImplementedError("Subclasses must implement parse_row()")
 
+    def validate_parsed_row(self, parsed: dict, raw_row: dict) -> dict:
+        """Post-parse invariant validation. Flag + continue pattern.
+
+        Checks amount is non-zero, date is parseable, asset is non-empty.
+        Sets needs_review=True on violations, never returns None.
+        """
+        violations = []
+
+        amount = parsed.get("quantity") or parsed.get("amount")
+        if amount is None or amount == 0 or amount == Decimal("0") or amount == "0":
+            violations.append("zero_or_missing_amount")
+
+        if parsed.get("tx_date") is None:
+            violations.append("missing_date")
+
+        if not parsed.get("asset"):
+            violations.append("missing_asset")
+
+        if violations:
+            logger.warning(
+                "Exchange parser invariant violation in %s row: %s",
+                self.exchange_name, violations,
+            )
+            parsed["needs_review"] = True
+            parsed["_invariant_violations"] = violations
+
+        return parsed
+
     def parse_file(self, filepath: str) -> List[dict]:
         """Parse a CSV file and return list of standardized transaction dicts."""
         self.transactions = []
@@ -67,6 +99,7 @@ class BaseExchangeParser(ExchangeParser):
                 try:
                     tx = self.parse_row(row)
                     if tx:
+                        tx = self.validate_parsed_row(tx, row)
                         tx["_row"] = i
                         # Ensure raw_data is a dict (JSONB-compatible)
                         if "raw_data" not in tx:
