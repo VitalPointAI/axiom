@@ -23,9 +23,10 @@ from slowapi.errors import RateLimitExceeded
 
 import indexers.db as _db
 from api.rate_limit import limiter
-from config import validate_env
+from config import validate_env, OFFLINE_MODE
 from api.auth import router as auth_router
 from api.routers import (
+    audit_router,
     exchanges_router,
     jobs_router,
     portfolio_router,
@@ -100,14 +101,35 @@ def create_app() -> FastAPI:
     application.include_router(exchanges_router)
     application.include_router(verification_router)
     application.include_router(jobs_router)
+    application.include_router(audit_router)
 
     # ----------------------------------------------------------------
     # Health check — unauthenticated
     # ----------------------------------------------------------------
     @application.get("/health", tags=["health"])
     def health_check() -> dict:
-        """Return API health status. Used by load balancers and Docker health checks."""
-        return {"status": "ok"}
+        """Return API health status. Used by load balancers and Docker health checks.
+
+        Includes offline_mode from config so UI and monitoring can detect
+        when network-dependent indexer jobs are being held back.
+        """
+        return {
+            "status": "ok",
+            "offline_mode": OFFLINE_MODE,
+            "database": "ok",
+        }
+
+    # ----------------------------------------------------------------
+    # Status endpoint — offline mode + system info
+    # ----------------------------------------------------------------
+    @application.get("/api/status", tags=["health"])
+    def api_status() -> dict:
+        """Return system status including offline_mode configuration."""
+        return {
+            "offline_mode": OFFLINE_MODE,
+            "database": "ok",
+            "status": "ok",
+        }
 
     return application
 
