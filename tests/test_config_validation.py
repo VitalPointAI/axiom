@@ -3,6 +3,7 @@
 Covers QH-06: Startup fails fast on missing required env vars.
 Covers RC-02: DB_POOL_MIN/MAX configurable via env vars (default 1/10).
 Covers RC-09: pool_stats() returns dict with minconn, maxconn keys.
+Covers RC-07: sanitize_for_log() redacts sensitive keys.
 """
 import importlib
 import logging
@@ -202,3 +203,65 @@ class TestPoolStats:
 
         assert result["available"] == 3
         assert result["in_use"] == 2
+
+
+class TestSanitizeForLog:
+    """Verify sanitize_for_log() redacts sensitive fields and preserves safe ones."""
+
+    def test_sanitize_redacts_database_url(self):
+        """DATABASE_URL must be redacted."""
+        from config import sanitize_for_log
+        result = sanitize_for_log({"DATABASE_URL": "postgres://user:pass@localhost/db"})
+        assert result["DATABASE_URL"] == "***REDACTED***"
+
+    def test_sanitize_redacts_api_key_variants(self):
+        """Any key containing API_KEY must be redacted."""
+        from config import sanitize_for_log
+        result = sanitize_for_log({
+            "NEARBLOCKS_API_KEY": "nb-secret-key-123",
+            "COINGECKO_API_KEY": "cg-secret-key-456",
+        })
+        assert result["NEARBLOCKS_API_KEY"] == "***REDACTED***"
+        assert result["COINGECKO_API_KEY"] == "***REDACTED***"
+
+    def test_sanitize_preserves_safe_keys(self):
+        """Non-sensitive keys must be preserved unchanged."""
+        from config import sanitize_for_log
+        result = sanitize_for_log({
+            "name": "Aaron",
+            "email": "aaron@example.com",
+            "user_id": 42,
+        })
+        assert result["name"] == "Aaron"
+        assert result["email"] == "aaron@example.com"
+        assert result["user_id"] == 42
+
+    def test_sanitize_redacts_token_and_secret(self):
+        """Keys containing TOKEN or SECRET must be redacted."""
+        from config import sanitize_for_log
+        result = sanitize_for_log({
+            "SESSION_TOKEN": "tok-abc123",
+            "JWT_SECRET": "super-secret",
+        })
+        assert result["SESSION_TOKEN"] == "***REDACTED***"
+        assert result["JWT_SECRET"] == "***REDACTED***"
+
+    def test_sanitize_does_not_mutate_original(self):
+        """sanitize_for_log must return a copy, not mutate the original."""
+        from config import sanitize_for_log
+        original = {"DATABASE_URL": "postgres://secret", "name": "Aaron"}
+        result = sanitize_for_log(original)
+        assert original["DATABASE_URL"] == "postgres://secret"  # Not mutated
+        assert result["DATABASE_URL"] == "***REDACTED***"
+
+    def test_sanitize_case_insensitive_matching(self):
+        """Key matching must be case-insensitive (lowercase key with uppercase pattern)."""
+        from config import sanitize_for_log
+        result = sanitize_for_log({"database_url": "postgres://secret"})
+        assert result["database_url"] == "***REDACTED***"
+
+    def test_sanitize_redacts_password(self):
+        """Keys containing PASSWORD must be redacted."""
+        from config import sanitize_for_log
+        result = sanitize_for_log({"DB_PASSWORD": "secret123"})
+        assert result["DB_PASSWORD"] == "***REDACTED***"
