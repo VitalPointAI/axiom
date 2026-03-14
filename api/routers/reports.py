@@ -74,6 +74,48 @@ def _get_output_dir() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Helper: check report staleness
+# ---------------------------------------------------------------------------
+
+
+def _check_staleness(output_dir: str, conn, user_id: int):
+    """Compare MANIFEST.json fingerprint against current DB state.
+
+    Returns:
+        {"stale": False} if fingerprint matches.
+        {"stale": True, "stale_reason": str, "changed_fields": list} if fingerprint differs.
+        None if no MANIFEST.json exists in output_dir.
+    """
+    from reports.generate import get_data_fingerprint
+
+    manifest_path = Path(output_dir) / "MANIFEST.json"
+    if not manifest_path.exists():
+        return None
+
+    try:
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+    stored = manifest.get("source_data_version", {})
+    current = get_data_fingerprint(conn, user_id)
+
+    changed_fields = [
+        k for k in ("last_tx_timestamp", "total_tx_count", "acb_snapshot_version", "needs_review_count")
+        if stored.get(k) != current.get(k)
+    ]
+
+    if changed_fields:
+        return {
+            "stale": True,
+            "stale_reason": "Data has changed since this report was generated",
+            "changed_fields": changed_fields,
+        }
+    return {"stale": False}
+
+
+# ---------------------------------------------------------------------------
 # POST /api/reports/generate
 # ---------------------------------------------------------------------------
 
@@ -334,11 +376,13 @@ async def preview_report(
 async def list_report_files(
     year: int,
     user: dict = Depends(get_effective_user),
+    pool=Depends(get_pool_dep),
 ):
     """List all files in the output/{year}_tax_package/ directory.
 
     Returns file names, sizes, and download URLs.
     Returns 404 if the directory does not exist.
+    Includes stale=True/False when MANIFEST.json is present.
     """
     output_root = _get_output_dir()
     pkg_dir = Path(output_root) / f"{year}_tax_package"
@@ -359,6 +403,25 @@ async def list_report_files(
                     url=f"/api/reports/download/{year}/{entry.name}",
                 )
             )
+
+    user_id = user["user_id"]
+
+    def _stale_check(conn):
+        return _check_staleness(str(pkg_dir), conn, user_id)
+
+    conn = pool.getconn()
+    try:
+        staleness = await run_in_threadpool(_stale_check, conn)
+    finally:
+        pool.putconn(conn)
+
+    if staleness is not None:
+        from fastapi.responses import JSONResponse
+        response_dict = ReportFileResponse(year=year, files=files).model_dump()
+        response_dict["stale"] = staleness["stale"]
+        if staleness.get("stale"):
+            response_dict["stale_reason"] = staleness.get("stale_reason", "")
+        return JSONResponse(content=response_dict)
 
     return ReportFileResponse(year=year, files=files)
 
