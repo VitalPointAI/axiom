@@ -15,6 +15,9 @@ down_revision = "008"
 
 
 def upgrade():
+    # Allow passkey-only users who don't have a NEAR account yet
+    op.execute("ALTER TABLE users ALTER COLUMN near_account_id DROP NOT NULL;")
+
     op.execute("""
         CREATE TABLE IF NOT EXISTS auth_user_mapping (
             auth_user_id TEXT PRIMARY KEY,
