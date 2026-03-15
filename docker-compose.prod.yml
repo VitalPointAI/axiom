@@ -47,56 +47,6 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  auth-service:
-    build:
-      context: ./auth-service
-      dockerfile: Dockerfile
-    environment:
-      - DATABASE_URL=postgresql://neartax:${POSTGRES_PASSWORD}@postgres:5432/neartax
-      - SECRET_KEY=${SECRET_KEY}
-      - RP_ID=${RP_ID:-localhost}
-      - RP_NAME=${RP_NAME:-Axiom}
-      - ORIGIN=${ORIGIN:-http://localhost:3003}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3003}
-      - NEAR_NETWORK=${NEAR_NETWORK:-mainnet}
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - SES_REGION=${AWS_SES_REGION:-ca-central-1}
-      - SES_FROM_EMAIL=${AWS_SES_FROM_EMAIL:-axiom@vitalpoint.ai}
-      - NEAR_TREASURY_ACCOUNT=${NEAR_TREASURY_ACCOUNT}
-      - NEAR_TREASURY_PRIVATE_KEY=${NEAR_TREASURY_PRIVATE_KEY}
-      - NEAR_FUNDING_AMOUNT=${NEAR_FUNDING_AMOUNT:-0.01}
-      - PINATA_API_KEY=${PINATA_API_KEY}
-      - PINATA_API_SECRET=${PINATA_API_SECRET}
-      - AUTH_PORT=3100
-    depends_on:
-      postgres:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: "0.5"
-    networks:
-      - axiom-net
-    restart: unless-stopped
-    labels:
-      app.service: auth-service
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3100/auth/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   proxy:
     image: nginx:alpine
     ports:
@@ -107,8 +57,6 @@ services:
       web:
         condition: service_healthy
       api:
-        condition: service_healthy
-      auth-service:
         condition: service_healthy
     networks:
       - axiom-net

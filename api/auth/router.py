@@ -32,6 +32,8 @@ from api.schemas.auth import (
     RegisterStartRequest,
     SessionResponse,
     UserResponse,
+    WalletRecoveryStartRequest,
+    WalletRecoveryFinishRequest,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -317,3 +319,118 @@ async def magic_link_verify(
         ),
         expires_at=expires_at,
     )
+
+
+# ---------------------------------------------------------------------------
+# Account recovery
+# ---------------------------------------------------------------------------
+
+
+@router.post("/recovery/wallet/start")
+@limiter.limit("10/minute")
+async def wallet_recovery_start(
+    request: Request,
+    conn=Depends(get_db_conn),
+):
+    """Generate a challenge for wallet-based account recovery."""
+    import secrets
+    from datetime import datetime, timezone, timedelta
+
+    challenge = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO challenges (id, challenge, challenge_type, expires_at)
+            VALUES (%s, %s, 'authentication', %s)
+            """,
+            (challenge, challenge.encode(), expires_at),
+        )
+    finally:
+        cur.close()
+    conn.commit()
+
+    return {"challenge": challenge, "expires_at": expires_at.isoformat()}
+
+
+@router.post("/recovery/wallet/finish", response_model=SessionResponse)
+@limiter.limit("10/minute")
+async def wallet_recovery_finish(
+    request: Request,
+    body: WalletRecoveryFinishRequest,
+    response: Response,
+    conn=Depends(get_db_conn),
+):
+    """Verify wallet signature and recover account by creating a new session."""
+    from api.auth.session import create_session
+    from api.auth._user_helpers import load_user_by_id, get_session_expires_at
+
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT id FROM users WHERE near_account_id = %s",
+            (body.near_account_id,),
+        )
+        row = cur.fetchone()
+    finally:
+        cur.close()
+
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No account found for {body.near_account_id}",
+        )
+
+    user_id = row[0]
+
+    # Verify the challenge exists and hasn't expired
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT id FROM challenges WHERE id = %s AND expires_at > NOW()",
+            (body.challenge,),
+        )
+        challenge_row = cur.fetchone()
+        if challenge_row:
+            cur.execute("DELETE FROM challenges WHERE id = %s", (body.challenge,))
+    finally:
+        cur.close()
+    conn.commit()
+
+    if challenge_row is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Challenge expired or invalid",
+        )
+
+    user_row = await run_in_threadpool(load_user_by_id, user_id, conn)
+    await run_in_threadpool(create_session, user_id, response, conn)
+    expires_at = get_session_expires_at()
+
+    return SessionResponse(
+        user=UserResponse(
+            user_id=user_row["user_id"],
+            near_account_id=user_row.get("near_account_id"),
+            username=user_row.get("username"),
+            email=user_row.get("email"),
+            codename=user_row.get("codename"),
+            is_admin=bool(user_row.get("is_admin", False)),
+        ),
+        expires_at=expires_at,
+    )
+
+
+@router.post("/recovery/email")
+@limiter.limit("10/minute")
+async def email_recovery(
+    request: Request,
+    body: MagicLinkRequest,
+    conn=Depends(get_db_conn),
+):
+    """Send a recovery magic link to the user's registered email."""
+    from api.auth.magic_link import request_magic_link
+
+    await run_in_threadpool(request_magic_link, body.email, conn)
+    return {"sent": True}

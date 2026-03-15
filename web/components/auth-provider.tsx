@@ -12,8 +12,7 @@ interface User {
   is_admin?: boolean;
   nearAccountId: string;
   codename?: string;
-  username?: string;
-  authMethod?: string;
+  createdAt?: string;
 }
 
 interface AuthContextType {
@@ -26,19 +25,16 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// near-phantom-auth session response format
-interface SessionInfo {
-  authenticated: boolean;
-  codename?: string;
-  username?: string;
-  nearAccountId?: string;
-  email?: string;
-  expiresAt?: string;
-  authMethod?: 'passkey' | 'oauth' | 'email';
-  // Axiom-specific fields added by user bridge
-  userId?: string;
-  axiomUserId?: number;
-  isAdmin?: boolean;
+interface SessionResponse {
+  user: {
+    user_id: number;
+    near_account_id?: string;
+    username?: string;
+    email?: string;
+    codename?: string;
+    is_admin?: boolean;
+  };
+  expires_at: string;
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -49,25 +45,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const checkSession = useCallback(async () => {
     try {
-      const data = await apiClient.get<SessionInfo>('/auth/session');
-      if (data.authenticated) {
-        const id = data.userId || data.codename || data.nearAccountId || 'unknown';
-        setUser({
-          id,
-          email: data.email,
-          near_account_id: data.nearAccountId,
-          display_name: data.codename || data.username,
-          is_admin: data.isAdmin,
-          nearAccountId: data.nearAccountId || data.email || data.codename || id,
-          codename: data.codename,
-          username: data.username,
-          authMethod: data.authMethod,
-        });
-      } else {
-        setUser(null);
-      }
+      const data = await apiClient.get<SessionResponse>('/auth/session');
+      const u = data.user;
+      setUser({
+        id: String(u.user_id),
+        email: u.email,
+        near_account_id: u.near_account_id,
+        display_name: u.codename || u.username,
+        is_admin: u.is_admin,
+        nearAccountId: u.near_account_id || u.email || u.codename || String(u.user_id),
+        codename: u.codename,
+        createdAt: undefined,
+      });
     } catch (err) {
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+      if (err instanceof ApiError && err.status === 401) {
         setUser(null);
       } else {
         console.error('Session check failed:', err);

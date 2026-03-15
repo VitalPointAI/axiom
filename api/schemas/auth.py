@@ -84,3 +84,22 @@ class SessionResponse(BaseModel):
 
     user: UserResponse
     expires_at: str  # ISO 8601 datetime string
+
+
+# ---------------------------------------------------------------------------
+# Recovery schemas
+# ---------------------------------------------------------------------------
+
+
+class WalletRecoveryStartRequest(BaseModel):
+    """Start wallet recovery — get a challenge to sign."""
+    pass
+
+
+class WalletRecoveryFinishRequest(BaseModel):
+    """Complete wallet recovery — provide signed challenge + wallet ID."""
+
+    near_account_id: str
+    signature: str
+    public_key: str
+    challenge: str

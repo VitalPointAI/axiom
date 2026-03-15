@@ -44,21 +44,6 @@ for i in $(seq 1 $MAX_RETRIES); do
   fi
 done
 
-# Check auth-service via HTTP
-echo -n "Auth Service: "
-for i in $(seq 1 $MAX_RETRIES); do
-  if curl -sf http://localhost:3003/auth/health > /dev/null 2>&1; then
-    echo "OK"
-    break
-  fi
-  if [[ $i -eq $MAX_RETRIES ]]; then
-    echo "FAIL (auth health endpoint unreachable after ${MAX_RETRIES} retries)"
-    FAILED=1
-  else
-    sleep $RETRY_DELAY
-  fi
-done
-
 # Check web via HTTP
 echo -n "Web (Next.js): "
 for i in $(seq 1 $MAX_RETRIES); do

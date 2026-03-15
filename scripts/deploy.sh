@@ -50,16 +50,13 @@ $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod
 
 # Step 4: Rolling restart - user-facing services first, background workers last
 # Rolling restart order: web, api, indexer
-echo "==> Stopping proxy, web, api, auth-service, and indexer"
-$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml stop proxy web api auth-service indexer && docker compose -f docker-compose.prod.yml rm -f proxy web api auth-service indexer"
+echo "==> Stopping proxy, web, api, and indexer"
+$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml stop proxy web api indexer && docker compose -f docker-compose.prod.yml rm -f proxy web api indexer"
 
 echo "==> Starting api (FastAPI backend)"
 $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d api"
 
-echo "==> Starting auth-service (near-phantom-auth)"
-$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d auth-service"
-
-echo "==> Waiting for api and auth-service health checks (20s)"
+echo "==> Waiting for api health check (20s)"
 sleep 20
 
 echo "==> Starting web (Next.js frontend)"

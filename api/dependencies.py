@@ -57,21 +57,19 @@ def get_db_conn(
 
 def get_current_user(
     neartax_session: Optional[str] = Cookie(default=None),
-    anon_session: Optional[str] = Cookie(default=None),
     pool=Depends(get_pool_dep),
 ) -> dict:
     """Validate the session cookie and return the authenticated user context.
 
-    Checks both legacy sessions table (neartax_session cookie) and
-    near-phantom-auth's anon_sessions table (anon_session cookie).
+    Queries the sessions table for a non-expired matching session token,
+    then joins to users to return the full user profile.
 
     Returns dict with keys: user_id, near_account_id, is_admin, email, username, codename.
 
     Raises:
         HTTPException 401 if session cookie is missing or expired.
     """
-    session_token = neartax_session or anon_session
-    if not session_token:
+    if not neartax_session:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
@@ -80,78 +78,42 @@ def get_current_user(
     conn = pool.getconn()
     try:
         cur = conn.cursor()
-
-        # Try legacy sessions table first
-        if neartax_session:
-            cur.execute(
-                """
-                SELECT
-                    u.id,
-                    u.near_account_id,
-                    u.is_admin,
-                    u.email,
-                    u.username,
-                    u.codename
-                FROM sessions s
-                JOIN users u ON u.id = s.user_id
-                WHERE s.id = %s
-                  AND s.expires_at > NOW()
-                """,
-                (neartax_session,),
-            )
-            row = cur.fetchone()
-            if row:
-                cur.close()
-                user_id, near_account_id, is_admin, email, username, codename = row
-                return {
-                    "user_id": user_id,
-                    "near_account_id": near_account_id,
-                    "is_admin": bool(is_admin),
-                    "email": email,
-                    "username": username,
-                    "codename": codename,
-                }
-
-        # Try near-phantom-auth sessions (anon_sessions → auth_user_mapping → users)
-        if anon_session:
-            cur.execute(
-                """
-                SELECT
-                    u.id,
-                    u.near_account_id,
-                    u.is_admin,
-                    u.email,
-                    u.username,
-                    u.codename
-                FROM anon_sessions s
-                JOIN auth_user_mapping m ON m.auth_user_id = s.user_id::text
-                JOIN users u ON u.id = m.axiom_user_id
-                WHERE s.id::text = %s
-                  AND s.expires_at > NOW()
-                """,
-                (anon_session,),
-            )
-            row = cur.fetchone()
-            if row:
-                cur.close()
-                user_id, near_account_id, is_admin, email, username, codename = row
-                return {
-                    "user_id": user_id,
-                    "near_account_id": near_account_id,
-                    "is_admin": bool(is_admin),
-                    "email": email,
-                    "username": username,
-                    "codename": codename,
-                }
-
+        cur.execute(
+            """
+            SELECT
+                u.id,
+                u.near_account_id,
+                u.is_admin,
+                u.email,
+                u.username,
+                u.codename
+            FROM sessions s
+            JOIN users u ON u.id = s.user_id
+            WHERE s.id = %s
+              AND s.expires_at > NOW()
+            """,
+            (neartax_session,),
+        )
+        row = cur.fetchone()
         cur.close()
     finally:
         pool.putconn(conn)
 
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Session expired or invalid",
-    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired or invalid",
+        )
+
+    user_id, near_account_id, is_admin, email, username, codename = row
+    return {
+        "user_id": user_id,
+        "near_account_id": near_account_id,
+        "is_admin": bool(is_admin),
+        "email": email,
+        "username": username,
+        "codename": codename,
+    }
 
 
 def get_effective_user(
