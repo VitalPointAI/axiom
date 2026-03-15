@@ -34,6 +34,10 @@ web/node_modules/
 web/.next/
 web/out/
 
+# Auth service
+auth-service/node_modules/
+auth-service/dist/
+
 # Logs
 *.log
 logs/

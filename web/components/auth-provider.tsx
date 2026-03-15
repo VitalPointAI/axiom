@@ -10,10 +10,10 @@ interface User {
   near_account_id?: string;
   display_name?: string;
   is_admin?: boolean;
-  // Legacy compat: always set to best available identifier string
   nearAccountId: string;
   codename?: string;
-  createdAt?: string;
+  username?: string;
+  authMethod?: string;
 }
 
 interface AuthContextType {
@@ -26,12 +26,19 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-interface SessionResponse {
-  id: string;
+// near-phantom-auth session response format
+interface SessionInfo {
+  authenticated: boolean;
+  codename?: string;
+  username?: string;
+  nearAccountId?: string;
   email?: string;
-  near_account_id?: string;
-  display_name?: string;
-  is_admin?: boolean;
+  expiresAt?: string;
+  authMethod?: 'passkey' | 'oauth' | 'email';
+  // Axiom-specific fields added by user bridge
+  userId?: string;
+  axiomUserId?: number;
+  isAdmin?: boolean;
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -42,20 +49,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const checkSession = useCallback(async () => {
     try {
-      const data = await apiClient.get<SessionResponse>('/auth/session');
-      setUser({
-        id: data.id,
-        email: data.email,
-        near_account_id: data.near_account_id,
-        display_name: data.display_name,
-        is_admin: data.is_admin,
-        // Legacy compat fields
-        nearAccountId: data.near_account_id || data.email || data.display_name || data.id,
-        codename: data.display_name,
-        createdAt: undefined,
-      });
+      const data = await apiClient.get<SessionInfo>('/auth/session');
+      if (data.authenticated) {
+        const id = data.userId || data.codename || data.nearAccountId || 'unknown';
+        setUser({
+          id,
+          email: data.email,
+          near_account_id: data.nearAccountId,
+          display_name: data.codename || data.username,
+          is_admin: data.isAdmin,
+          nearAccountId: data.nearAccountId || data.email || data.codename || id,
+          codename: data.codename,
+          username: data.username,
+          authMethod: data.authMethod,
+        });
+      } else {
+        setUser(null);
+      }
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         setUser(null);
       } else {
         console.error('Session check failed:', err);
@@ -66,7 +78,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Check session on mount and when pathname changes (e.g., after login redirect)
   useEffect(() => {
     setIsLoading(true);
     checkSession();
