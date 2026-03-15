@@ -93,7 +93,8 @@ def _get_challenge(
     if expires_at < now:
         raise ValueError(f"Challenge expired: {challenge_id}")
 
-    return challenge_bytes
+    # psycopg2 returns bytea as memoryview; convert to bytes for WebAuthn comparison
+    return bytes(challenge_bytes) if not isinstance(challenge_bytes, bytes) else challenge_bytes
 
 
 def _delete_challenge(challenge_id: str, conn: psycopg2.extensions.connection) -> None:
