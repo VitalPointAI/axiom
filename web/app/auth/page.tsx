@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   AnonAuthProvider,
   useAnonAuth,
 } from '@vitalpoint/near-phantom-auth/client';
+import { NearConnector } from '@hot-labs/near-connect';
 import { API_URL } from '@/lib/api';
 
 type AuthView = 'signin' | 'signup' | 'signup-passkey' | 'signup-email' | 'recover' | 'recover-wallet' | 'recover-password';
@@ -37,6 +38,7 @@ function AuthContent() {
   // Recovery state
   const [recoveryCid, setRecoveryCid] = useState('');
   const [recoveryPassword, setRecoveryPassword] = useState('');
+  const connectorRef = useRef<NearConnector | null>(null);
 
   // Redirect if authenticated
   useEffect(() => {
@@ -147,9 +149,62 @@ function AuthContent() {
     setIsSubmitting(true);
     resetError();
     try {
-      // This requires a wallet signing function — use NEAR wallet selector
-      // For now, show instructions
-      setError('Wallet recovery requires connecting your NEAR wallet. Coming soon.');
+      // Create a nonce (32 bytes as base64)
+      const nonceArray = new Uint8Array(32);
+      crypto.getRandomValues(nonceArray);
+      const nonce = Buffer.from(nonceArray);
+
+      const connector = new NearConnector({
+        features: { signMessage: true },
+      });
+      connectorRef.current = connector;
+
+      // Connect wallet with message signing for recovery proof
+      const recoveryMessage = `Axiom account recovery: ${Date.now()}`;
+
+      // Set up the sign-in handler before connecting
+      const walletPromise = new Promise<{ accountId: string; signature: string; publicKey: string }>((resolve, reject) => {
+        connector.on('wallet:signInAndSignMessage', async (event) => {
+          const account = event.accounts[0];
+          if (account?.signedMessage) {
+            resolve({
+              accountId: account.accountId,
+              signature: account.signedMessage.signature,
+              publicKey: account.signedMessage.publicKey,
+            });
+          } else {
+            reject(new Error('Wallet did not return a signed message'));
+          }
+        });
+
+        connector.on('wallet:signIn', async (event) => {
+          if (event.source !== 'signInAndSignMessage') {
+            reject(new Error('Wallet does not support message signing. Please use a wallet that supports signMessage.'));
+          }
+        });
+      });
+
+      // Trigger the wallet connection modal with message signing
+      await connector.connect({
+        signMessageParams: {
+          message: recoveryMessage,
+          recipient: 'Axiom',
+          nonce,
+        },
+      });
+
+      // Wait for the wallet to sign
+      const { accountId, signature, publicKey } = await walletPromise;
+
+      // Use the signed message to recover the account
+      await recovery.recoverWithWallet(
+        async () => ({ signature, publicKey }),
+        accountId,
+      );
+
+      router.push('/dashboard');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Wallet recovery failed');
     } finally {
       setIsSubmitting(false);
     }
