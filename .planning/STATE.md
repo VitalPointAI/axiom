@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-16T15:43:44.467Z"
+last_updated: "2026-03-16T15:51:24Z"
 progress:
   total_phases: 11
   completed_phases: 11
@@ -118,6 +118,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-16: **quick-1 complete** - Fixed username display showing numeric user ID; display_name fallback chain (codename > username > email > near_account_id > 'User') applied in auth-provider; dashboard header, page, and login-buttons all updated to use display_name.
 - 2026-03-16: **12-03 complete** - OnboardingBanner (dismissible, fail-open on API error) + InlineGuidance (5 diagnosis categories: missing_staking_rewards/unindexed_period/classification_error/duplicates/uncounted_fees with resync/resolve/navigate actions) components; banners integrated into Reports/Transactions/Wallets/Dashboard pages; InlineGuidance wired into transaction table for needs_review rows with expandable guidance panels.
 - 2026-03-16: **12-02 complete** - 5-step onboarding wizard at /onboarding/ (Welcome, Wallets with chain help, Import drag-drop, Processing with wallet discovery, Review with orientation links); smart resume via Promise.all; dashboard redirect guard (two-part: NULL completed_at + zero wallets); SyncStatus onComplete callback with prevDoneRef. Awaiting human-verify checkpoint.
 - 2026-03-16: **12-01 complete** - Alembic migration 010 adds onboarding_completed_at TIMESTAMPTZ + dismissed_banners JSONB to users table; GET/POST/PATCH preferences API (idempotent COALESCE completion, atomic JSONB || merge); GET /api/wallets/suggestions wraps WalletGraph.suggest_wallet_discovery(); 6 tests pass. Phase 12 started.
