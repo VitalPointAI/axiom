@@ -14,6 +14,8 @@ Pipeline stage mapping (from RESEARCH.md):
   verify_balances running  => "Verifying"   85-100%
 """
 
+import math
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 
@@ -49,8 +51,8 @@ _STAGE_PRIORITY = {
 def _pipeline_from_jobs(jobs: list) -> tuple:
     """Derive pipeline stage and percentage from a list of active job rows.
 
-    Finds the highest-priority *running* job to determine current stage.
-    Falls back to highest-priority queued/retrying job if nothing is running.
+    Finds the highest-priority *running* job to determine current stage,
+    then aggregates progress across ALL jobs in that stage.
 
     jobs: list of (id, wallet_id, job_type, status, progress_fetched, progress_total, ...)
 
@@ -66,9 +68,11 @@ def _pipeline_from_jobs(jobs: list) -> tuple:
     if not candidate_jobs:
         return "Idle", 0
 
+    # Find the highest-priority stage
     best_stage = "Idle"
     best_priority = 0
-    best_pct = 0
+    best_pct_min = 0
+    best_pct_max = 0
 
     for job in candidate_jobs:
         jtype = job[2]
@@ -79,17 +83,44 @@ def _pipeline_from_jobs(jobs: list) -> tuple:
         priority = _STAGE_PRIORITY.get(stage_name, 0)
         if priority > best_priority:
             best_priority = priority
-            fetched = job[4] or 0
-            total = job[5] or 0
-            if total > 0:
-                within = int((fetched / total) * (pct_max - pct_min))
-                pct = min(pct_min + within, pct_max - 1)
-            else:
-                pct = pct_min
             best_stage = stage_name
-            best_pct = pct
+            best_pct_min = pct_min
+            best_pct_max = pct_max
 
-    return best_stage, best_pct
+    if best_stage == "Idle":
+        return "Idle", 0
+
+    # Aggregate progress across ALL active jobs in the winning stage
+    total_fetched = 0
+    total_expected = 0
+    has_known_total = False
+
+    for job in jobs:
+        jtype = job[2]
+        stage_info = _STAGE_MAP.get(jtype)
+        if not stage_info or stage_info[0] != best_stage:
+            continue
+        fetched = job[4] or 0
+        total = job[5] or 0
+        total_fetched += fetched
+        if total > 0:
+            total_expected += total
+            has_known_total = True
+
+    pct_range = best_pct_max - best_pct_min
+
+    if has_known_total and total_expected > 0:
+        within = int((total_fetched / total_expected) * pct_range)
+    elif total_fetched > 0:
+        # No known total — use logarithmic estimate so progress moves
+        # visibly even without a total. Approaches pct_range asymptotically.
+        ratio = min(math.log1p(total_fetched) / math.log1p(25000), 0.95)
+        within = int(ratio * pct_range)
+    else:
+        within = 0
+
+    pct = min(best_pct_min + within, best_pct_max - 1)
+    return best_stage, pct
 
 
 def _row_to_job_status(row: tuple) -> JobStatusResponse:
