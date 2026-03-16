@@ -277,6 +277,7 @@ def test_report_status_not_found(auth_client, tmp_path):
 def test_exchange_import(auth_client, mock_cursor):
     """POST /api/exchanges/import accepts CSV upload and queues file_import job."""
     mock_cursor.fetchone.side_effect = [
+        (99,),   # wallets INSERT RETURNING id (exchange wallet)
         (10,),   # file_imports INSERT RETURNING id
         (20,),   # indexing_jobs INSERT RETURNING id
     ]
