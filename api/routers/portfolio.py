@@ -44,20 +44,18 @@ async def get_portfolio_summary(
                 """
                 SELECT
                     token_symbol,
-                    quantity,
-                    acb_per_unit,
-                    total_cost_cad,
-                    chain
+                    units_after,
+                    acb_per_unit_cad,
+                    total_cost_cad
                 FROM (
                     SELECT
                         token_symbol,
-                        quantity,
-                        acb_per_unit,
+                        units_after,
+                        acb_per_unit_cad,
                         total_cost_cad,
-                        chain,
                         ROW_NUMBER() OVER (
                             PARTITION BY token_symbol
-                            ORDER BY as_of_date DESC
+                            ORDER BY block_timestamp DESC
                         ) AS rn
                     FROM acb_snapshots
                     WHERE user_id = %s
@@ -108,7 +106,7 @@ async def get_portfolio_summary(
             quantity=str(row[1]),
             acb_per_unit=str(row[2]),
             total_acb=str(row[3]),
-            chain=str(row[4]) if row[4] else "NEAR",
+            chain="NEAR",
         )
         for row in acb_rows
     ]

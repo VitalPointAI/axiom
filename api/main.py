@@ -26,6 +26,7 @@ from api.rate_limit import limiter
 from config import validate_env, OFFLINE_MODE
 from api.auth import router as auth_router
 from api.routers import (
+    accountant_router,
     audit_router,
     exchanges_router,
     jobs_router,
@@ -102,6 +103,7 @@ def create_app() -> FastAPI:
     application.include_router(verification_router)
     application.include_router(jobs_router)
     application.include_router(audit_router)
+    application.include_router(accountant_router)
 
     # ----------------------------------------------------------------
     # Health check — unauthenticated
