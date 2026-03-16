@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { apiClient, API_URL, ApiError } from '@/lib/api';
+import { OnboardingBanner } from '@/components/onboarding-banner';
 import {
   FileText,
   Download,
@@ -385,6 +386,11 @@ export default function ReportsPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
+      <OnboardingBanner
+        bannerKey="reports_page"
+        title="Your Tax Reports"
+        description="Axiom generates capital gains summaries, income reports, transaction ledgers, and T1135 foreign property checks. Select a tax year and click Generate to create your report package. You can preview reports inline or download them as CSV/PDF."
+      />
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <div>

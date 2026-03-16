@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { OnboardingBanner } from '@/components/onboarding-banner';
 import {
   Wallet,
   Plus,
@@ -110,6 +111,11 @@ export default function WalletsPage() {
 
   return (
     <div className="space-y-6">
+      <OnboardingBanner
+        bannerKey="wallets_page"
+        title="Wallet Management"
+        description="Add your crypto wallets and exchange accounts here. After adding a wallet, Axiom automatically indexes all transactions, classifies them for tax purposes, calculates cost basis, and verifies balances against on-chain data. The sync status shows where each wallet is in the pipeline."
+      />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

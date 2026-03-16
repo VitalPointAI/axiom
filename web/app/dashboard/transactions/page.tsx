@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { apiClient, ApiError } from '@/lib/api';
+import { OnboardingBanner } from '@/components/onboarding-banner';
+import { InlineGuidance } from '@/components/inline-guidance';
 import {
   ArrowLeftRight,
   ArrowUpRight, 
@@ -111,6 +113,9 @@ export default function TransactionsPage() {
   const [sortField, setSortField] = useState<SortField>('timestamp');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   
+  // Inline guidance — tracks which needs_review tx has guidance expanded
+  const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
+
   // Column filters
   const [showColumnFilters, setShowColumnFilters] = useState(false);
   const [columnFilters, setColumnFilters] = useState({
@@ -258,6 +263,11 @@ export default function TransactionsPage() {
 
   return (
     <div className="space-y-6">
+      <OnboardingBanner
+        bannerKey="transactions_page"
+        title="Transaction Ledger"
+        description="This is your complete transaction history across all wallets and exchanges. Each transaction has an automated classification (income, capital gain, transfer, etc.). Items flagged for review are highlighted -- click any transaction to see details and edit its classification if needed."
+      />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -510,7 +520,11 @@ export default function TransactionsPage() {
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                 {transactions.map((tx) => (
-                  <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                  <React.Fragment key={tx.id}>
+                    <tr
+                      onClick={tx.needs_review ? () => setExpandedTxId(expandedTxId === tx.id ? null : tx.id) : undefined}
+                      className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 ${tx.needs_review ? 'cursor-pointer bg-amber-50/30 dark:bg-amber-900/10' : ''}`}
+                    >
                     <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
                       {new Date(tx.timestamp).toLocaleDateString()}
                       <br />
@@ -551,13 +565,26 @@ export default function TransactionsPage() {
                         href={tx.explorer_url || `https://nearblocks.io/txns/${tx.tx_hash}`}
                         target="_blank"
                         rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
                         className="inline-flex items-center gap-1 text-blue-500 hover:underline font-mono"
                       >
                         {tx.tx_hash?.slice(0, 8)}...
                         <ExternalLink className="w-3 h-3" />
                       </a>
                     </td>
-                  </tr>
+                    </tr>
+                    {tx.needs_review && expandedTxId === tx.id && (
+                      <tr className="bg-gray-900/30">
+                        <td colSpan={9} className="px-4 py-3">
+                          <InlineGuidance
+                            diagnosisCategory={tx.tax_category}
+                            verificationId={parseInt(tx.id)}
+                            onAction={() => fetchTransactions(pagination.page)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

@@ -2,6 +2,7 @@
 
 import { useAuth } from '@/components/auth-provider';
 import { PortfolioSummary } from '@/components/portfolio-summary';
+import { OnboardingBanner } from '@/components/onboarding-banner';
 import { Plus, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
@@ -26,6 +27,11 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <OnboardingBanner
+        bannerKey="verification_page"
+        title="Dashboard Overview & Verification"
+        description="This is your portfolio overview. The needs-review badge shows items Axiom flagged for your attention -- things like potential duplicate transactions, classification uncertainties, or balance discrepancies. Click through to the transactions page to review and resolve each item."
+      />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
