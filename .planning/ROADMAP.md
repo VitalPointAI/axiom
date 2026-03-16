@@ -11,6 +11,10 @@
 | 6 | Reporting | Generate tax reports for accountant | RPT-01,02,03,04,05,06 | 2 days |
 | 7 | Web UI | User-friendly interface with NEAR wallet auth | UI-01,02,03,04,05,06,07,08 | 3 days |
 | 8 | CI/CD Deployment | GitHub Actions CI/CD to deploy dockerized components on push | CICD-01,02,03 | 1 day |
+| 9 | Code Quality & Hardening | Refactor, test coverage, rate limiting, CI gates | QH-01 through QH-12 | 2 days |
+| 10 | Remaining Concerns | Large module refactors, performance, robustness | RC-01 through RC-14 | 2 days |
+| 11 | Robustness & Missing Features | Audit log, invariants, export validation, offline mode | ROB-01 through ROB-10 | 2 days |
+| 12 | User Onboarding | Guide new users through setup, wallets, exchanges, reports, validation | ONBOARD-01 through ONBOARD-07 | 2 days |
 
 
 
@@ -500,5 +504,3 @@ Plans:
 - `tests/test_api_audit.py` — Audit API tests
 - `tests/test_offline_mode.py` — Offline mode tests
 
----
-*Last updated: 2026-03-14 — Phase 11 planned: 5 plans in 2 waves, 10 requirements.*
