@@ -121,6 +121,7 @@ None currently.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 1 | Fix username display showing user ID instead of name | 2026-03-16 | 56f32aa | [1-fix-username-display-showing-user-id-ins](./quick/1-fix-username-display-showing-user-id-ins/) |
+| 2 | Fix exchange file upload 404 in onboarding wizard | 2026-03-16 | 2a6c3d6 | [2-fix-exchange-file-upload-404-in-onboardi](./quick/2-fix-exchange-file-upload-404-in-onboardi/) |
 
 ## Recent Activity
 
@@ -374,4 +375,6 @@ None currently.
 | 2026-03-16 | React.Fragment with key for transaction rows with InlineGuidance | React requires key on Fragment in .map(); keyless <> produces reconciliation warning |
 | 2026-03-16 | InlineGuidance optimistic done state on API error | User sees feedback regardless of transient API failures; non-blocking UX |
 
-*Last activity: 2026-03-16 - Completed quick task 1: Fix username display showing user ID instead of name*
+- 2026-03-16: **quick-2 complete** - Fixed onboarding wizard step 3 file upload: changed fetch URL from non-existent /api/upload-file to ${API_URL}/api/exchanges/import; added API_URL import from @/lib/api for cross-origin support in dev/prod.
+
+*Last activity: 2026-03-16 - Completed quick task 2: Fix exchange file upload 404 in onboarding wizard.*
