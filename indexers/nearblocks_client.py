@@ -12,6 +12,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from config import (
+    NEARBLOCKS_API_KEY,
     NEARBLOCKS_BASE_URL,
     RATE_LIMIT_DELAY,
     MAX_RETRIES,
@@ -38,6 +39,8 @@ class NearBlocksClient:
         self.last_request_time = 0
         self.request_count = 0
         self.session = requests.Session()
+        if NEARBLOCKS_API_KEY:
+            self.session.headers["Authorization"] = f"Bearer {NEARBLOCKS_API_KEY}"
         self._cache: dict[str, tuple] = {}  # key -> (value, expiry_time)
 
     def _cache_get(self, key: str):
