@@ -30,13 +30,21 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 _STAGE_MAP = {
     "full_sync": ("Indexing", 0, 45),
+    "incremental_sync": ("Indexing", 0, 45),
     "staking_sync": ("Indexing", 0, 45),
     "lockup_sync": ("Indexing", 0, 45),
     "evm_full_sync": ("Indexing", 0, 45),
+    "evm_incremental": ("Indexing", 0, 45),
+    "xrp_full_sync": ("Indexing", 0, 45),
+    "xrp_incremental": ("Indexing", 0, 45),
+    "akash_full_sync": ("Indexing", 0, 45),
+    "akash_incremental": ("Indexing", 0, 45),
     "file_import": ("Importing", 0, 45),
+    "dedup_scan": ("Classifying", 45, 65),
     "classify_transactions": ("Classifying", 45, 65),
     "calculate_acb": ("Cost Basis", 65, 85),
     "verify_balances": ("Verifying", 85, 100),
+    "generate_reports": ("Verifying", 85, 100),
 }
 
 _STAGE_PRIORITY = {
