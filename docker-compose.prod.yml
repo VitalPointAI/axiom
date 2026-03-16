@@ -136,6 +136,8 @@ services:
     networks:
       - axiom-net
     restart: unless-stopped
+    volumes:
+      - uploads_data:/app/uploads
     labels:
       app.service: api
     logging:
@@ -176,6 +178,8 @@ services:
     networks:
       - axiom-net
     restart: unless-stopped
+    volumes:
+      - uploads_data:/app/uploads
     labels:
       app.service: indexer
     logging:
@@ -190,3 +194,4 @@ networks:
 
 volumes:
   postgres_data:
+  uploads_data:

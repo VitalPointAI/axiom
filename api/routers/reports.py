@@ -517,6 +517,14 @@ async def import_exchange_file(
     content = await file.read()
     file_hash = hashlib.sha256(content).hexdigest()
     original_filename = file.filename or "upload.csv"
+    file_size = len(content)
+
+    # Save file to disk so the indexer file_handler can read it
+    upload_dir = Path(os.environ.get("UPLOAD_DIR", "uploads")) / str(user_id)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    storage_path = str(upload_dir / f"{file_hash}_{original_filename}")
+    with open(storage_path, "wb") as f:
+        f.write(content)
 
     def _insert(conn):
         cur = conn.cursor()
@@ -524,14 +532,15 @@ async def import_exchange_file(
             # Insert file_imports record
             cur.execute(
                 """
-                INSERT INTO file_imports (user_id, filename, file_hash, status)
-                VALUES (%s, %s, %s, 'pending')
+                INSERT INTO file_imports (user_id, filename, file_hash, file_size, storage_path, status)
+                VALUES (%s, %s, %s, %s, %s, 'pending')
                 ON CONFLICT (user_id, file_hash) DO UPDATE
                     SET filename = EXCLUDED.filename,
+                        storage_path = EXCLUDED.storage_path,
                         status = 'pending'
                 RETURNING id
                 """,
-                (user_id, original_filename, file_hash),
+                (user_id, original_filename, file_hash, file_size, storage_path),
             )
             file_import_row = cur.fetchone()
             file_import_id = file_import_row[0]
