@@ -5,7 +5,7 @@ milestone_name: milestone
 status: unknown
 last_updated: "2026-03-14T15:54:58.138Z"
 progress:
-  total_phases: 11
+  total_phases: 12
   completed_phases: 11
   total_plans: 54
   completed_plans: 54
@@ -100,6 +100,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Phase 9 added: Code Quality & Hardening — refactor monolithic modules, complete SQLite→PostgreSQL migration, fix N+1 queries, add test coverage, API rate limiting, CI/CD quality gates
 - Phase 10 added: Remaining Concerns Remediation — refactor large modules, performance improvements, robustness hardening, test gap coverage, dependency hygiene (14 requirements from CONCERNS.md)
 - Phase 11 added: Robustness & Missing Features — audit log consistency, fragile area hardening, data export validation
+- Phase 12 added: User Onboarding — guide new users through setup (wallets, exchanges, reports, validation, reconciliation, warning/error resolution)
 
 ## Blockers
 
