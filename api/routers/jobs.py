@@ -31,12 +31,14 @@ _STAGE_MAP = {
     "staking_sync": ("Indexing", 0, 45),
     "lockup_sync": ("Indexing", 0, 45),
     "evm_full_sync": ("Indexing", 0, 45),
+    "file_import": ("Importing", 0, 45),
     "classify_transactions": ("Classifying", 45, 65),
     "calculate_acb": ("Cost Basis", 65, 85),
     "verify_balances": ("Verifying", 85, 100),
 }
 
 _STAGE_PRIORITY = {
+    "Importing": 1,
     "Indexing": 1,
     "Classifying": 2,
     "Cost Basis": 3,
