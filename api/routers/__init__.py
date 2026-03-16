@@ -21,3 +21,4 @@ from api.routers.reports import exchanges_router  # noqa: F401 — Plan 07-05
 from api.routers.verification import router as verification_router  # noqa: F401 — Plan 07-05
 from api.routers.audit import router as audit_router  # noqa: F401 — Plan 11-05
 from api.routers.accountant import router as accountant_router  # noqa: F401
+from api.routers.preferences import router as preferences_router  # noqa: F401 — Plan 12-01

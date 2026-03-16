@@ -345,6 +345,42 @@ async def list_wallets(
 
 
 # ---------------------------------------------------------------------------
+# GET /api/wallets/suggestions — Wallet discovery suggestions from WalletGraph
+# MUST be registered before /{wallet_id} routes to prevent "suggestions" being
+# parsed as an integer wallet_id path param (same pattern as /api/jobs/active).
+# ---------------------------------------------------------------------------
+
+
+@router.get("/suggestions")
+async def get_wallet_suggestions(
+    user: dict = Depends(get_effective_user),
+    pool=Depends(get_pool_dep),
+):
+    """Return wallet discovery suggestions from WalletGraph.
+
+    Finds external counterparties with >= 3 transfers that may be
+    owned wallets not yet added by the user.
+
+    Returns { suggestions: list } where each item has:
+        address, chain, transfer_count, related_to, confidence
+    """
+    from engine.wallet_graph import WalletGraph
+
+    user_id = user["user_id"]
+
+    def _suggest():
+        try:
+            graph = WalletGraph(pool)
+            return graph.suggest_wallet_discovery(user_id, min_transfers=3)
+        except Exception:
+            return []
+
+    suggestions = await run_in_threadpool(_suggest)
+
+    return {"suggestions": suggestions if suggestions else []}
+
+
+# ---------------------------------------------------------------------------
 # GET /api/wallets/{wallet_id}/status — Pipeline stage progress
 # ---------------------------------------------------------------------------
 
