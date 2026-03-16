@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-03-14T15:54:58.138Z"
+last_updated: "2026-03-16T15:08:46.695Z"
 progress:
   total_phases: 12
   completed_phases: 11
-  total_plans: 54
-  completed_plans: 54
+  total_plans: 57
+  completed_plans: 55
 ---
 
 # Project State
@@ -18,9 +18,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 **Core value:** Accurate tax reporting — every transaction correctly classified, every balance reconciled.
-**Current focus:** Phase 11 - Robustness & Missing Features
+**Current focus:** Phase 12 - User Onboarding
 
 ## Current Phase
+
+**Phase 12: User Onboarding** IN PROGRESS
+- Plan 12-01: Migration 010 + preferences API + wallet suggestions + tests ✅ DONE (2026-03-16)
+- Plan 12-02: Onboarding wizard frontend (pending)
+- Plan 12-03: Inline guidance + banner system (pending)
 
 **Phase 11: Robustness & Missing Features** IN PROGRESS
 - Plan 11-01: Unified audit_log migration 008 + AuditLog model + write_audit() helper ✅ DONE (2026-03-14)
@@ -108,6 +113,7 @@ None currently.
 
 ## Recent Activity
 
+- 2026-03-16: **12-01 complete** - Alembic migration 010 adds onboarding_completed_at TIMESTAMPTZ + dismissed_banners JSONB to users table; GET/POST/PATCH preferences API (idempotent COALESCE completion, atomic JSONB || merge); GET /api/wallets/suggestions wraps WalletGraph.suggest_wallet_discovery(); 6 tests pass. Phase 12 started.
 - 2026-03-14: **11-01 complete** - Alembic migration 008 creates audit_log (JSONB old_value/new_value, entity_type, action, actor_type); data migrated from classification_audit_log; AuditLog SQLAlchemy model replaces ClassificationAuditLog; write_audit() helper in db/audit.py with conn=None safety. Phase 11 started.
 - 2026-03-14: **10-02 complete** - Alembic migration 007 adds ix_price_cache_coin_date_desc on price_cache(coin_id, date DESC); DB_POOL_MIN/MAX configurable via env vars (default 1/10) with validate_env() pool constraint checks; pool_stats() introspection in indexers/db.py; sanitize_for_log() in config.py; pyproject.toml has [project] table with requires-python >= 3.11.
 - 2026-03-14: **09-03 complete** - N+1 queries eliminated: batch staking/lockup event loading per wallet in classifier (_load_staking_event_index, _load_lockup_event_index); NearBlocks API hardened with 2^attempt+jitter exponential backoff for 429/Timeout/ConnectionError, max 5 retries before RuntimeError; balance_snapshot.fetch_ft_balances_nearblocks same pattern; validate_env() added to config.py.
@@ -342,5 +348,9 @@ None currently.
 | 2026-03-14 | entity_id nullable in audit_log | Report generation and invariant violations have no single entity PK |
 | 2026-03-14 | write_audit() conn=None silently skips | Test-compatibility pattern (RESEARCH.md Pitfall 5); callers skip DB provisioning without mocking |
 | 2026-03-14 | ClassificationAuditLog = AuditLog alias in __init__.py | Downstream code imports by old name without breakage during transition |
+| 2026-03-16 | COALESCE(onboarding_completed_at, NOW()) in UPDATE for idempotent completion | No SELECT needed; COALESCE keeps original timestamp on repeated calls |
+| 2026-03-16 | COALESCE(dismissed_banners, '{}') || patch::jsonb for banner dismissal | NULL-safe atomic JSONB merge; single UPDATE for new + existing keys |
+| 2026-03-16 | GET /api/wallets/suggestions registered before /{wallet_id} routes | FastAPI matches in registration order; prevents "suggestions" being parsed as integer path param |
+| 2026-03-16 | WalletGraph manages its own pool connections in suggest_wallet_discovery | No extra getconn() wrapper in the route handler; WalletGraph.pool = shared pool |
 
-*Last updated: 2026-03-14 — Phase 11 started: plan 11-01 complete (1/5 plans).*
+*Last updated: 2026-03-16 — Phase 12 started: plan 12-01 complete (1/3 plans).*

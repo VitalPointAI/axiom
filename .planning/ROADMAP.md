@@ -14,7 +14,7 @@
 | 9 | Code Quality & Hardening | Refactor, test coverage, rate limiting, CI gates | QH-01 through QH-12 | 2 days |
 | 10 | Remaining Concerns | Large module refactors, performance, robustness | RC-01 through RC-14 | 2 days |
 | 11 | Robustness & Missing Features | Audit log, invariants, export validation, offline mode | ROB-01 through ROB-10 | 2 days |
-| 12 | User Onboarding | Guide new users through setup, wallets, exchanges, reports, validation | ONBOARD-01 through ONBOARD-07 | 2 days |
+| 12 | 1/3 | In Progress|  | 2 days |
 
 
 
