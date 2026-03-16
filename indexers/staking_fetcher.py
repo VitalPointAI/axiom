@@ -40,6 +40,12 @@ from indexers.price_service import PriceService
 
 logger = logging.getLogger(__name__)
 
+
+class _YieldException(Exception):
+    """Raised when a long-running job yields to let other jobs run."""
+    pass
+
+
 # Precision for yoctoNEAR arithmetic
 getcontext().prec = 50
 
@@ -172,8 +178,19 @@ class StakingFetcher:
         rewards_inserted = 0
         prev_staked: Optional[Decimal] = None
         prev_epoch_ts: Optional[int] = None
+        run_start = time.time()
+        MAX_RUN_SECONDS = 120  # Yield after 2 minutes to avoid blocking other jobs
 
         for epoch_offset, epoch_id in enumerate(range(start_epoch, current_epoch)):
+            # Time limit: yield control so other jobs can run
+            if time.time() - run_start > MAX_RUN_SECONDS:
+                logger.info(
+                    "Time limit reached after %d/%d epochs, %d rewards. Will resume on retry.",
+                    epoch_offset, num_epochs, rewards_inserted,
+                )
+                raise _YieldException(
+                    f"Staking backfill yielded after {epoch_offset}/{num_epochs} epochs"
+                )
             # Estimate epoch timestamp
             epochs_back = current_epoch - epoch_id
             epoch_ts = self._estimate_epoch_timestamp(current_epoch_ts, epochs_back)

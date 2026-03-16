@@ -27,7 +27,7 @@ sys.path.insert(0, PROJECT_ROOT)
 from config import JOB_POLL_INTERVAL, SYNC_INTERVAL_MINUTES, OFFLINE_MODE, NETWORK_JOB_TYPES, NEARBLOCKS_BASE_URL
 from indexers.db import get_pool, close_pool
 from indexers.near_fetcher import NearFetcher
-from indexers.staking_fetcher import StakingFetcher
+from indexers.staking_fetcher import StakingFetcher, _YieldException
 from indexers.lockup_fetcher import LockupFetcher
 from indexers.price_service import PriceService
 from indexers.evm_fetcher import EVMFetcher
@@ -147,9 +147,10 @@ class IndexerService:
     def _recover_stale_jobs(self) -> int:
         """Reset jobs stuck in 'running' state (orphaned by container restart).
 
-        Any job that has been 'running' for more than 10 minutes without an
+        Any job that has been 'running' for more than 5 minutes without an
         updated_at change is presumed orphaned and reset to 'queued' so the
-        indexer can reclaim it.
+        indexer can reclaim it. Runs at startup and periodically in the main
+        loop.
 
         Returns the number of recovered jobs.
         """
@@ -163,7 +164,7 @@ class IndexerService:
                     started_at = NULL,
                     updated_at = NOW()
                 WHERE status = 'running'
-                  AND updated_at < NOW() - INTERVAL '10 minutes'
+                  AND updated_at < NOW() - INTERVAL '5 minutes'
                 RETURNING id, job_type
                 """,
             )
@@ -194,8 +195,15 @@ class IndexerService:
 
         logger.info("Indexer service starting. job_types=%s poll_interval=%ss", list(self.handlers.keys()), JOB_POLL_INTERVAL)
 
+        self._last_stale_check = time.time()
+
         try:
             while self.running:
+                # Periodically recover stale jobs (every 60s)
+                if time.time() - self._last_stale_check > 60:
+                    self._recover_stale_jobs()
+                    self._last_stale_check = time.time()
+
                 job = self._claim_next_job()
 
                 if job is None:
@@ -269,6 +277,11 @@ class IndexerService:
                     # Success — mark job as completed
                     self._mark_completed(job_id)
                     logger.info("Job %s completed successfully.", job_id)
+
+                except _YieldException:
+                    # Long-running job yielded to let other jobs run — requeue immediately
+                    logger.info("Job %s yielded, requeueing.", job_id)
+                    self._requeue_job(job_id)
 
                 except Exception as exc:
                     error_msg = str(exc)
@@ -345,6 +358,29 @@ class IndexerService:
             cur.close()
             return job
 
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self.pool.putconn(conn)
+
+    def _requeue_job(self, job_id: int) -> None:
+        """Requeue a job that yielded, so other higher-priority jobs can run first."""
+        conn = self.pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                UPDATE indexing_jobs
+                SET status = 'queued',
+                    started_at = NULL,
+                    updated_at = NOW()
+                WHERE id = %s
+                """,
+                (job_id,),
+            )
+            conn.commit()
+            cur.close()
         except Exception:
             conn.rollback()
             raise
