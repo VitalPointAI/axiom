@@ -66,7 +66,7 @@ function AuthContent() {
         { username: username || undefined }
       );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const credential = await startRegistration(startData.options as any);
+      const credential = await startRegistration({ optionsJSON: startData.options as any });
       await apiClient.post('/auth/register/finish', {
         challenge_id: startData.challenge_id,
         credential,
@@ -87,7 +87,7 @@ function AuthContent() {
     try {
       const startData = await apiClient.post<LoginStartResponse>('/auth/login/start', {});
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const credential = await startAuthentication(startData.options as any);
+      const credential = await startAuthentication({ optionsJSON: startData.options as any });
       await apiClient.post('/auth/login/finish', {
         challenge_id: startData.challenge_id,
         credential,
