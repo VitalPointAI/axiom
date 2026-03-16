@@ -37,7 +37,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Dashboard</h1>
           <p className="text-slate-500">
-            Welcome back, {user?.nearAccountId}
+            Welcome back, {user?.display_name}
           </p>
         </div>
         <div className="flex items-center gap-3">

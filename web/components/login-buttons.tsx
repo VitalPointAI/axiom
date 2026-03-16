@@ -19,7 +19,7 @@ export function LoginButtons() {
     return (
       <div className="flex items-center gap-4">
         <span className="text-sm text-gray-600">
-          {user.codename || (user.nearAccountId.length > 20 
+          {user.display_name || (user.nearAccountId.length > 20
             ? `${user.nearAccountId.slice(0, 8)}...${user.nearAccountId.slice(-8)}`
             : user.nearAccountId)}
         </span>

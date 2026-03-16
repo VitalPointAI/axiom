@@ -115,7 +115,7 @@ export default function DashboardLayout({
           {/* Spacer for mobile menu button */}
           <div className="lg:hidden w-10" />
           <div className="text-sm text-gray-400 truncate">
-            Welcome, <span className="text-white font-medium">{user.nearAccountId}</span>
+            Welcome, <span className="text-white font-medium">{user.display_name}</span>
           </div>
           <div className="flex items-center gap-3">
             <ClientSwitcher />
