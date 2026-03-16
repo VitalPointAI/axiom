@@ -51,9 +51,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         id: String(u.user_id),
         email: u.email,
         near_account_id: u.near_account_id,
-        display_name: u.codename || u.username,
+        display_name: u.codename || u.username || u.email || u.near_account_id || 'User',
         is_admin: u.is_admin,
-        nearAccountId: u.near_account_id || u.email || u.codename || String(u.user_id),
+        nearAccountId: u.near_account_id || u.username || u.email || u.codename || String(u.user_id),
         codename: u.codename,
         createdAt: undefined,
       });
