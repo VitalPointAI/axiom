@@ -32,7 +32,6 @@ from api.schemas.auth import (
     RegisterStartRequest,
     SessionResponse,
     UserResponse,
-    WalletRecoveryStartRequest,
     WalletRecoveryFinishRequest,
 )
 
