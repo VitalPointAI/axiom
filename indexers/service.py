@@ -144,6 +144,42 @@ class IndexerService:
     # Main run loop
     # ------------------------------------------------------------------
 
+    def _recover_stale_jobs(self) -> int:
+        """Reset jobs stuck in 'running' state (orphaned by container restart).
+
+        Any job that has been 'running' for more than 10 minutes without an
+        updated_at change is presumed orphaned and reset to 'queued' so the
+        indexer can reclaim it.
+
+        Returns the number of recovered jobs.
+        """
+        conn = self.pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                UPDATE indexing_jobs
+                SET status = 'queued',
+                    started_at = NULL,
+                    updated_at = NOW()
+                WHERE status = 'running'
+                  AND updated_at < NOW() - INTERVAL '10 minutes'
+                RETURNING id, job_type
+                """,
+            )
+            recovered = cur.fetchall()
+            conn.commit()
+            cur.close()
+            if recovered:
+                for job_id, job_type in recovered:
+                    logger.warning("Recovered stale job id=%s type=%s", job_id, job_type)
+            return len(recovered)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self.pool.putconn(conn)
+
     def run(self, once: bool = False) -> None:
         """
         Main polling loop.
@@ -151,6 +187,11 @@ class IndexerService:
         Args:
             once: If True, process at most one job then exit. Useful for testing.
         """
+        # Recover any jobs orphaned by previous container restart
+        recovered = self._recover_stale_jobs()
+        if recovered:
+            logger.info("Recovered %d stale running jobs on startup.", recovered)
+
         logger.info("Indexer service starting. job_types=%s poll_interval=%ss", list(self.handlers.keys()), JOB_POLL_INTERVAL)
 
         try:
