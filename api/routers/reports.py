@@ -529,6 +529,27 @@ async def import_exchange_file(
     def _insert(conn):
         cur = conn.cursor()
         try:
+            # Get or create the per-user virtual exchange wallet
+            exchange_account_id = f"exchange_imports_{user_id}"
+            cur.execute(
+                """
+                INSERT INTO wallets (user_id, account_id, chain)
+                VALUES (%s, %s, 'exchange')
+                ON CONFLICT (user_id, account_id, chain) DO NOTHING
+                RETURNING id
+                """,
+                (user_id, exchange_account_id),
+            )
+            row = cur.fetchone()
+            if row is None:
+                # Already exists — look it up
+                cur.execute(
+                    "SELECT id FROM wallets WHERE user_id = %s AND account_id = %s AND chain = 'exchange'",
+                    (user_id, exchange_account_id),
+                )
+                row = cur.fetchone()
+            wallet_id = row[0]
+
             # Insert file_imports record
             cur.execute(
                 """
@@ -548,11 +569,11 @@ async def import_exchange_file(
             # Queue file_import job with file_import_id as cursor
             cur.execute(
                 """
-                INSERT INTO indexing_jobs (user_id, job_type, status, priority, cursor)
-                VALUES (%s, 'file_import', 'queued', 6, %s)
+                INSERT INTO indexing_jobs (wallet_id, user_id, job_type, chain, status, priority, cursor)
+                VALUES (%s, %s, 'file_import', 'exchange', 'queued', 6, %s)
                 RETURNING id
                 """,
-                (user_id, str(file_import_id)),
+                (wallet_id, user_id, str(file_import_id)),
             )
             job_row = cur.fetchone()
             job_id = job_row[0]
