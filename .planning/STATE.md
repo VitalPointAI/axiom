@@ -24,7 +24,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 **Phase 12: User Onboarding** IN PROGRESS
 - Plan 12-01: Migration 010 + preferences API + wallet suggestions + tests ✅ DONE (2026-03-16)
-- Plan 12-02: Onboarding wizard frontend (pending)
+- Plan 12-02: Onboarding wizard frontend ✅ DONE (2026-03-16) [awaiting human-verify checkpoint]
 - Plan 12-03: Inline guidance + banner system ✅ DONE (2026-03-16)
 
 **Phase 11: Robustness & Missing Features** IN PROGRESS
@@ -114,6 +114,7 @@ None currently.
 ## Recent Activity
 
 - 2026-03-16: **12-03 complete** - OnboardingBanner (dismissible, fail-open on API error) + InlineGuidance (5 diagnosis categories: missing_staking_rewards/unindexed_period/classification_error/duplicates/uncounted_fees with resync/resolve/navigate actions) components; banners integrated into Reports/Transactions/Wallets/Dashboard pages; InlineGuidance wired into transaction table for needs_review rows with expandable guidance panels.
+- 2026-03-16: **12-02 complete** - 5-step onboarding wizard at /onboarding/ (Welcome, Wallets with chain help, Import drag-drop, Processing with wallet discovery, Review with orientation links); smart resume via Promise.all; dashboard redirect guard (two-part: NULL completed_at + zero wallets); SyncStatus onComplete callback with prevDoneRef. Awaiting human-verify checkpoint.
 - 2026-03-16: **12-01 complete** - Alembic migration 010 adds onboarding_completed_at TIMESTAMPTZ + dismissed_banners JSONB to users table; GET/POST/PATCH preferences API (idempotent COALESCE completion, atomic JSONB || merge); GET /api/wallets/suggestions wraps WalletGraph.suggest_wallet_discovery(); 6 tests pass. Phase 12 started.
 - 2026-03-14: **11-01 complete** - Alembic migration 008 creates audit_log (JSONB old_value/new_value, entity_type, action, actor_type); data migrated from classification_audit_log; AuditLog SQLAlchemy model replaces ClassificationAuditLog; write_audit() helper in db/audit.py with conn=None safety. Phase 11 started.
 - 2026-03-14: **10-02 complete** - Alembic migration 007 adds ix_price_cache_coin_date_desc on price_cache(coin_id, date DESC); DB_POOL_MIN/MAX configurable via env vars (default 1/10) with validate_env() pool constraint checks; pool_stats() introspection in indexers/db.py; sanitize_for_log() in config.py; pyproject.toml has [project] table with requires-python >= 3.11.
@@ -353,6 +354,10 @@ None currently.
 | 2026-03-16 | COALESCE(dismissed_banners, '{}') || patch::jsonb for banner dismissal | NULL-safe atomic JSONB merge; single UPDATE for new + existing keys |
 | 2026-03-16 | GET /api/wallets/suggestions registered before /{wallet_id} routes | FastAPI matches in registration order; prevents "suggestions" being parsed as integer path param |
 | 2026-03-16 | WalletGraph manages its own pool connections in suggest_wallet_discovery | No extra getconn() wrapper in the route handler; WalletGraph.pool = shared pool |
+| 2026-03-16 | Two-part redirect guard (NULL onboarding_completed_at AND zero wallets) in dashboard layout | Prevents redirecting existing users with wallets but NULL completed_at; per CONTEXT.md pitfall #2 |
+| 2026-03-16 | Onboarding layout separate from dashboard layout tree | Prevents redirect loop — each layout can safely redirect to the other without circular dependency |
+| 2026-03-16 | Processing step polls /api/jobs/active independently at 3s | SyncStatus global mode returns null when done; independent polling detects job queue empty transition |
+| 2026-03-16 | prevDoneRef in SyncStatus for onComplete callback | Tracks previous done state to fire onComplete exactly once on transition, not on every re-render |
 | 2026-03-16 | OnboardingBanner shows on preferences fetch error (fail open) | Better to show than silently hide; preferences fetch is non-critical |
 | 2026-03-16 | React.Fragment with key for transaction rows with InlineGuidance | React requires key on Fragment in .map(); keyless <> produces reconciliation warning |
 | 2026-03-16 | InlineGuidance optimistic done state on API error | User sees feedback regardless of transient API failures; non-blocking UX |
