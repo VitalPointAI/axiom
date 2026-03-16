@@ -38,25 +38,29 @@ created: 2026-03-16
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 12-01-01 | 01 | 1 | ONBOARD-01 | unit | `pytest tests/test_api_preferences.py -x -q` | ❌ W0 | ⬜ pending |
-| 12-01-02 | 01 | 1 | ONBOARD-01 | unit | `pytest tests/test_migration_009.py -x -q` | ❌ W0 | ⬜ pending |
-| 12-02-01 | 02 | 1 | ONBOARD-02 | unit | `pytest tests/test_api_wallets.py -x -q` | ✅ | ⬜ pending |
-| 12-03-01 | 03 | 2 | ONBOARD-03 | unit | `pytest tests/test_api_wallets.py -x -q` | ✅ | ⬜ pending |
-| 12-04-01 | 04 | 2 | ONBOARD-04 | manual | N/A | manual-only | ⬜ pending |
-| 12-05-01 | 05 | 2 | ONBOARD-05 | unit | `pytest tests/test_api_preferences.py -x -q` | ❌ W0 | ⬜ pending |
-| 12-06-01 | 06 | 2 | ONBOARD-06 | unit | `pytest tests/test_api_preferences.py -x -q` | ❌ W0 | ⬜ pending |
-| 12-07-01 | 07 | 2 | ONBOARD-07 | unit | `pytest tests/test_api_verification.py -x -q` | ✅ | ⬜ pending |
+| 12-01-01 | 01 | 1 | ONBOARD-01 | unit | `pytest tests/test_api_preferences.py -x -q` | W0 | pending |
+| 12-02-01 | 02 | 2 | ONBOARD-02 | type-check | `cd web && npx tsc --noEmit` | N/A | pending |
+| 12-02-02 | 02 | 2 | ONBOARD-01 | type-check | `cd web && npx tsc --noEmit` | N/A | pending |
+| 12-03-01 | 03 | 2 | ONBOARD-03 | type-check | `cd web && npx tsc --noEmit` | N/A | pending |
+| 12-03-02 | 03 | 2 | ONBOARD-05,06,07 | type-check | `cd web && npx tsc --noEmit` | N/A | pending |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+*Status: pending / green / red / flaky*
 
 ---
 
 ## Wave 0 Requirements
 
 - [ ] `tests/test_api_preferences.py` — stubs for ONBOARD-01, ONBOARD-05, ONBOARD-06 (GET/POST/PATCH preferences endpoints, JSONB merge, idempotent completion)
-- [ ] `tests/test_migration_009.py` — covers migration 009 idempotency (IF NOT EXISTS columns)
+
+*Note: `tests/test_migration_009.py` removed from Wave 0 — migration 010 uses `IF NOT EXISTS` / `DROP COLUMN IF EXISTS` SQL syntax which is inherently idempotent. A dedicated migration test adds no value beyond what the integration tests already cover.*
 
 *Existing infrastructure covers ONBOARD-02, ONBOARD-03, ONBOARD-07 via `tests/test_api_wallets.py` and `tests/test_api_verification.py`.*
+
+---
+
+## Frontend Verification Note
+
+Frontend plans (12-02, 12-03) use `npx tsc --noEmit` as the primary fast verify command (~5-10 seconds) instead of `npx next build` (which can exceed 30 seconds). A full `npx next build` should be run as a wave-level gate after all frontend tasks in a wave are complete.
 
 ---
 
