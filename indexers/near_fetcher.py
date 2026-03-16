@@ -205,9 +205,17 @@ class NearFetcher:
         cursor = job_row.get("cursor")
         progress_fetched = job_row.get("progress_fetched", 0)
 
+        # Set progress_total upfront so the UI can show real percentages
+        try:
+            total_count = self.client.get_transaction_count(account_id)
+            if total_count > 0:
+                self._set_progress_total(job_id, total_count)
+        except Exception as exc:
+            logger.warning("Could not fetch tx count for %s: %s", account_id, exc)
+
         while True:
-            # Fetch one page of transactions
-            result = self.client.fetch_transactions(account_id, cursor=cursor, per_page=25)
+            # Fetch one page of transactions (100 per page for throughput)
+            result = self.client.fetch_transactions(account_id, cursor=cursor, per_page=100)
             txns = result.get("txns", [])
             next_cursor = result.get("cursor")
 
@@ -369,6 +377,23 @@ class NearFetcher:
             # Use executemany for batch insert with ON CONFLICT
             for row_vals in values:
                 cur.execute(sql, row_vals)
+            conn.commit()
+            cur.close()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self.db_pool.putconn(conn)
+
+    def _set_progress_total(self, job_id: int, total: int) -> None:
+        """Set progress_total once at start so UI can show real percentages."""
+        conn = self.db_pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE indexing_jobs SET progress_total = %s, updated_at = NOW() WHERE id = %s",
+                (total, job_id),
+            )
             conn.commit()
             cur.close()
         except Exception:
