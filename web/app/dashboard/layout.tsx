@@ -8,6 +8,16 @@ import { SyncStatus } from '@/components/sync-status';
 import { Tally } from '@/components/tally';
 import { ClientSwitcher } from '@/components/client-switcher';
 import { Loader2 } from 'lucide-react';
+import { apiClient } from '@/lib/api';
+
+interface PreferencesResponse {
+  onboarding_completed_at: string | null;
+  dismissed_banners: Record<string, boolean>;
+}
+
+interface WalletsResponse {
+  wallets: Array<{ id: number; account_id: string; chain: string }>;
+}
 
 export default function DashboardLayout({
   children,
@@ -17,11 +27,49 @@ export default function DashboardLayout({
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const [isViewingClient, setIsViewingClient] = useState(false);
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !user) {
       router.replace('/auth');
     }
+  }, [user, isLoading, router]);
+
+  // Onboarding check: redirect new users (no wallets + NULL onboarding_completed_at) to /onboarding
+  // IMPORTANT: Existing users with wallets but NULL timestamp must NOT be redirected (pitfall #2)
+  useEffect(() => {
+    if (isLoading || !user) return;
+
+    const checkOnboarding = async () => {
+      try {
+        const prefs = await apiClient.get<PreferencesResponse>('/api/preferences');
+
+        // If onboarding already completed, no redirect needed
+        if (prefs.onboarding_completed_at) {
+          setOnboardingChecked(true);
+          return;
+        }
+
+        // Only redirect if BOTH conditions are true: NULL timestamp AND zero wallets
+        const walletsData = await apiClient.get<WalletsResponse>('/api/wallets');
+        const wallets = walletsData.wallets || [];
+
+        if (wallets.length === 0) {
+          // New user with no wallets — send to onboarding
+          router.replace('/onboarding');
+          return;
+        }
+
+        // Existing user with wallets but NULL onboarding_completed_at — allow dashboard access
+        setOnboardingChecked(true);
+      } catch (err) {
+        // If check fails, do NOT redirect — non-blocking
+        console.error('Onboarding check failed (non-blocking):', err);
+        setOnboardingChecked(true);
+      }
+    };
+
+    checkOnboarding();
   }, [user, isLoading, router]);
 
   // Check if viewing as client (for top padding)
@@ -42,7 +90,7 @@ export default function DashboardLayout({
     }
   }, [user]);
 
-  if (isLoading) {
+  if (isLoading || !onboardingChecked) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-900">
         <Loader2 className="w-8 h-8 animate-spin text-slate-400" />

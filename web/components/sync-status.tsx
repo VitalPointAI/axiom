@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { CheckCircle, Loader2, RefreshCw } from 'lucide-react';
 import { apiClient, ApiError } from '@/lib/api';
 
@@ -38,6 +38,8 @@ interface SyncStatusProps {
   walletId?: number;
   /** If true, the component is shown inline on the wallet card (compact mode) */
   compact?: boolean;
+  /** Called once when the pipeline transitions from active to done */
+  onComplete?: () => void;
 }
 
 interface ActiveJobsResponse {
@@ -46,10 +48,11 @@ interface ActiveJobsResponse {
   pipeline_pct: number;
 }
 
-export function SyncStatus({ walletId, compact = false }: SyncStatusProps) {
+export function SyncStatus({ walletId, compact = false, onComplete }: SyncStatusProps) {
   const [status, setStatus] = useState<WalletStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevDoneRef = useRef<boolean>(false);
 
   const fetchStatus = async () => {
     try {
@@ -101,15 +104,29 @@ export function SyncStatus({ walletId, compact = false }: SyncStatusProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walletId]);
 
-  // Stop polling when done
+  // Stop polling when done; fire onComplete callback once on transition to done
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+
+  const handleDoneTransition = useCallback(() => {
+    onCompleteRef.current?.();
+  }, []);
+
   useEffect(() => {
     if (status && (status.stage === 'done' || status.pct >= 100)) {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
+      // Fire onComplete only once on first transition to done state
+      if (!prevDoneRef.current) {
+        prevDoneRef.current = true;
+        handleDoneTransition();
+      }
+    } else {
+      prevDoneRef.current = false;
     }
-  }, [status]);
+  }, [status, handleDoneTransition]);
 
   if (loading) {
     return (
