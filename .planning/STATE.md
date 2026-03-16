@@ -116,6 +116,12 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 None currently.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 1 | Fix username display showing user ID instead of name | 2026-03-16 | 56f32aa | [1-fix-username-display-showing-user-id-ins](./quick/1-fix-username-display-showing-user-id-ins/) |
+
 ## Recent Activity
 
 - 2026-03-16: **quick-1 complete** - Fixed username display showing numeric user ID; display_name fallback chain (codename > username > email > near_account_id > 'User') applied in auth-provider; dashboard header, page, and login-buttons all updated to use display_name.
@@ -368,4 +374,4 @@ None currently.
 | 2026-03-16 | React.Fragment with key for transaction rows with InlineGuidance | React requires key on Fragment in .map(); keyless <> produces reconciliation warning |
 | 2026-03-16 | InlineGuidance optimistic done state on API error | User sees feedback regardless of transient API failures; non-blocking UX |
 
-*Last updated: 2026-03-16 — Phase 12 started: plan 12-01 + 12-03 complete (2/3 plans).*
+*Last activity: 2026-03-16 - Completed quick task 1: Fix username display showing user ID instead of name*
