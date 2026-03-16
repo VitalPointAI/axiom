@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { Upload, CheckCircle, XCircle, ChevronRight, FileSpreadsheet } from 'lucide-react';
+import { API_URL } from '@/lib/api';
 
 interface ImportStepProps {
   onNext: () => void;
@@ -36,7 +37,7 @@ export function ImportStep({ onNext, onSkip }: ImportStepProps) {
       const formData = new FormData();
       formData.append('file', file);
 
-      const res = await fetch('/api/upload-file', {
+      const res = await fetch(`${API_URL}/api/exchanges/import`, {
         method: 'POST',
         credentials: 'include',
         body: formData,
