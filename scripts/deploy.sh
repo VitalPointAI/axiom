@@ -23,7 +23,7 @@ for var in DEPLOY_HOST DEPLOY_USER DEPLOY_PATH; do
   fi
 done
 
-SSH_CMD="ssh -o StrictHostKeyChecking=no"
+SSH_CMD="ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=20"
 if [[ -n "${DEPLOY_SSH_KEY:-}" ]]; then
   SSH_CMD="$SSH_CMD -i $DEPLOY_SSH_KEY"
 fi
