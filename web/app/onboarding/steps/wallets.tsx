@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, X, ChevronRight, Info, Loader2, Wallet } from 'lucide-react';
 import { apiClient, ApiError } from '@/lib/api';
 
@@ -61,12 +61,26 @@ const CHAIN_HELP: Record<string, {
   },
 };
 
+interface ExistingWallet {
+  id: number;
+  account_id: string;
+  chain: string;
+}
+
 export function WalletsStep({ onNext, onSkip }: WalletsStepProps) {
   const [selectedChain, setSelectedChain] = useState('NEAR');
   const [address, setAddress] = useState('');
   const [pendingWallets, setPendingWallets] = useState<PendingWallet[]>([]);
+  const [existingWallets, setExistingWallets] = useState<ExistingWallet[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    apiClient
+      .get<{ wallets: ExistingWallet[] }>('/api/wallets')
+      .then((data) => setExistingWallets(data.wallets || []))
+      .catch(() => {});
+  }, []);
 
   const handleAddWallet = () => {
     if (!address.trim()) return;
@@ -81,7 +95,14 @@ export function WalletsStep({ onNext, onSkip }: WalletsStepProps) {
   };
 
   const handleContinue = async () => {
-    if (pendingWallets.length === 0) return;
+    if (pendingWallets.length === 0 && existingWallets.length === 0) return;
+
+    // If only existing wallets, skip straight to next step
+    if (pendingWallets.length === 0) {
+      onNext();
+      return;
+    }
+
     setSubmitting(true);
     setError('');
 
@@ -121,7 +142,9 @@ export function WalletsStep({ onNext, onSkip }: WalletsStepProps) {
       <div>
         <h2 className="text-xl font-bold text-white">Add Your Wallets</h2>
         <p className="text-gray-400 text-sm mt-1">
-          Add all wallets you want to track. You can add more later from the dashboard.
+          {existingWallets.length > 0
+            ? 'Your wallets from before are ready. Add more or continue to the next step.'
+            : 'Add all wallets you want to track. You can add more later from the dashboard.'}
         </p>
       </div>
 
@@ -185,11 +208,37 @@ export function WalletsStep({ onNext, onSkip }: WalletsStepProps) {
         )}
       </div>
 
+      {/* Existing wallets from previous attempt */}
+      {existingWallets.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-gray-300">
+            Your wallets ({existingWallets.length})
+          </h3>
+          <div className="space-y-2">
+            {existingWallets.map((wallet) => {
+              const chain = CHAINS.find((c) => c.id === wallet.chain);
+              return (
+                <div
+                  key={wallet.id}
+                  className="flex items-center bg-gray-900 border border-gray-700 rounded-lg px-3 py-2"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full ${chain?.color || 'bg-gray-500'}`} />
+                    <span className="text-xs text-gray-400 font-medium">{wallet.chain}</span>
+                    <code className="text-xs text-white font-mono">{truncateAddress(wallet.account_id)}</code>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Pending wallets list */}
       {pendingWallets.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-sm font-medium text-gray-300">
-            Wallets to add ({pendingWallets.length})
+            {existingWallets.length > 0 ? 'New wallets' : 'Wallets to add'} ({pendingWallets.length})
           </h3>
           <div className="space-y-2">
             {pendingWallets.map((wallet) => {
@@ -218,7 +267,7 @@ export function WalletsStep({ onNext, onSkip }: WalletsStepProps) {
       )}
 
       {/* Wallet icon for empty state */}
-      {pendingWallets.length === 0 && (
+      {pendingWallets.length === 0 && existingWallets.length === 0 && (
         <div className="text-center py-4 text-gray-600">
           <Wallet className="w-8 h-8 mx-auto mb-2" />
           <p className="text-sm">Add at least one wallet to continue</p>
@@ -236,7 +285,7 @@ export function WalletsStep({ onNext, onSkip }: WalletsStepProps) {
       <div className="space-y-2 pt-2">
         <button
           onClick={handleContinue}
-          disabled={pendingWallets.length === 0 || submitting}
+          disabled={(pendingWallets.length === 0 && existingWallets.length === 0) || submitting}
           className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors"
         >
           {submitting ? (
