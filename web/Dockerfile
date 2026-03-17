@@ -7,6 +7,10 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
+# Cache-bust: changing COMMIT_SHA invalidates from here down,
+# but npm ci layer above stays cached.
+ARG COMMIT_SHA=unknown
+
 # Copy source and build
 COPY . .
 

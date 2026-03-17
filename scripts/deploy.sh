@@ -41,9 +41,10 @@ else
 fi
 
 # Step 2: Build new images
-# Web gets --no-cache to prevent stale Next.js bundles; others use layer cache
+# Web uses COMMIT_SHA build arg to bust cache for source changes while keeping npm ci cached
 echo "==> Building Docker images"
-$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml build --no-cache web && docker compose -f docker-compose.prod.yml build --parallel api indexer migrate"
+COMMIT_SHA=$($SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && git rev-parse --short HEAD")
+$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml build --parallel --build-arg COMMIT_SHA=$COMMIT_SHA"
 
 # Step 3: Run migrations (one-shot container)
 echo "==> Running database migrations"
