@@ -23,7 +23,9 @@ Investigate and implement the most reliable, cost-effective indexing solution fo
 - Plugin registry with config for adding new chains — chain plugins registered via config/database, builds on existing chain_plugin.py ABC
 
 ### Data Coverage Strategy
-- Chain-native RPCs + custom parsers for all chains including those with poor API support (Akash via Cosmos SDK RPC, XRP Ledger API, Sweat via NEAR subnets)
+- Must support ALL chains — including Bitcoin and any future chain the user adds
+- Chain-native RPCs + custom parsers for all chains including those with poor API support (Akash via Cosmos SDK RPC, XRP Ledger API, Sweat via NEAR subnets, Bitcoin via Bitcoin Core RPC or Blockstream/Mempool.space API)
+- Dual RPC strategy per chain: archival node access for historical transaction backfill + current/full node RPC for recent transactions and real-time streaming
 - Continuous balance reconciliation for gap detection — after each sync, compare calculated vs on-chain balance, trigger targeted re-index on mismatch (extends Phase 5 BalanceReconciler pattern)
 - Target data freshness: under 5 minutes from on-chain confirmation to visible in Axiom
 
@@ -57,6 +59,8 @@ Investigate and implement the most reliable, cost-effective indexing solution fo
 - "Leaning towards full control via self-hosted indexer nodes, but cost and ops burden are important considerations" — the path to self-hosted matters more than starting there
 - "Last time I tried to implement NEAR Lake it was far more than $5-20/month" — cost optimization for NEAR Lake is a critical research item
 - "The entire product depends on reliable, accurate data that stays up to date" — reliability is non-negotiable
+- Must support all chains, including Bitcoin — not just NEAR and EVM
+- Consider archival node RPC for historical data + current node RPC for recent/real-time — dual strategy per chain
 - Existing indexer service (service.py) uses FOR UPDATE SKIP LOCKED — already multi-worker ready, streaming should build on this foundation
 
 </specifics>
