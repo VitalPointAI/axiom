@@ -35,8 +35,6 @@ export default function OnboardingPage() {
   const router = useRouter();
   const [step, setStep] = useState<number | null>(null); // null = loading
   const [isSkipping, setIsSkipping] = useState(false);
-  const [hasWallets, setHasWallets] = useState(false);
-
   useEffect(() => {
     const determineStep = async () => {
       try {
@@ -49,8 +47,6 @@ export default function OnboardingPage() {
         const prefs = prefsData;
         const wallets = walletsData.wallets || [];
         const activeJobs = jobsData.jobs || [];
-
-        if (wallets.length > 0) setHasWallets(true);
 
         // Already completed onboarding — redirect to dashboard
         if (prefs.onboarding_completed_at) {
@@ -96,12 +92,7 @@ export default function OnboardingPage() {
   }, [router]);
 
   const handleNext = () => {
-    setStep((s) => {
-      if (s === null) return 1;
-      // Skip "Add Wallets" step if user already has wallets
-      if (s === 1 && hasWallets) return 3;
-      return Math.min(s + 1, 5);
-    });
+    setStep((s) => (s !== null ? Math.min(s + 1, 5) : 1));
   };
 
   const handleSkipToDashboard = async () => {
