@@ -349,6 +349,66 @@ Plans:
 
 ---
 
+### Phase 13: Reliable Indexing
+
+**Goal:** Replace rate-limited NearBlocks/Etherscan polling with near real-time streaming indexing via neardata.xyz (NEAR) and Alchemy WebSocket (EVM). Add cost tracking, chain plugin registry via DB config, gap detection with re-index loop protection, SSE for frontend real-time updates, and admin cost dashboard.
+
+**Requirements:** IDX-01 through IDX-10
+- IDX-01: Migration 011 — api_cost_log + chain_sync_config tables
+- IDX-02: NEAR streaming fetcher via neardata.xyz (replaces NearBlocks for real-time)
+- IDX-03: EVM real-time streaming via WebSocket eth_subscribe (Alchemy)
+- IDX-04: Cost tracking middleware (CostTracker) + admin cost dashboard API
+- IDX-05: Chain plugin registry via database config (chain_sync_config)
+- IDX-06: Streaming worker (asyncio long-running process for near real-time updates)
+- IDX-07: Gap detection with re-index loop protection (3 retries/day/wallet max)
+- IDX-08: PostgreSQL LISTEN/NOTIFY + SSE for frontend real-time updates
+- IDX-09: XRP + Akash fetcher hardening (cost tracking, stub label removal)
+- IDX-10: Service.py integration — register fetchers from chain_sync_config, --streaming flag
+
+**Depends on:** Phase 12
+**Plans:** 5 plans in 2 waves
+
+Plans:
+- [ ] 13-01-PLAN.md — Migration 011 + CostTracker middleware + chain registry loader (Wave 1) [IDX-01, IDX-04, IDX-05]
+- [ ] 13-02-PLAN.md — NEAR stream fetcher via neardata.xyz (Wave 1) [IDX-02]
+- [ ] 13-03-PLAN.md — EVM stream fetcher via Alchemy WebSocket (Wave 1) [IDX-03]
+- [ ] 13-04-PLAN.md — Streaming worker + service.py wiring + gap detection (Wave 2) [IDX-06, IDX-07, IDX-10]
+- [ ] 13-05-PLAN.md — SSE endpoint + admin cost dashboard API + XRP/Akash hardening (Wave 2) [IDX-08, IDX-09]
+
+**Success Criteria:**
+1. [ ] neardata.xyz block streaming fetches NEAR transactions in < 5 min from on-chain confirmation
+2. [ ] EVM WebSocket receives new block notifications with auto-reconnect on disconnect
+3. [ ] api_cost_log tracks all external API calls with chain, provider, cost estimate
+4. [ ] chain_sync_config stores per-chain fetcher configuration; service.py loads from DB
+5. [ ] StreamingWorker runs NEAR + EVM streaming in parallel asyncio tasks
+6. [ ] Balance mismatch triggers re-index with 3/day/wallet cap; excess flagged manual_review
+7. [ ] SSE endpoint pushes real-time transaction updates to frontend via pg_notify
+8. [ ] Admin cost dashboard shows monthly cost per chain/provider with budget alerts
+9. [ ] XRP and Akash fetchers track API costs; stub labels removed
+10. [ ] All new tests pass (streaming, cost tracking, gap detection, admin API, SSE)
+
+**Deliverables:**
+- `db/migrations/versions/011_cost_tracking_chain_config.py` — Migration 011
+- `indexers/cost_tracker.py` — CostTracker middleware
+- `indexers/near_stream_fetcher.py` — neardata.xyz NEAR streaming fetcher
+- `indexers/evm_stream_fetcher.py` — WebSocket EVM streaming fetcher
+- `indexers/streaming_worker.py` — Asyncio streaming worker
+- `indexers/gap_reindex.py` — Gap detection with loop protection
+- `indexers/service.py` — Extended with --streaming flag + chain_sync_config loading
+- `api/routers/admin.py` — Cost dashboard + indexing status endpoints
+- `api/routers/streaming.py` — SSE endpoint for real-time wallet updates
+- `config.py` — Extended with ALCHEMY_API_KEY, INFURA_API_KEY
+- `tests/test_near_stream_fetcher.py` — NEAR stream fetcher tests
+- `tests/test_evm_stream_fetcher.py` — EVM stream fetcher tests
+- `tests/test_cost_tracker.py` — Cost tracker tests
+- `tests/test_chain_registry.py` — Chain registry tests
+- `tests/test_streaming_worker.py` — Streaming worker tests
+- `tests/test_gap_reindex.py` — Gap re-index tests
+- `tests/test_admin_api.py` — Admin API tests
+- `tests/test_streaming_api.py` — SSE streaming API tests
+
+---
+
 ## Dependencies
 
 ```
@@ -503,4 +563,3 @@ Plans:
 - `tests/test_invariants.py` — Integration tests for invariant checks
 - `tests/test_api_audit.py` — Audit API tests
 - `tests/test_offline_mode.py` — Offline mode tests
-
