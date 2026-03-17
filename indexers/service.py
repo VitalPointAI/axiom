@@ -322,6 +322,16 @@ class IndexerService:
                 JOIN wallets w ON ij.wallet_id = w.id
                 WHERE ij.status IN ('queued', 'retrying')
                   AND (ij.next_retry_at IS NULL OR ij.next_retry_at <= NOW())
+                  -- Defer staking/lockup until no full_sync jobs remain for same user
+                  AND NOT (
+                      ij.job_type IN ('staking_sync', 'lockup_sync')
+                      AND EXISTS (
+                          SELECT 1 FROM indexing_jobs other
+                          WHERE other.user_id = ij.user_id
+                            AND other.job_type IN ('full_sync', 'incremental_sync')
+                            AND other.status IN ('queued', 'running', 'retrying')
+                      )
+                  )
                 ORDER BY ij.priority DESC, ij.created_at ASC
                 LIMIT 1
                 FOR UPDATE OF ij SKIP LOCKED
