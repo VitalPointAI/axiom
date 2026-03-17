@@ -97,11 +97,20 @@ RECONCILIATION_TOLERANCES = {
 }
 
 # ---------------------------------------------------------------------------
+# EVM WebSocket providers (Phase 13 — streaming indexing)
+# ---------------------------------------------------------------------------
+ALCHEMY_API_KEY = os.environ.get("ALCHEMY_API_KEY")
+INFURA_API_KEY = os.environ.get("INFURA_API_KEY")
+
+# Etherscan V2 (existing, re-exported for clarity)
+ETHERSCAN_API_KEY = os.environ.get("ETHERSCAN_API_KEY")
+
+# ---------------------------------------------------------------------------
 # Environment validation
 # ---------------------------------------------------------------------------
 
 REQUIRED_ENV_VARS = ["DATABASE_URL"]
-OPTIONAL_ENV_VARS_WARN = ["NEARBLOCKS_API_KEY", "COINGECKO_API_KEY"]
+OPTIONAL_ENV_VARS_WARN = ["NEARBLOCKS_API_KEY", "COINGECKO_API_KEY", "ALCHEMY_API_KEY"]
 
 # Keys (or substrings) that should be redacted from log output.
 _SENSITIVE_KEY_PATTERNS = {"DATABASE_URL", "API_KEY", "TOKEN", "SECRET", "PASSWORD"}
