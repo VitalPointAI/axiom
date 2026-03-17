@@ -366,7 +366,7 @@ Plans:
 - IDX-10: Service.py integration — register fetchers from chain_sync_config, --streaming flag
 
 **Depends on:** Phase 12
-**Plans:** 5 plans in 2 waves
+**Plans:** 1/5 plans executed
 
 Plans:
 - [ ] 13-01-PLAN.md — Migration 011 + CostTracker middleware + chain registry loader (Wave 1) [IDX-01, IDX-04, IDX-05]
