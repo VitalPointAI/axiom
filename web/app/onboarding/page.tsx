@@ -10,9 +10,7 @@ import { ImportStep } from './steps/import';
 import { ProcessingStep } from './steps/processing';
 import { ReviewStep } from './steps/review';
 
-interface WalletsResponse {
-  wallets: Array<{ id: number; account_id: string; chain: string }>;
-}
+type WalletsResponse = Array<{ id: number; account_id: string; chain: string }>;
 
 interface ActiveJobsResponse {
   jobs: Array<{ status: string; pipeline_stage: string }>;
@@ -45,7 +43,7 @@ export default function OnboardingPage() {
         ]);
 
         const prefs = prefsData;
-        const wallets = walletsData.wallets || [];
+        const wallets = walletsData || [];
         const activeJobs = jobsData.jobs || [];
 
         // Already completed onboarding — redirect to dashboard

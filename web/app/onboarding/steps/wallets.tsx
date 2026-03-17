@@ -77,8 +77,8 @@ export function WalletsStep({ onNext, onSkip }: WalletsStepProps) {
 
   useEffect(() => {
     apiClient
-      .get<{ wallets: ExistingWallet[] }>('/api/wallets')
-      .then((data) => setExistingWallets(data.wallets || []))
+      .get<ExistingWallet[]>('/api/wallets')
+      .then((data) => setExistingWallets(data || []))
       .catch(() => {});
   }, []);
 
