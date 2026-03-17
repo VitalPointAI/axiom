@@ -111,6 +111,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Phase 10 added: Remaining Concerns Remediation — refactor large modules, performance improvements, robustness hardening, test gap coverage, dependency hygiene (14 requirements from CONCERNS.md)
 - Phase 11 added: Robustness & Missing Features — audit log consistency, fragile area hardening, data export validation
 - Phase 12 added: User Onboarding — guide new users through setup (wallets, exchanges, reports, validation, reconciliation, warning/error resolution)
+- Phase 13 added: Reliable Indexing — investigate and implement the most reliable, robust, accurate, cost-effective indexing solution for 100% transaction data coverage; evaluate TheGraph, SubQuery, dedicated cloud indexing servers; cost/benefit analysis of managed services vs self-hosted
 
 ## Blockers
 
