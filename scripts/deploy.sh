@@ -41,8 +41,9 @@ else
 fi
 
 # Step 2: Build new images
+# Web gets --no-cache to prevent stale Next.js bundles; others use layer cache
 echo "==> Building Docker images"
-$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml build --no-cache --parallel"
+$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml build --no-cache web && docker compose -f docker-compose.prod.yml build --parallel api indexer migrate"
 
 # Step 3: Run migrations (one-shot container)
 echo "==> Running database migrations"
