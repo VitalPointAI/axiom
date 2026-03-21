@@ -5,10 +5,10 @@ milestone_name: milestone
 status: unknown
 last_updated: "2026-03-16T15:51:24Z"
 progress:
-  total_phases: 11
-  completed_phases: 11
-  total_plans: 54
-  completed_plans: 54
+  total_phases: 12
+  completed_phases: 12
+  total_plans: 59
+  completed_plans: 59
 ---
 
 # Project State
@@ -18,9 +18,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 **Core value:** Accurate tax reporting — every transaction correctly classified, every balance reconciled.
-**Current focus:** Phase 12 - User Onboarding
+**Current focus:** Phase 13 - Reliable Indexing
 
 ## Current Phase
+
+**Phase 13: Reliable Indexing** COMPLETE ✅
+- Plan 13-01: Cost tracking tables + CostTracker middleware + chain registry ✅ DONE (2026-03-17)
+- Plan 13-02: NearStreamFetcher with neardata.xyz block streaming ✅ DONE (2026-03-17)
+- Plan 13-03: EVMStreamFetcher with Alchemy WebSocket block detection ✅ DONE (2026-03-21)
+- Plan 13-04: StreamingWorker + gap reindex with loop protection ✅ DONE (2026-03-21)
+- Plan 13-05: SSE streaming + admin API + fetcher hardening ✅ DONE (2026-03-21)
 
 **Phase 12: User Onboarding** COMPLETE ✅
 - Plan 12-01: Migration 010 + preferences API + wallet suggestions + tests ✅ DONE (2026-03-16)
