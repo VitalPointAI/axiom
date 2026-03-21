@@ -67,6 +67,7 @@ class TestEnvValidation:
                 "DATABASE_URL": "postgresql://localhost/test",
                 "NEARBLOCKS_API_KEY": "testkey",
                 "COINGECKO_API_KEY": "testkey2",
+                "ALCHEMY_API_KEY": "testkey3",
             },
         ):
             import config
