@@ -138,16 +138,16 @@ async def get_review_queue(
                         CAST(t.amount AS TEXT) AS amount_str,
                         COALESCE(t.token_id, '') AS token_symbol,
                         COALESCE(t.action_type, '') AS action_type,
-                        COALESCE(tc.tax_category, '') AS tax_category,
-                        tc.sub_category,
-                        tc.confidence_score,
+                        COALESCE(tc.category, '') AS tax_category,
+                        NULL AS sub_category,
+                        tc.confidence AS confidence_score,
                         COALESCE(tc.needs_review, FALSE) AS needs_review,
-                        tc.reviewer_notes,
+                        tc.notes AS reviewer_notes,
                         'on_chain' AS source,
                         t.block_timestamp AS sort_ts
                     FROM transactions t
                     LEFT JOIN transaction_classifications tc
-                        ON tc.tx_hash = t.tx_hash AND tc.chain = t.chain
+                        ON tc.transaction_id = t.id
                     WHERE t.wallet_id IN ({placeholders})
                       AND tc.needs_review = TRUE
                 """
@@ -164,18 +164,18 @@ async def get_review_queue(
                     CAST(et.quantity AS TEXT) AS amount_str,
                     COALESCE(et.asset, '') AS token_symbol,
                     COALESCE(et.tx_type, '') AS action_type,
-                    COALESCE(tc.tax_category, '') AS tax_category,
-                    tc.sub_category,
-                    tc.confidence_score,
+                    COALESCE(tc.category, '') AS tax_category,
+                    NULL AS sub_category,
+                    tc.confidence AS confidence_score,
                     COALESCE(tc.needs_review, FALSE) AS needs_review,
-                    tc.reviewer_notes,
+                    tc.notes AS reviewer_notes,
                     'exchange' AS source,
                     EXTRACT(EPOCH FROM et.tx_date)::BIGINT * 1000000000 AS sort_ts
                 FROM transaction_classifications tc
-                JOIN exchange_transactions et ON tc.tx_hash = et.tx_id
+                JOIN exchange_transactions et ON tc.exchange_transaction_id = et.id
                 WHERE tc.user_id = %s
                   AND tc.needs_review = TRUE
-                  AND tc.chain = 'exchange'
+                  AND tc.exchange_transaction_id IS NOT NULL
             """
             exchange_params = [user_id]
 
@@ -296,7 +296,7 @@ async def list_transactions(
                 )
                 onchain_extra_params.append(end_date)
             if tax_category:
-                onchain_where_clauses.append("tc.tax_category = %s")
+                onchain_where_clauses.append("tc.category = %s")
                 onchain_extra_params.append(tax_category)
             if asset:
                 onchain_where_clauses.append("t.token_id ILIKE %s")
@@ -335,16 +335,16 @@ async def list_transactions(
                         CAST(t.amount AS TEXT) AS amount_str,
                         COALESCE(t.token_id, '') AS token_symbol,
                         COALESCE(t.action_type, '') AS action_type,
-                        COALESCE(tc.tax_category, '') AS tax_category,
-                        tc.sub_category,
-                        tc.confidence_score,
+                        COALESCE(tc.category, '') AS tax_category,
+                        NULL AS sub_category,
+                        tc.confidence AS confidence_score,
                         COALESCE(tc.needs_review, FALSE) AS needs_review,
-                        tc.reviewer_notes,
+                        tc.notes AS reviewer_notes,
                         'on_chain' AS source,
                         t.block_timestamp AS sort_ts
                     FROM transactions t
                     LEFT JOIN transaction_classifications tc
-                        ON tc.tx_hash = t.tx_hash AND tc.chain = t.chain
+                        ON tc.transaction_id = t.id
                     WHERE t.wallet_id IN ({placeholders})
                     {extra_where}
                 """
@@ -353,7 +353,7 @@ async def list_transactions(
             # ----------------------------------------------------------------
             # Build exchange side
             # ----------------------------------------------------------------
-            exchange_where_clauses = ["tc.user_id = %s", "tc.chain = 'exchange'"]
+            exchange_where_clauses = ["tc.user_id = %s", "tc.exchange_transaction_id IS NOT NULL"]
             exchange_params: list = [user_id]
 
             if start_date:
@@ -363,7 +363,7 @@ async def list_transactions(
                 exchange_where_clauses.append("et.tx_date <= %s::DATE")
                 exchange_params.append(end_date)
             if tax_category:
-                exchange_where_clauses.append("tc.tax_category = %s")
+                exchange_where_clauses.append("tc.category = %s")
                 exchange_params.append(tax_category)
             if asset:
                 exchange_where_clauses.append("et.asset ILIKE %s")
@@ -393,15 +393,15 @@ async def list_transactions(
                     CAST(et.quantity AS TEXT) AS amount_str,
                     COALESCE(et.asset, '') AS token_symbol,
                     COALESCE(et.tx_type, '') AS action_type,
-                    COALESCE(tc.tax_category, '') AS tax_category,
-                    tc.sub_category,
-                    tc.confidence_score,
+                    COALESCE(tc.category, '') AS tax_category,
+                    NULL AS sub_category,
+                    tc.confidence AS confidence_score,
                     COALESCE(tc.needs_review, FALSE) AS needs_review,
-                    tc.reviewer_notes,
+                    tc.notes AS reviewer_notes,
                     'exchange' AS source,
                     EXTRACT(EPOCH FROM et.tx_date)::BIGINT * 1000000000 AS sort_ts
                 FROM transaction_classifications tc
-                JOIN exchange_transactions et ON tc.tx_hash = et.tx_id
+                JOIN exchange_transactions et ON tc.exchange_transaction_id = et.id
                 WHERE {exchange_where}
             """
 
@@ -487,10 +487,10 @@ async def patch_classification(
                 """
                 SELECT tc.id, tc.category, tc.confidence
                 FROM transaction_classifications tc
-                LEFT JOIN transactions t ON tc.tx_hash = t.tx_hash
+                LEFT JOIN transactions t ON tc.transaction_id = t.id
                 LEFT JOIN wallets w ON t.wallet_id = w.id
-                LEFT JOIN exchange_transactions et ON tc.tx_hash = et.tx_id
-                WHERE tc.tx_hash = %s
+                LEFT JOIN exchange_transactions et ON tc.exchange_transaction_id = et.id
+                WHERE tc.id = %s
                   AND (
                     (w.user_id = %s)
                     OR (tc.user_id = %s AND et.id IS NOT NULL)
@@ -625,8 +625,8 @@ async def apply_changes(
                     SELECT DISTINCT
                         COALESCE(t.token_id, et.asset) AS token_sym
                     FROM transaction_classifications tc
-                    LEFT JOIN transactions t ON tc.tx_hash = t.tx_hash
-                    LEFT JOIN exchange_transactions et ON tc.tx_hash = et.tx_id
+                    LEFT JOIN transactions t ON tc.transaction_id = t.id
+                    LEFT JOIN exchange_transactions et ON tc.exchange_transaction_id = et.id
                     LEFT JOIN wallets w ON t.wallet_id = w.id
                     WHERE (w.user_id = %s OR tc.user_id = %s)
                       AND tc.updated_at > COALESCE(
