@@ -66,6 +66,15 @@ LAST_BLOCK_RESPONSE = {
 }
 
 
+def _run(coro):
+    """Run an async coroutine synchronously (no pytest-asyncio needed)."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
 @pytest.fixture
 def mock_pool():
     pool = MagicMock()
@@ -87,8 +96,7 @@ def fetcher(mock_pool):
 # ---------------------------------------------------------------------------
 
 class TestFetchBlock:
-    @pytest.mark.asyncio
-    async def test_fetch_block_valid(self, fetcher):
+    def test_fetch_block_valid(self, fetcher):
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.text = AsyncMock(return_value=json.dumps(SAMPLE_BLOCK))
@@ -98,12 +106,11 @@ class TestFetchBlock:
         mock_session = MagicMock()
         mock_session.get = MagicMock(return_value=mock_response)
 
-        result = await fetcher.fetch_block(mock_session, 100_000_001)
+        result = _run(fetcher.fetch_block(mock_session, 100_000_001))
         assert result is not None
         assert result["block"]["header"]["height"] == 100_000_001
 
-    @pytest.mark.asyncio
-    async def test_fetch_block_null_response(self, fetcher):
+    def test_fetch_block_null_response(self, fetcher):
         """neardata.xyz returns string 'null' for missing blocks."""
         mock_response = AsyncMock()
         mock_response.status = 200
@@ -114,11 +121,10 @@ class TestFetchBlock:
         mock_session = MagicMock()
         mock_session.get = MagicMock(return_value=mock_response)
 
-        result = await fetcher.fetch_block(mock_session, 100_000_002)
+        result = _run(fetcher.fetch_block(mock_session, 100_000_002))
         assert result is None
 
-    @pytest.mark.asyncio
-    async def test_fetch_block_429_retries(self, fetcher):
+    def test_fetch_block_429_retries(self, fetcher):
         """Should retry on 429 and eventually succeed."""
         error_response = AsyncMock()
         error_response.status = 429
@@ -136,7 +142,7 @@ class TestFetchBlock:
         mock_session.get = MagicMock(side_effect=[error_response, ok_response])
 
         with patch("asyncio.sleep", new_callable=AsyncMock):
-            result = await fetcher.fetch_block(mock_session, 100_000_001)
+            result = _run(fetcher.fetch_block(mock_session, 100_000_001))
 
         assert result is not None
 
@@ -149,7 +155,6 @@ class TestExtractWalletTxs:
     def test_extract_matches_signer(self, fetcher):
         tracked = {"alice.near"}
         txs = fetcher.extract_wallet_txs(SAMPLE_BLOCK, tracked)
-        # alice.near is signer in tx_hash_1 and predecessor in receipt tx_hash_3
         hashes = {tx["tx_hash"] for tx in txs}
         assert "tx_hash_1" in hashes
 
@@ -200,8 +205,7 @@ class TestExtractWalletTxs:
 # ---------------------------------------------------------------------------
 
 class TestGetLastFinalBlock:
-    @pytest.mark.asyncio
-    async def test_returns_height(self, fetcher):
+    def test_returns_height(self, fetcher):
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value=LAST_BLOCK_RESPONSE)
@@ -211,7 +215,7 @@ class TestGetLastFinalBlock:
         mock_session = MagicMock()
         mock_session.get = MagicMock(return_value=mock_response)
 
-        height = await fetcher.get_last_final_block(mock_session)
+        height = _run(fetcher.get_last_final_block(mock_session))
         assert height == 100_000_005
 
 
@@ -220,8 +224,7 @@ class TestGetLastFinalBlock:
 # ---------------------------------------------------------------------------
 
 class TestStreamBlocks:
-    @pytest.mark.asyncio
-    async def test_stream_calls_callback_with_txs(self, fetcher):
+    def test_stream_calls_callback_with_txs(self, fetcher):
         """stream_blocks should poll, fetch new blocks, and call callback with txs."""
         callback = AsyncMock()
         call_count = 0
@@ -231,7 +234,6 @@ class TestStreamBlocks:
             call_count += 1
             if call_count == 1:
                 return 100_000_003
-            # Second call — stop streaming
             raise asyncio.CancelledError()
 
         async def mock_fetch_block(session, height):
@@ -242,11 +244,10 @@ class TestStreamBlocks:
 
         with patch("asyncio.sleep", new_callable=AsyncMock):
             try:
-                await fetcher.stream_blocks(
+                _run(fetcher.stream_blocks(
                     100_000_001, {"alice.near"}, callback, session=MagicMock()
-                )
+                ))
             except asyncio.CancelledError:
                 pass
 
-        # Should have called callback for blocks 100_000_002 and 100_000_003
         assert callback.call_count >= 1
