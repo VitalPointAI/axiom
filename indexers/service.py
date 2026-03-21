@@ -613,7 +613,32 @@ if __name__ == "__main__":
         action="store_true",
         help="Process one job then exit (useful for testing and smoke checks)",
     )
+    parser.add_argument(
+        "--streaming",
+        action="store_true",
+        help="Launch streaming worker alongside job queue for real-time block monitoring",
+    )
     args = parser.parse_args()
 
     service = IndexerService()
+
+    if args.streaming:
+        import asyncio
+        import threading
+        from indexers.streaming_worker import run_streaming_worker
+
+        def _run_streaming():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(run_streaming_worker(service.pool))
+            except Exception:
+                logger.error("Streaming worker crashed", exc_info=True)
+            finally:
+                loop.close()
+
+        streaming_thread = threading.Thread(target=_run_streaming, daemon=True)
+        streaming_thread.start()
+        logger.info("Streaming worker launched in background thread")
+
     service.run(once=args.once)
