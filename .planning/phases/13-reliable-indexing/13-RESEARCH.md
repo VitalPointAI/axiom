@@ -618,6 +618,49 @@ These services would require Phase 14+ work. The indexing infrastructure built i
 
 ---
 
+## Goldsky Mirror/Sink Evaluation (2026-03-21)
+
+**Evaluated at user request** — deeper dive into Goldsky Mirror (managed blockchain data pipelines) and Sink (PostgreSQL direct-write connector).
+
+### What Goldsky Mirror Does
+Streams decoded on-chain data (blocks, transactions, logs, traces) directly into your database via managed pipelines. You define a YAML config specifying source chain + data types + destination, run `goldsky pipeline create`, and data flows into your PostgreSQL tables automatically. Handles backfill + real-time with upsert semantics for reorg handling.
+
+### Chain Support
+- **Supported:** NEAR (early adopter), Ethereum, Polygon, Optimism, Arbitrum, Base, and 40+ EVM chains
+- **Not supported:** XRP Ledger, Akash/Cosmos SDK — still requires custom fetchers
+
+### Pricing (as of May 2025)
+- **Contact-sales / custom quote** for Mirror pipelines — no transparent self-serve pricing
+- Free tier is primarily for hosted subgraphs, not Mirror/Sink pipelines
+- Estimated minimum: **$200-500+/month** for multi-chain pipelines
+- Axiom budget ceiling: $50-200/month — **does not fit**
+
+### Comparison to Current Axiom Stack
+
+| Dimension | Axiom Stack (Phase 13) | Goldsky Mirror |
+|-----------|----------------------|----------------|
+| NEAR real-time | neardata.xyz polling ($0) | Pipeline ($$$) |
+| EVM real-time | Alchemy WebSocket ($0) | Pipeline ($$$) |
+| EVM historical | Etherscan V2 ($0) | Included |
+| XRP/Akash | Chain-native RPCs ($0) | Not supported |
+| Setup | Custom code (~1000 LOC) | YAML + CLI (30 min) |
+| Monthly cost | $0-67 | $200-500+ |
+| Latency | < 5 min | Seconds |
+
+### Decision: NOT ADOPTED
+1. **Budget mismatch** — minimum cost exceeds budget ceiling
+2. **Incomplete coverage** — XRP + Akash still need custom code
+3. **Already built** — Phase 13 fetchers operational with 88 tests passing
+4. **Overkill** — designed for high-volume dApps, not small portfolio trackers
+
+### When to Revisit
+- If Axiom scales to revenue-generating services (indexed data API, tax-as-a-service)
+- If monthly indexing budget grows to $500+/month
+- If Goldsky introduces transparent self-serve pricing with a viable free tier
+- Check `goldsky.com/pricing` periodically
+
+---
+
 ## Metadata
 
 **Confidence breakdown:**
