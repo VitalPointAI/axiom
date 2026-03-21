@@ -184,12 +184,17 @@ class StreamingWorker:
         """Run NEAR block streaming."""
         import aiohttp
 
-        start_height = self._get_last_near_block()
         wallets = self._tracked_wallets.get("near", set())
 
         async with aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=30)
         ) as session:
+            start_height = self._get_last_near_block()
+            if start_height == 0:
+                # No cursor in DB — start from latest finalized block
+                start_height = await self._near_fetcher.get_last_final_block(session)
+                logger.info("No NEAR cursor found, starting stream from block %d", start_height)
+
             await self._near_fetcher.stream_blocks(
                 start_height,
                 wallets,
