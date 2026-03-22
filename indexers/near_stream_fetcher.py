@@ -285,8 +285,33 @@ class NearStreamFetcher(ChainFetcher):
             delegate.sync_wallet(job)
             return
 
-        # Scan blocks via neardata.xyz
+        # Check gap size — if too large, skip to recent blocks
+        # Block scanning is only practical for small gaps (<10K blocks)
         loop = asyncio.new_event_loop()
+        try:
+            import aiohttp
+            async def _get_tip():
+                async with aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as s:
+                    return await self.get_last_final_block(s)
+            tip = loop.run_until_complete(_get_tip())
+        except Exception:
+            loop.close()
+            loop = asyncio.new_event_loop()
+            tip = start_height + 1  # fallback
+
+        gap = tip - start_height
+        MAX_SCAN_BLOCKS = 10_000  # ~1.7 hours of NEAR blocks
+
+        if gap > MAX_SCAN_BLOCKS:
+            # Gap too large for block scanning — skip to recent window
+            logger.info(
+                "Gap too large for %s (%d blocks), skipping to last %d blocks",
+                account_id, gap, MAX_SCAN_BLOCKS,
+            )
+            start_height = tip - MAX_SCAN_BLOCKS
+
         try:
             found_count = loop.run_until_complete(
                 self._incremental_scan(
