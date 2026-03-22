@@ -79,7 +79,7 @@ async def get_portfolio_summary(
                 WHERE w.user_id = %s
                   AND se.event_type = 'deposit'
                   AND (se.validator_id, se.created_at) IN (
-                      SELECT validator_id, MAX(created_at)
+                      SELECT se2.validator_id, MAX(se2.created_at)
                       FROM staking_events se2
                       JOIN wallets w2 ON w2.id = se2.wallet_id
                       WHERE w2.user_id = %s
