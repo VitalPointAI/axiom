@@ -247,6 +247,7 @@ async def get_active_jobs(
     def _query(conn):
         cur = conn.cursor()
         try:
+            # Fetch active jobs
             cur.execute(
                 """
                 SELECT
@@ -266,18 +267,47 @@ async def get_active_jobs(
                 """,
                 (user_id,),
             )
-            return cur.fetchall()
+            active = cur.fetchall()
+
+            # Count sibling jobs in the same batch (created in last 24h)
+            # to compute overall progress including completed ones
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*) FILTER (WHERE status = 'completed') AS done,
+                    COUNT(*) AS total
+                FROM indexing_jobs
+                WHERE user_id = %s
+                  AND created_at > NOW() - INTERVAL '24 hours'
+                """,
+                (user_id,),
+            )
+            batch_row = cur.fetchone()
+            return active, batch_row
         finally:
             cur.close()
 
     conn = pool.getconn()
     try:
-        rows = await run_in_threadpool(_query, conn)
+        rows, batch_row = await run_in_threadpool(_query, conn)
     finally:
         pool.putconn(conn)
 
     stage, pct = _pipeline_from_jobs(rows)
     est_minutes = _estimate_minutes(rows)
+
+    # Blend in completed job progress so the bar doesn't reset
+    batch_done = batch_row[0] if batch_row else 0
+    batch_total = batch_row[1] if batch_row else 0
+    if batch_total > 0 and rows:
+        # completed fraction of the overall batch
+        completed_frac = batch_done / batch_total
+        # Scale: completed jobs fill their share, active jobs fill theirs
+        # e.g., 5/10 done = 50% base, plus active job's progress within remaining 50%
+        active_frac = (1 - completed_frac)
+        # pct is 0-100 within the active stage; scale it into the remaining fraction
+        blended = int(completed_frac * 100 + active_frac * pct)
+        pct = min(blended, 99)  # Cap at 99 until truly done
 
     # If pipeline just finished, check if user wants a completion email
     if not rows:
