@@ -40,17 +40,21 @@ else
   $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && git pull origin main && git clean -fd"
 fi
 
-# Step 2: Build new images
+# Step 2: Prune old Docker images and build cache to free disk space
+echo "==> Pruning Docker images and build cache (older than 72h)"
+$SSH_CMD "$SSH_TARGET" "docker image prune -af --filter 'until=72h' && docker builder prune -af --filter 'until=72h'" || true
+
+# Step 3: Build new images
 # Web uses COMMIT_SHA build arg to bust cache for source changes while keeping npm ci cached
 echo "==> Building Docker images"
 COMMIT_SHA=$($SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && git rev-parse --short HEAD")
 $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml build --parallel --build-arg COMMIT_SHA=$COMMIT_SHA"
 
-# Step 3: Run migrations (one-shot container)
+# Step 4: Run migrations (one-shot container)
 echo "==> Running database migrations"
 $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up migrate --exit-code-from migrate"
 
-# Step 4: Rolling restart - user-facing services first, background workers last
+# Step 5: Rolling restart - user-facing services first, background workers last
 # Rolling restart order: web, api, indexer
 echo "==> Stopping proxy, web, api, and indexer"
 $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml stop proxy web api indexer && docker compose -f docker-compose.prod.yml rm -f proxy web api indexer"
@@ -73,7 +77,7 @@ $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod
 echo "==> Waiting for services to stabilize (30s)"
 sleep 30
 
-# Step 5: Run health checks
+# Step 6: Run health checks
 echo "==> Running health checks"
 $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && bash scripts/healthcheck.sh"
 
