@@ -46,6 +46,7 @@ interface ActiveJobsResponse {
   jobs: Array<{ status: string; pipeline_stage: string; pipeline_pct: number }>;
   pipeline_stage: string;
   pipeline_pct: number;
+  estimated_minutes: number | null;
 }
 
 export function SyncStatus({ walletId, compact = false, onComplete }: SyncStatusProps) {
@@ -66,10 +67,17 @@ export function SyncStatus({ walletId, compact = false, onComplete }: SyncStatus
         // Global: use /api/jobs/active for overall pipeline stage
         const data = await apiClient.get<ActiveJobsResponse>('/api/jobs/active');
         if (data.jobs && data.jobs.length > 0) {
+          const est = data.estimated_minutes;
+          const timeStr = est !== null && est !== undefined
+            ? est <= 1 ? '~1 min remaining'
+              : est <= 60 ? `~${est} min remaining`
+              : `~${Math.round(est / 60)}h remaining`
+            : '';
+          const jobCount = `${data.jobs.length} job${data.jobs.length === 1 ? '' : 's'} active`;
           setStatus({
             stage: data.pipeline_stage || 'indexing',
             pct: data.pipeline_pct || 0,
-            detail: `${data.jobs.length} job${data.jobs.length === 1 ? '' : 's'} active`,
+            detail: timeStr ? `${jobCount} — ${timeStr}` : jobCount,
           });
         } else {
           setStatus({ stage: 'done', pct: 100, detail: '' });

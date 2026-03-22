@@ -25,3 +25,4 @@ class ActiveJobsResponse(BaseModel):
     jobs: List[JobStatusResponse]
     pipeline_stage: str    # Indexing | Classifying | Cost Basis | Verifying | Done | Idle
     pipeline_pct: int      # 0-100
+    estimated_minutes: Optional[int] = None  # Estimated time remaining, None if unknown

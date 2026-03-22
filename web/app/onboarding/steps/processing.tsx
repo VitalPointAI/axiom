@@ -14,6 +14,7 @@ interface ActiveJobsResponse {
   jobs: Array<{ status: string; pipeline_stage: string; pipeline_pct: number }>;
   pipeline_stage: string;
   pipeline_pct: number;
+  estimated_minutes: number | null;
 }
 
 interface WalletSuggestion {
@@ -33,6 +34,7 @@ export function ProcessingStep({ onNext, onSkip }: ProcessingStepProps) {
   const [addingWallet, setAddingWallet] = useState<string | null>(null);
   const [hasHadJobs, setHasHadJobs] = useState(false);
   const [isDone, setIsDone] = useState(false);
+  const [estimatedMinutes, setEstimatedMinutes] = useState<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoAdvancedRef = useRef(false);
 
@@ -45,6 +47,7 @@ export function ProcessingStep({ onNext, onSkip }: ProcessingStepProps) {
 
         if (jobs.length > 0) {
           setHasHadJobs(true);
+          setEstimatedMinutes(data.estimated_minutes);
 
           // Check if any jobs are at classifying stage or beyond — fetch suggestions
           const stage = (data.pipeline_stage || '').toLowerCase();
@@ -154,7 +157,17 @@ export function ProcessingStep({ onNext, onSkip }: ProcessingStepProps) {
             <h2 className="text-xl font-bold text-white">We&apos;re crunching your data...</h2>
             <p className="text-gray-400 text-sm">
               Axiom is indexing your transactions, classifying them, calculating cost basis, and
-              verifying balances. This may take a few minutes.
+              verifying balances.
+              {estimatedMinutes !== null && estimatedMinutes <= 5
+                ? ' This should take about ' + estimatedMinutes + (estimatedMinutes === 1 ? ' minute.' : ' minutes.')
+                : estimatedMinutes !== null && estimatedMinutes <= 30
+                  ? ' Estimated time: about ' + estimatedMinutes + ' minutes.'
+                  : estimatedMinutes !== null
+                    ? ' Estimated time: about ' + Math.round(estimatedMinutes / 60) + (Math.round(estimatedMinutes / 60) === 1 ? ' hour.' : ' hours.')
+                    : ' This may take a few minutes.'}
+            </p>
+            <p className="text-gray-500 text-xs mt-1">
+              Indexing continues in the background — you can close this page and come back later.
             </p>
           </>
         )}
@@ -229,7 +242,7 @@ export function ProcessingStep({ onNext, onSkip }: ProcessingStepProps) {
           onClick={onSkip}
           className="w-full text-sm text-gray-400 hover:text-gray-300 transition-colors py-2 flex items-center justify-center gap-1"
         >
-          Skip to dashboard
+          Go to dashboard — indexing will continue in the background
           <ChevronRight className="w-3 h-3" />
         </button>
       </div>

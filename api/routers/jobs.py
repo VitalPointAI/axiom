@@ -56,6 +56,56 @@ _STAGE_PRIORITY = {
 }
 
 
+def _estimate_minutes(jobs: list) -> int | None:
+    """Estimate remaining minutes based on job count and types.
+
+    Heuristics (based on observed performance):
+    - NEAR incremental via neardata.xyz: ~12 min per wallet (10K block scan)
+    - EVM sync via Etherscan: ~2 min per wallet
+    - Classification/ACB/Verify: ~1 min total
+    - Queued jobs run sequentially
+
+    Returns estimated minutes remaining, or None if no jobs.
+    """
+    if not jobs:
+        return None
+
+    total_minutes = 0
+    for job in jobs:
+        jtype = job[2]
+        job_status = job[3]
+        fetched = job[4] or 0
+        total = job[5] or 0
+
+        if job_status == "completed":
+            continue
+
+        if jtype in ("full_sync", "incremental_sync", "staking_sync", "lockup_sync"):
+            if total > 0 and fetched > 0:
+                # Estimate from actual progress rate
+                remaining_blocks = total - fetched
+                # ~15 blocks/sec observed rate
+                total_minutes += max(1, remaining_blocks // 900)
+            else:
+                total_minutes += 12  # Default per NEAR wallet
+        elif jtype in ("evm_full_sync", "evm_incremental"):
+            total_minutes += 2
+        elif jtype in ("xrp_full_sync", "xrp_incremental"):
+            total_minutes += 3
+        elif jtype in ("akash_full_sync", "akash_incremental"):
+            total_minutes += 3
+        elif jtype in ("dedup_scan", "classify_transactions"):
+            total_minutes += 1
+        elif jtype == "calculate_acb":
+            total_minutes += 1
+        elif jtype in ("verify_balances", "generate_reports"):
+            total_minutes += 1
+        else:
+            total_minutes += 2
+
+    return max(1, total_minutes) if total_minutes > 0 else None
+
+
 def _pipeline_from_jobs(jobs: list) -> tuple:
     """Derive pipeline stage and percentage from a list of active job rows.
 
@@ -216,6 +266,7 @@ async def get_active_jobs(
         pool.putconn(conn)
 
     stage, pct = _pipeline_from_jobs(rows)
+    est_minutes = _estimate_minutes(rows)
 
     jobs = [_active_row_to_job_status(row) for row in rows]
 
@@ -223,6 +274,7 @@ async def get_active_jobs(
         jobs=jobs,
         pipeline_stage=stage,
         pipeline_pct=pct,
+        estimated_minutes=est_minutes,
     )
 
 
