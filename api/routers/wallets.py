@@ -341,7 +341,7 @@ async def list_wallets(
             )
         )
 
-    return output
+    return {"wallets": output}
 
 
 # ---------------------------------------------------------------------------
