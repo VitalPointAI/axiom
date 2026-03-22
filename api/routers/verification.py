@@ -93,7 +93,7 @@ async def get_verification_summary(
                 FROM verification_results vr
                 JOIN wallets w ON w.id = vr.wallet_id
                 WHERE w.user_id = %s
-                  AND vr.needs_review = TRUE
+                  AND vr.status = 'open'
                 GROUP BY vr.diagnosis_category
                 ORDER BY cnt DESC
                 """,
@@ -190,14 +190,14 @@ async def get_verification_issues(
                         vr.wallet_id,
                         w.account_id,
                         vr.token_symbol,
-                        vr.verification_type,
+                        vr.chain AS verification_type,
                         vr.status,
-                        vr.expected_balance::text,
+                        COALESCE(vr.expected_balance_replay, vr.expected_balance_acb)::text AS expected_balance,
                         vr.actual_balance::text,
-                        vr.discrepancy::text,
+                        vr.difference::text AS discrepancy,
                         vr.diagnosis_category,
                         vr.diagnosis_detail,
-                        vr.needs_review,
+                        (vr.status = 'open') AS needs_review,
                         vr.created_at::text
                     FROM verification_results vr
                     JOIN wallets w ON w.id = vr.wallet_id
@@ -215,14 +215,14 @@ async def get_verification_issues(
                         vr.wallet_id,
                         w.account_id,
                         vr.token_symbol,
-                        vr.verification_type,
+                        vr.chain AS verification_type,
                         vr.status,
-                        vr.expected_balance::text,
+                        COALESCE(vr.expected_balance_replay, vr.expected_balance_acb)::text AS expected_balance,
                         vr.actual_balance::text,
-                        vr.discrepancy::text,
+                        vr.difference::text AS discrepancy,
                         vr.diagnosis_category,
                         vr.diagnosis_detail,
-                        vr.needs_review,
+                        (vr.status = 'open') AS needs_review,
                         vr.created_at::text
                     FROM verification_results vr
                     JOIN wallets w ON w.id = vr.wallet_id
@@ -469,7 +469,7 @@ async def get_needs_review_count(
                 """
                 SELECT COUNT(*) FROM verification_results vr
                 JOIN wallets w ON w.id = vr.wallet_id
-                WHERE w.user_id = %s AND vr.needs_review = TRUE
+                WHERE w.user_id = %s AND vr.status = 'open'
                 """,
                 (user_id,),
             )

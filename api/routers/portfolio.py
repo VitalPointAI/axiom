@@ -72,12 +72,12 @@ async def get_portfolio_summary(
                 """
                 SELECT
                     se.validator_id,
-                    se.staked_amount,
-                    se.token_symbol
+                    se.amount,
+                    'NEAR' AS token_symbol
                 FROM staking_events se
                 JOIN wallets w ON w.id = se.wallet_id
                 WHERE w.user_id = %s
-                  AND se.event_type = 'stake'
+                  AND se.event_type = 'deposit'
                   AND (se.validator_id, se.created_at) IN (
                       SELECT validator_id, MAX(created_at)
                       FROM staking_events se2
