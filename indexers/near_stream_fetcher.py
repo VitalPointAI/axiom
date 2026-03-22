@@ -406,8 +406,8 @@ class NearStreamFetcher(ChainFetcher):
                             fetcher_db._batch_insert(rows)
                             found_count += len(rows)
 
-                # Update progress every 100 blocks
-                if scanned % 100 == 0:
+                # Update progress every 25 blocks (~2s) to prevent stale job recovery
+                if scanned % 25 == 0:
                     fetcher_db._update_job_progress(
                         job_id, str(height), scanned,
                     )

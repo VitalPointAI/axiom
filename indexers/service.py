@@ -148,7 +148,7 @@ class IndexerService:
     def _recover_stale_jobs(self) -> int:
         """Reset jobs stuck in 'running' state (orphaned by container restart).
 
-        Any job that has been 'running' for more than 5 minutes without an
+        Any job that has been 'running' for more than 15 minutes without an
         updated_at change is presumed orphaned and reset to 'queued' so the
         indexer can reclaim it. Runs at startup and periodically in the main
         loop.
@@ -165,7 +165,7 @@ class IndexerService:
                     started_at = NULL,
                     updated_at = NOW()
                 WHERE status = 'running'
-                  AND updated_at < NOW() - INTERVAL '5 minutes'
+                  AND updated_at < NOW() - INTERVAL '15 minutes'
                 RETURNING id, job_type
                 """,
             )
