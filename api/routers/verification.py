@@ -105,8 +105,7 @@ async def get_verification_summary(
             cur.execute(
                 """
                 SELECT COUNT(*) FROM transaction_classifications tc
-                JOIN wallets w ON w.id = tc.wallet_id
-                WHERE w.user_id = %s AND tc.needs_review = TRUE
+                WHERE tc.user_id = %s AND tc.needs_review = TRUE
                 """,
                 (user_id,),
             )
@@ -479,8 +478,7 @@ async def get_needs_review_count(
             cur.execute(
                 """
                 SELECT COUNT(*) FROM transaction_classifications tc
-                JOIN wallets w ON w.id = tc.wallet_id
-                WHERE w.user_id = %s AND tc.needs_review = TRUE
+                WHERE tc.user_id = %s AND tc.needs_review = TRUE
                 """,
                 (user_id,),
             )
