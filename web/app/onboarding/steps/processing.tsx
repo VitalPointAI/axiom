@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Loader2, ChevronRight, Plus, X } from 'lucide-react';
+import { Loader2, ChevronRight, Plus, X, Bell, Check } from 'lucide-react';
 import { apiClient, ApiError } from '@/lib/api';
 import { SyncStatus } from '@/components/sync-status';
 
@@ -35,6 +35,8 @@ export function ProcessingStep({ onNext, onSkip }: ProcessingStepProps) {
   const [hasHadJobs, setHasHadJobs] = useState(false);
   const [isDone, setIsDone] = useState(false);
   const [estimatedMinutes, setEstimatedMinutes] = useState<number | null>(null);
+  const [notifyRequested, setNotifyRequested] = useState(false);
+  const [notifyLoading, setNotifyLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoAdvancedRef = useRef(false);
 
@@ -130,6 +132,17 @@ export function ProcessingStep({ onNext, onSkip }: ProcessingStepProps) {
     setDismissedSuggestions((prev) => new Set([...prev, address]));
   };
 
+  const handleNotifyMe = async () => {
+    setNotifyLoading(true);
+    try {
+      await apiClient.post('/api/jobs/notify-when-done', {});
+      setNotifyRequested(true);
+    } catch {
+      // Silently fail — button stays available to retry
+    }
+    setNotifyLoading(false);
+  };
+
   const visibleSuggestions = suggestions.filter(
     (s) => !dismissedSuggestions.has(s.address)
   );
@@ -177,6 +190,31 @@ export function ProcessingStep({ onNext, onSkip }: ProcessingStepProps) {
       {!isDone && (
         <div className="bg-gray-900 rounded-lg p-4">
           <SyncStatus />
+        </div>
+      )}
+
+      {/* Notify me button — show when estimate is > 5 min */}
+      {!isDone && estimatedMinutes !== null && estimatedMinutes > 5 && (
+        <div className="flex justify-center">
+          {notifyRequested ? (
+            <div className="flex items-center gap-2 text-green-400 text-sm py-2">
+              <Check className="w-4 h-4" />
+              <span>We&apos;ll email you when it&apos;s done</span>
+            </div>
+          ) : (
+            <button
+              onClick={handleNotifyMe}
+              disabled={notifyLoading}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-200 text-sm rounded-lg transition-colors"
+            >
+              {notifyLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Bell className="w-4 h-4" />
+              )}
+              Notify me when done
+            </button>
+          )}
         </div>
       )}
 

@@ -1,8 +1,9 @@
 """Job status endpoints with pipeline stage progress.
 
 Endpoints:
-  GET /api/jobs/active          — all running/queued jobs for user with pipeline stage
-  GET /api/jobs/{id}/status     — single job status with progress
+  GET  /api/jobs/active           — all running/queued jobs for user with pipeline stage
+  POST /api/jobs/notify-when-done — opt in to email notification when indexing completes
+  GET  /api/jobs/{id}/status      — single job status with progress
 
 NOTE: /api/jobs/active MUST be registered before /api/jobs/{id}/status to
 prevent FastAPI from treating "active" as an integer path parameter.
@@ -14,13 +15,23 @@ Pipeline stage mapping (from RESEARCH.md):
   verify_balances running  => "Verifying"   85-100%
 """
 
+import logging
 import math
+import os
+
+import boto3
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 
 from api.dependencies import get_effective_user, get_pool_dep
 from api.schemas.jobs import ActiveJobsResponse, JobStatusResponse
+
+logger = logging.getLogger(__name__)
+
+SES_FROM_EMAIL = os.environ.get("SES_FROM_EMAIL", "noreply@axiom.tax")
+SES_REGION = os.environ.get("SES_REGION", "us-east-1")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3003")
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -268,6 +279,10 @@ async def get_active_jobs(
     stage, pct = _pipeline_from_jobs(rows)
     est_minutes = _estimate_minutes(rows)
 
+    # If pipeline just finished, check if user wants a completion email
+    if not rows:
+        _check_and_send_completion_email(pool, user_id)
+
     jobs = [_active_row_to_job_status(row) for row in rows]
 
     return ActiveJobsResponse(
@@ -276,6 +291,116 @@ async def get_active_jobs(
         pipeline_pct=pct,
         estimated_minutes=est_minutes,
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/jobs/notify-when-done — Opt in to email on completion
+# ---------------------------------------------------------------------------
+
+
+@router.post("/notify-when-done")
+async def notify_when_done(
+    user: dict = Depends(get_effective_user),
+    pool=Depends(get_pool_dep),
+):
+    """Set notify_on_complete flag so user gets emailed when indexing finishes."""
+    user_id = user["user_id"]
+
+    def _update(conn):
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "UPDATE users SET notify_on_complete = TRUE WHERE id = %s",
+                (user_id,),
+            )
+            conn.commit()
+        finally:
+            cur.close()
+
+    conn = pool.getconn()
+    try:
+        await run_in_threadpool(_update, conn)
+    finally:
+        pool.putconn(conn)
+
+    return {"ok": True, "message": "You'll receive an email when indexing completes."}
+
+
+def _check_and_send_completion_email(pool, user_id: int) -> None:
+    """Check if user opted in for notification and send email if indexing is done.
+
+    Called from the /active endpoint when no active jobs remain.
+    Clears the flag after sending to avoid duplicate emails.
+    """
+    conn = pool.getconn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT email, notify_on_complete FROM users WHERE id = %s",
+            (user_id,),
+        )
+        row = cur.fetchone()
+        cur.close()
+
+        if not row or not row[1] or not row[0]:
+            return
+
+        email = row[0]
+
+        # Clear the flag first to prevent duplicates
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE users SET notify_on_complete = FALSE WHERE id = %s",
+            (user_id,),
+        )
+        conn.commit()
+        cur.close()
+
+        # Send the email
+        try:
+            dashboard_url = f"{FRONTEND_URL}/dashboard"
+            ses_client = boto3.client("ses", region_name=SES_REGION)
+            ses_client.send_email(
+                Source=SES_FROM_EMAIL,
+                Destination={"ToAddresses": [email]},
+                Message={
+                    "Subject": {"Data": "Axiom — Your data is ready"},
+                    "Body": {
+                        "Text": {
+                            "Data": (
+                                "Your transactions have been indexed, classified, "
+                                "and verified. Your dashboard is ready.\n\n"
+                                f"View your dashboard: {dashboard_url}"
+                            ),
+                        },
+                        "Html": {
+                            "Data": (
+                                '<div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; '
+                                'max-width: 480px; margin: 0 auto; padding: 32px 20px;">'
+                                '<h2 style="color: #f3f4f6; margin: 0 0 16px;">Your data is ready</h2>'
+                                '<p style="color: #9ca3af; line-height: 1.6; margin: 0 0 24px;">'
+                                "Axiom has finished indexing your transactions, classifying them, "
+                                "calculating cost basis, and verifying balances.</p>"
+                                f'<a href="{dashboard_url}" style="display: inline-block; '
+                                "background: #2563eb; color: #fff; padding: 12px 24px; "
+                                'border-radius: 8px; text-decoration: none; font-weight: 600;">'
+                                "View Dashboard</a>"
+                                '<p style="color: #6b7280; font-size: 12px; margin-top: 32px;">'
+                                "You received this because you opted in to indexing notifications.</p>"
+                                "</div>"
+                            ),
+                        },
+                    },
+                },
+            )
+            logger.info("Sent completion email to user_id=%s", user_id)
+        except Exception:
+            logger.warning("Failed to send completion email to user_id=%s", user_id, exc_info=True)
+    except Exception:
+        conn.rollback()
+        logger.warning("Error checking completion notification for user_id=%s", user_id, exc_info=True)
+    finally:
+        pool.putconn(conn)
 
 
 # ---------------------------------------------------------------------------
