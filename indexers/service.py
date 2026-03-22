@@ -27,6 +27,7 @@ sys.path.insert(0, PROJECT_ROOT)
 from config import JOB_POLL_INTERVAL, SYNC_INTERVAL_MINUTES, OFFLINE_MODE, NETWORK_JOB_TYPES, NEARBLOCKS_BASE_URL
 from indexers.db import get_pool, close_pool
 from indexers.near_fetcher import NearFetcher
+from indexers.near_stream_fetcher import NearStreamFetcher
 from indexers.staking_fetcher import StakingFetcher, _YieldException
 from indexers.lockup_fetcher import LockupFetcher
 from indexers.price_service import PriceService
@@ -69,7 +70,7 @@ class IndexerService:
         self.handlers = {
             # job_type -> handler mapping
             "full_sync": NearFetcher(self.pool),           # Full transaction history
-            "incremental_sync": NearFetcher(self.pool),    # Incremental tx update
+            "incremental_sync": NearStreamFetcher(self.pool),  # Incremental via neardata.xyz (free)
             "staking_sync": StakingFetcher(self.pool, self.price_service),
             "lockup_sync": LockupFetcher(self.pool, self.price_service),
             "evm_full_sync": EVMFetcher(self.pool),        # EVM full transaction history
