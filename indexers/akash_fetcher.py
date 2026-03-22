@@ -62,7 +62,7 @@ MSG_SEND_TYPES = {
 
 
 class AkashFetcher(ChainFetcher):
-    """Akash Network (Cosmos SDK) chain fetcher stub.
+    """Akash Network (Cosmos SDK) chain fetcher.
 
     Implements ChainFetcher ABC for the Axiom indexer service.
     Handles akash_full_sync and akash_incremental job types.
@@ -75,11 +75,11 @@ class AkashFetcher(ChainFetcher):
     chain_name = "akash"
     supported_job_types = ["akash_full_sync", "akash_incremental"]
 
-    def __init__(self, pool):
+    def __init__(self, pool, cost_tracker=None):
         super().__init__(pool)
         self._endpoint_index = 0
         self._last_request_time = 0
-        logger.warning("AkashFetcher is a STUB implementation — untested against live Akash LCD API")
+        self.cost_tracker = cost_tracker
 
     # ------------------------------------------------------------------
     # ChainFetcher ABC methods
@@ -317,8 +317,15 @@ class AkashFetcher(ChainFetcher):
         endpoint = AKASH_LCD_ENDPOINTS[self._endpoint_index]
         url = f"{endpoint}{path}"
 
+        # Extract call_type from path for cost tracking (use last non-empty segment)
+        path_segment = path.strip("/").split("/")[-1] if path else "unknown"
+
         try:
-            response = requests.get(url, params=params, timeout=30)
+            if self.cost_tracker:
+                with self.cost_tracker.track("akash", "cosmos_lcd", path_segment):
+                    response = requests.get(url, params=params, timeout=30)
+            else:
+                response = requests.get(url, params=params, timeout=30)
             response.raise_for_status()
             return response.json()
 

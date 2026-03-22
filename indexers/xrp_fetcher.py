@@ -25,6 +25,7 @@ import logging
 import time
 from decimal import Decimal
 from typing import Optional
+from urllib.parse import urlparse
 
 import requests
 
@@ -54,7 +55,7 @@ XRP_DECIMALS = 6  # 1 XRP = 1,000,000 drops
 
 
 class XRPFetcher(ChainFetcher):
-    """XRP Ledger chain fetcher stub.
+    """XRP Ledger chain fetcher.
 
     Implements ChainFetcher ABC for the Axiom indexer service.
     Handles xrp_full_sync and xrp_incremental job types.
@@ -67,11 +68,11 @@ class XRPFetcher(ChainFetcher):
     chain_name = "xrp"
     supported_job_types = ["xrp_full_sync", "xrp_incremental"]
 
-    def __init__(self, pool):
+    def __init__(self, pool, cost_tracker=None):
         super().__init__(pool)
         self._endpoint_index = 0
         self._last_request_time = 0
-        logger.warning("XRPFetcher is a STUB implementation — untested against live XRPL API")
+        self.cost_tracker = cost_tracker
 
     # ------------------------------------------------------------------
     # ChainFetcher ABC methods
@@ -282,13 +283,25 @@ class XRPFetcher(ChainFetcher):
         endpoint = XRPL_ENDPOINTS[self._endpoint_index]
         payload = {"method": method, "params": [params]}
 
+        # Extract hostname for cost tracking
+        endpoint_host = urlparse(endpoint).netloc or endpoint
+
         try:
-            response = requests.post(
-                endpoint,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=30,
-            )
+            if self.cost_tracker:
+                with self.cost_tracker.track("xrp", endpoint_host, method):
+                    response = requests.post(
+                        endpoint,
+                        json=payload,
+                        headers={"Content-Type": "application/json"},
+                        timeout=30,
+                    )
+            else:
+                response = requests.post(
+                    endpoint,
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                    timeout=30,
+                )
             response.raise_for_status()
             data = response.json()
 
