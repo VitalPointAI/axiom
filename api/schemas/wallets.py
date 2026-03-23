@@ -62,6 +62,12 @@ class WalletResponse(BaseModel):
         from_attributes = True
 
 
+class WalletsListResponse(BaseModel):
+    """Wrapped list of wallets."""
+
+    wallets: List[WalletResponse]
+
+
 class SyncStatusResponse(BaseModel):
     """Pipeline stage progress for a wallet."""
 

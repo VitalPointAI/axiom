@@ -265,7 +265,7 @@ async def create_wallet(
 # ---------------------------------------------------------------------------
 
 
-@router.get("", response_model=List[WalletResponse])
+@router.get("")
 async def list_wallets(
     user: dict = Depends(get_effective_user),
     pool=Depends(get_pool_dep),
