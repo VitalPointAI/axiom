@@ -229,7 +229,12 @@ def test_active_jobs(mock_pool, mock_conn, mock_cursor, mock_user):
             None,
         ),
     ]
-    mock_cursor.fetchall.return_value = job_rows
+    # First fetchall returns active jobs (9 cols), second returns batch jobs (4 cols)
+    batch_rows = [
+        ("full_sync", "running", 500, 1000),
+        ("classify_transactions", "queued", 0, 0),
+    ]
+    mock_cursor.fetchall.side_effect = [job_rows, batch_rows]
 
     for client in make_client(mock_pool, mock_user):
         resp = client.get("/api/jobs/active")
@@ -238,6 +243,8 @@ def test_active_jobs(mock_pool, mock_conn, mock_cursor, mock_user):
         assert "jobs" in body
         assert "pipeline_stage" in body
         assert "pipeline_pct" in body
+        # Reset side_effect for next iteration
+        mock_cursor.fetchall.side_effect = [job_rows, batch_rows]
         assert len(body["jobs"]) == 2
         # full_sync running => "Indexing" stage
         assert body["pipeline_stage"] == "Indexing"
@@ -272,9 +279,11 @@ def test_job_user_isolation(mock_pool, mock_conn, mock_cursor, mock_user):
 
 def test_active_jobs_empty(mock_pool, mock_conn, mock_cursor, mock_user):
     """GET /api/jobs/active returns empty jobs list when no active jobs."""
-    mock_cursor.fetchall.return_value = []
+    # First fetchall: active jobs (empty), second: batch jobs (empty)
+    mock_cursor.fetchall.side_effect = [[], []]
 
     for client in make_client(mock_pool, mock_user):
+        mock_cursor.fetchall.side_effect = [[], []]
         resp = client.get("/api/jobs/active")
         assert resp.status_code == 200, resp.json()
         body = resp.json()
