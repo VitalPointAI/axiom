@@ -302,7 +302,7 @@ class NearStreamFetcher(ChainFetcher):
             tip = start_height + 1  # fallback
 
         gap = tip - start_height
-        MAX_SCAN_BLOCKS = 10_000  # ~1.7 hours of NEAR blocks
+        MAX_SCAN_BLOCKS = 1_000  # ~10 min of NEAR blocks, ~1 min to scan
 
         if gap > MAX_SCAN_BLOCKS:
             # Gap too large for block scanning — skip to recent window
