@@ -146,20 +146,36 @@ export function SyncStatus({ walletId, compact = false, onComplete }: SyncStatus
   }
 
   if (!status) {
-    // Global mode with no active jobs — show nothing
+    // Global mode with no active jobs — show up-to-date
+    if (walletId === undefined) {
+      return (
+        <div className="flex items-center gap-2 text-green-400 text-sm">
+          <CheckCircle className="w-4 h-4" />
+          <span className="text-xs">Up to date</span>
+        </div>
+      );
+    }
     return null;
   }
 
   const normalizedStage = normalizeStage(status.stage);
   const isDone = normalizedStage === 'done' || status.pct >= 100;
 
-  // Global mode (no walletId) — always compact badge in header
+  // Global mode (no walletId) — compact badge in header
   if (walletId === undefined) {
-    if (isDone) return null;
+    if (isDone) {
+      return (
+        <div className="flex items-center gap-2 text-green-400 text-sm">
+          <CheckCircle className="w-4 h-4" />
+          <span className="text-xs">Up to date</span>
+        </div>
+      );
+    }
     return (
       <div className="flex items-center gap-2 text-blue-400 text-sm">
         <RefreshCw className="w-4 h-4 animate-spin" />
         <span className="text-xs">{status.stage} {status.pct}%</span>
+        {status.detail && <span className="text-xs text-gray-500 hidden sm:inline">— {status.detail}</span>}
       </div>
     );
   }
