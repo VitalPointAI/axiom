@@ -117,6 +117,66 @@ def _estimate_minutes(jobs: list) -> int | None:
     return max(1, total_minutes) if total_minutes > 0 else None
 
 
+def _cumulative_pipeline_pct(all_batch: list) -> int:
+    """Calculate cumulative pipeline progress from ALL batch jobs.
+
+    Groups jobs by pipeline stage, counts completed vs total in each stage,
+    and maps to 0-99% range. Because completed jobs are always counted,
+    progress can only go up — never drops when a new job starts.
+
+    all_batch: list of (job_type, status, progress_fetched, progress_total)
+    Returns: int 0-99
+    """
+    if not all_batch:
+        return 0
+
+    # Group jobs by stage: {stage_name: {done: N, total: N, active_progress: float}}
+    stages = {}
+    for jtype, jstatus, fetched, total in all_batch:
+        stage_info = _STAGE_MAP.get(jtype)
+        if not stage_info:
+            continue
+        stage_name = stage_info[0]
+        if stage_name not in stages:
+            stages[stage_name] = {"done": 0, "total": 0, "active_progress": 0.0, "active_count": 0}
+        s = stages[stage_name]
+        s["total"] += 1
+        if jstatus == "completed":
+            s["done"] += 1
+        elif jstatus in ("running", "retrying", "queued"):
+            if jstatus == "running" and total > 0 and fetched > 0:
+                s["active_progress"] += fetched / total
+                s["active_count"] += 1
+        elif jstatus == "failed":
+            s["done"] += 1  # Count failed as "processed" for progress purposes
+
+    # Calculate weighted progress across pipeline stages
+    # Each stage has a range (e.g., Indexing 0-45%, Classifying 45-65%)
+    # Within each stage, progress = (completed + active_partial) / total
+    pct = 0.0
+    for stage_name, pct_min, pct_max in [
+        ("Indexing", 0, 45), ("Importing", 0, 45),
+        ("Classifying", 45, 65),
+        ("Cost Basis", 65, 85),
+        ("Verifying", 85, 100),
+    ]:
+        if stage_name not in stages:
+            continue
+        s = stages[stage_name]
+        if s["total"] == 0:
+            continue
+
+        pct_range = pct_max - pct_min
+        # Completed jobs contribute their full share; active contribute partial
+        completed_share = s["done"] / s["total"]
+        active_share = s["active_progress"] / s["total"] if s["active_count"] > 0 else 0.0
+
+        stage_pct = pct_min + (completed_share + active_share) * pct_range
+        pct = max(pct, stage_pct)  # Take the highest stage reached
+
+    return min(int(pct), 99)
+
+
 def _pipeline_from_jobs(jobs: list) -> tuple:
     """Derive pipeline stage and percentage from a list of active job rows.
 
@@ -269,45 +329,38 @@ async def get_active_jobs(
             )
             active = cur.fetchall()
 
-            # Count sibling jobs in the same batch (created in last 24h)
-            # to compute overall progress including completed ones
+            # Get ALL batch jobs (last 24h) grouped by pipeline stage
+            # so we can calculate true cumulative progress
             cur.execute(
                 """
                 SELECT
-                    COUNT(*) FILTER (WHERE status = 'completed') AS done,
-                    COUNT(*) AS total
+                    job_type,
+                    status,
+                    COALESCE(progress_fetched, 0),
+                    COALESCE(progress_total, 0)
                 FROM indexing_jobs
                 WHERE user_id = %s
                   AND created_at > NOW() - INTERVAL '24 hours'
                 """,
                 (user_id,),
             )
-            batch_row = cur.fetchone()
-            return active, batch_row
+            all_batch = cur.fetchall()
+            return active, all_batch
         finally:
             cur.close()
 
     conn = pool.getconn()
     try:
-        rows, batch_row = await run_in_threadpool(_query, conn)
+        rows, all_batch = await run_in_threadpool(_query, conn)
     finally:
         pool.putconn(conn)
 
-    stage, pct = _pipeline_from_jobs(rows)
+    stage, _ = _pipeline_from_jobs(rows)
     est_minutes = _estimate_minutes(rows)
 
-    # Blend in completed job progress so the bar doesn't reset
-    batch_done = batch_row[0] if batch_row else 0
-    batch_total = batch_row[1] if batch_row else 0
-    if batch_total > 0 and rows:
-        # completed fraction of the overall batch
-        completed_frac = batch_done / batch_total
-        # Scale: completed jobs fill their share, active jobs fill theirs
-        # e.g., 5/10 done = 50% base, plus active job's progress within remaining 50%
-        active_frac = (1 - completed_frac)
-        # pct is 0-100 within the active stage; scale it into the remaining fraction
-        blended = int(completed_frac * 100 + active_frac * pct)
-        pct = min(blended, 99)  # Cap at 99 until truly done
+    # Calculate cumulative progress from ALL batch jobs (completed + active)
+    # This ensures progress never drops when jobs finish and new ones start
+    pct = _cumulative_pipeline_pct(all_batch)
 
     # If pipeline just finished, check if user wants a completion email
     if not rows:
