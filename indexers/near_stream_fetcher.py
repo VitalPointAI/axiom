@@ -235,14 +235,12 @@ class NearStreamFetcher(ChainFetcher):
     # ------------------------------------------------------------------
 
     def sync_wallet(self, job):
-        """Incremental sync via neardata.xyz block scanning.
+        """Incremental sync via neardata.xyz — scans blocks for ALL NEAR wallets at once.
 
-        For incremental_sync jobs, scans recent blocks from neardata.xyz
-        (free, no rate limits) instead of NearBlocks. Cursor stores the
-        last synced block height. Falls back to NearFetcher for full_sync.
-
-        For full_sync, delegates to NearFetcher (NearBlocks wallet-centric
-        API is faster for historical backfill).
+        A single block scan checks all tracked NEAR wallets simultaneously,
+        so one job handles the entire user's NEAR portfolio. For full_sync,
+        delegates to NearFetcher (NearBlocks wallet-centric API is better
+        for historical backfill).
         """
         from indexers.near_fetcher import NearFetcher, parse_transaction
 
@@ -254,39 +252,36 @@ class NearStreamFetcher(ChainFetcher):
             delegate.sync_wallet(job)
             return
 
-        # Incremental sync: scan blocks via neardata.xyz
-        wallet_id = job["wallet_id"]
         job_id = job["id"]
         user_id = job.get("user_id")
 
-        account_id = job.get("account_id")
-        if not account_id:
-            account_id = self._get_account_id(wallet_id)
-        if not account_id:
-            raise ValueError(f"Wallet {wallet_id} not found")
+        # Load ALL NEAR wallets for this user
+        wallet_map = self._get_all_near_wallets(user_id)
+        if not wallet_map:
+            logger.info("No NEAR wallets for user_id=%s", user_id)
+            return
 
+        tracked_wallets = set(wallet_map.keys())
         logger.info(
-            "Incremental sync via neardata.xyz for %s (wallet_id=%s)",
-            account_id, wallet_id,
+            "Incremental sync via neardata.xyz for %d wallets: %s",
+            len(tracked_wallets), ", ".join(sorted(tracked_wallets)),
         )
 
-        # Determine start block from cursor or DB
+        # Determine start block from job cursor or highest block across all wallets
         cursor = job.get("cursor")
         start_height = None
-        if cursor and cursor.isdigit():
+        if cursor and str(cursor).isdigit():
             start_height = int(cursor)
-        else:
-            start_height = self._get_last_block_height(wallet_id)
-
         if not start_height:
-            # No cursor and no existing transactions — delegate to full sync
-            logger.info("No start height for %s, delegating to NearFetcher", account_id)
+            start_height = self._get_highest_block_all_wallets(user_id)
+        if not start_height:
+            # No existing transactions — delegate to full sync per wallet
+            logger.info("No start height, delegating to NearFetcher")
             delegate = NearFetcher(self.pool)
             delegate.sync_wallet(job)
             return
 
-        # Check gap size — if too large, skip to recent blocks
-        # Block scanning is only practical for small gaps (<10K blocks)
+        # Get chain tip and cap scan window
         loop = asyncio.new_event_loop()
         try:
             import aiohttp
@@ -299,23 +294,22 @@ class NearStreamFetcher(ChainFetcher):
         except Exception:
             loop.close()
             loop = asyncio.new_event_loop()
-            tip = start_height + 1  # fallback
+            tip = start_height + 1
 
         gap = tip - start_height
-        MAX_SCAN_BLOCKS = 1_000  # ~10 min of NEAR blocks, ~1 min to scan
+        MAX_SCAN_BLOCKS = 2_000  # ~20 min of NEAR blocks, ~2 min to scan
 
         if gap > MAX_SCAN_BLOCKS:
-            # Gap too large for block scanning — skip to recent window
             logger.info(
-                "Gap too large for %s (%d blocks), skipping to last %d blocks",
-                account_id, gap, MAX_SCAN_BLOCKS,
+                "Gap too large (%d blocks), skipping to last %d blocks",
+                gap, MAX_SCAN_BLOCKS,
             )
             start_height = tip - MAX_SCAN_BLOCKS
 
         try:
             found_count = loop.run_until_complete(
-                self._incremental_scan(
-                    account_id, wallet_id, user_id, job_id,
+                self._incremental_scan_all(
+                    wallet_map, user_id, job_id,
                     start_height, parse_transaction,
                 )
             )
@@ -323,23 +317,24 @@ class NearStreamFetcher(ChainFetcher):
             loop.close()
 
         logger.info(
-            "Incremental scan complete for %s: %d new txs found",
-            account_id, found_count,
+            "Incremental scan complete: %d new txs across %d wallets",
+            found_count, len(tracked_wallets),
         )
 
-    async def _incremental_scan(
-        self, account_id, wallet_id, user_id, job_id,
-        start_height, parse_fn,
+    async def _incremental_scan_all(
+        self, wallet_map, user_id, job_id, start_height, parse_fn,
     ):
-        """Scan blocks from start_height to finalized tip via neardata.xyz.
+        """Scan blocks once for ALL wallets simultaneously.
 
-        Returns count of new transactions found.
+        wallet_map: {account_id: (wallet_id, user_id)}
+        Returns total count of new transactions found.
         """
         import aiohttp
         from indexers.near_fetcher import NearFetcher
 
         found_count = 0
         fetcher_db = NearFetcher(self.pool)
+        tracked = set(wallet_map.keys())
 
         async with aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=30)
@@ -354,8 +349,6 @@ class NearStreamFetcher(ChainFetcher):
 
             total_blocks = last_final - start_height
             fetcher_db._set_progress_total(job_id, total_blocks)
-
-            tracked = {account_id}
             scanned = 0
 
             for height in range(start_height + 1, last_final + 1):
@@ -365,54 +358,56 @@ class NearStreamFetcher(ChainFetcher):
                 if block:
                     txs = self.extract_wallet_txs(block, tracked)
                     if txs:
-                        # Convert neardata tx format to NearBlocks-compatible
-                        # format for parse_transaction
                         rows = []
                         for tx in txs:
-                            nearblocks_compat = {
-                                "transaction_hash": tx["tx_hash"],
-                                "receipt_id": None,
-                                "predecessor_account_id": tx["signer_id"],
-                                "receiver_account_id": tx["receiver_id"],
-                                "actions": [
-                                    {"action": a.get("type", a.get("Transfer") and "TRANSFER" or "FUNCTION_CALL")}
-                                    for a in tx.get("actions", [])
-                                ] if tx.get("actions") else [],
-                                "outcomes_agg": {},
-                                "block": {"block_height": tx["block_height"]},
-                                "block_timestamp": tx["block_timestamp"] * 1_000_000_000,
-                                "outcomes": {"status": True},
-                            }
-                            # Handle Transfer actions with deposit
-                            for action in tx.get("actions", []):
-                                if isinstance(action, dict) and "Transfer" in action:
-                                    transfer = action["Transfer"]
-                                    nearblocks_compat["actions"] = [{
-                                        "action": "TRANSFER",
-                                        "deposit": transfer.get("deposit", "0"),
-                                    }]
-                                    break
+                            # Determine which wallet this tx belongs to
+                            signer = tx["signer_id"].lower()
+                            receiver = tx["receiver_id"].lower()
+                            matched_accounts = []
+                            for acct in tracked:
+                                if acct.lower() == signer or acct.lower() == receiver:
+                                    matched_accounts.append(acct)
 
-                            parsed = parse_fn(
-                                nearblocks_compat,
-                                wallet_id=wallet_id,
-                                user_id=user_id,
-                                account_id=account_id,
-                            )
-                            if parsed:
-                                rows.append(parsed)
+                            for acct in matched_accounts:
+                                wid, uid = wallet_map[acct]
+                                nearblocks_compat = {
+                                    "transaction_hash": tx["tx_hash"],
+                                    "receipt_id": None,
+                                    "predecessor_account_id": tx["signer_id"],
+                                    "receiver_account_id": tx["receiver_id"],
+                                    "actions": [],
+                                    "outcomes_agg": {},
+                                    "block": {"block_height": tx["block_height"]},
+                                    "block_timestamp": tx["block_timestamp"] * 1_000_000_000,
+                                    "outcomes": {"status": True},
+                                }
+                                for action in tx.get("actions", []):
+                                    if isinstance(action, dict) and "Transfer" in action:
+                                        nearblocks_compat["actions"] = [{
+                                            "action": "TRANSFER",
+                                            "deposit": action["Transfer"].get("deposit", "0"),
+                                        }]
+                                        break
+
+                                parsed = parse_fn(
+                                    nearblocks_compat,
+                                    wallet_id=wid,
+                                    user_id=uid,
+                                    account_id=acct,
+                                )
+                                if parsed:
+                                    rows.append(parsed)
 
                         if rows:
                             fetcher_db._batch_insert(rows)
                             found_count += len(rows)
 
-                # Update progress every 25 blocks (~2s) to prevent stale job recovery
+                # Update progress every 25 blocks
                 if scanned % 25 == 0:
                     fetcher_db._update_job_progress(
                         job_id, str(height), scanned,
                     )
 
-            # Final progress update and complete
             fetcher_db._update_job_progress(job_id, str(last_final), scanned)
             fetcher_db._complete_job(job_id)
 
@@ -430,6 +425,40 @@ class NearStreamFetcher(ChainFetcher):
             row = cur.fetchone()
             cur.close()
             return row[0] if row else None
+        finally:
+            self.pool.putconn(conn)
+
+    def _get_all_near_wallets(self, user_id):
+        """Get all NEAR wallets for a user. Returns {account_id: (wallet_id, user_id)}."""
+        conn = self.pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id, account_id FROM wallets WHERE user_id = %s AND chain = 'NEAR'",
+                (user_id,),
+            )
+            rows = cur.fetchall()
+            cur.close()
+            return {row[1]: (row[0], user_id) for row in rows}
+        finally:
+            self.pool.putconn(conn)
+
+    def _get_highest_block_all_wallets(self, user_id):
+        """Get the highest block_height across all NEAR wallets for a user."""
+        conn = self.pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT MAX(t.block_height) FROM transactions t
+                JOIN wallets w ON t.wallet_id = w.id
+                WHERE w.user_id = %s AND t.chain = 'near'
+                """,
+                (user_id,),
+            )
+            row = cur.fetchone()
+            cur.close()
+            return row[0] if row and row[0] else None
         finally:
             self.pool.putconn(conn)
 

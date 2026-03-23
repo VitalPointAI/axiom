@@ -517,33 +517,37 @@ class IndexerService:
         try:
             cur = conn.cursor()
 
-            # Find wallets needing incremental transaction sync
+            # Find USERS needing incremental sync (one job per user, not per wallet).
+            # For NEAR, NearStreamFetcher scans blocks for all wallets at once.
+            # For other chains, create per-wallet jobs as before.
             cur.execute(
                 """
-                SELECT w.id AS wallet_id, w.user_id, w.chain,
+                SELECT DISTINCT w.user_id, w.chain,
+                       (SELECT MIN(ww.id) FROM wallets ww WHERE ww.user_id = w.user_id AND ww.chain = w.chain) AS any_wallet_id,
                        MAX(j.completed_at) AS last_completed,
                        MAX(j.cursor) AS last_cursor
                 FROM wallets w
                 JOIN indexing_jobs j ON j.wallet_id = w.id
                 WHERE j.status = 'completed'
                   AND j.job_type IN ('full_sync', 'incremental_sync')
-                GROUP BY w.id, w.user_id, w.chain
+                GROUP BY w.user_id, w.chain
                 HAVING MAX(j.completed_at) < NOW() - INTERVAL '%s minutes'
                    AND NOT EXISTS (
                        SELECT 1 FROM indexing_jobs pending
-                       WHERE pending.wallet_id = w.id
-                         AND pending.job_type IN ('incremental_sync', 'full_sync')
+                       WHERE pending.user_id = w.user_id
+                         AND pending.job_type = 'incremental_sync'
                          AND pending.status IN ('queued', 'running', 'retrying')
+                         AND (SELECT chain FROM wallets ww WHERE ww.id = pending.wallet_id LIMIT 1) = w.chain
                    )
                 """,
                 (SYNC_INTERVAL_MINUTES,),
             )
-            wallets = cur.fetchall()
+            sync_groups = cur.fetchall()
 
-            for wallet_id, user_id, chain, last_completed, last_cursor in wallets:
+            for user_id, chain, any_wallet_id, last_completed, last_cursor in sync_groups:
                 logger.info(
-                    "Scheduling incremental sync for wallet_id=%s (last sync: %s)",
-                    wallet_id, last_completed,
+                    "Scheduling incremental sync for user_id=%s chain=%s (last sync: %s)",
+                    user_id, chain, last_completed,
                 )
                 cur.execute(
                     """
@@ -551,7 +555,7 @@ class IndexerService:
                         (user_id, wallet_id, job_type, chain, status, priority, cursor)
                     VALUES (%s, %s, 'incremental_sync', %s, 'queued', 0, %s)
                     """,
-                    (user_id, wallet_id, chain, last_cursor),
+                    (user_id, any_wallet_id, chain, last_cursor),
                 )
 
             # Find NEAR wallets needing periodic staking sync (hourly)
