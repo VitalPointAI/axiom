@@ -224,6 +224,7 @@ class IndexerService:
                 chain = job["chain"]
                 job_type = job["job_type"]
                 wallet_id = job["wallet_id"]
+                user_id = job["user_id"]
 
                 logger.info(
                     "Processing job id=%s chain=%s type=%s wallet_id=%s attempt=%s",
@@ -278,6 +279,9 @@ class IndexerService:
                     # Success — mark job as completed
                     self._mark_completed(job_id)
                     logger.info("Job %s completed successfully.", job_id)
+
+                    # Auto-schedule downstream pipeline when indexing finishes
+                    self._schedule_downstream_if_ready(job_type, user_id)
 
                 except _YieldException:
                     # Long-running job yielded to let other jobs run — requeue immediately
@@ -497,6 +501,120 @@ class IndexerService:
     # ------------------------------------------------------------------
     # Incremental sync scheduling
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Downstream pipeline auto-scheduling
+    # ------------------------------------------------------------------
+
+    # Job types that are "indexing" (upstream). When the last one completes
+    # for a user, schedule the downstream analysis pipeline.
+    _INDEXING_TYPES = {
+        "full_sync", "incremental_sync", "staking_sync", "lockup_sync",
+        "evm_full_sync", "evm_incremental", "xrp_full_sync", "xrp_incremental",
+        "akash_full_sync", "akash_incremental", "file_import",
+    }
+
+    # Downstream pipeline stages in execution order.
+    # Each depends on the previous completing.
+    _DOWNSTREAM_PIPELINE = [
+        "dedup_scan",
+        "classify_transactions",
+        "calculate_acb",
+        "verify_balances",
+    ]
+
+    def _schedule_downstream_if_ready(self, completed_job_type: str, user_id: int) -> None:
+        """Schedule the next downstream pipeline stage when appropriate.
+
+        Called after every successful job completion. Schedules the downstream
+        pipeline (dedup → classify → ACB → verify) when:
+        - An indexing job completes and no other indexing jobs remain for this user
+        - A downstream job completes and the next stage isn't already queued
+
+        Works for any user account, not just a specific one.
+        """
+        conn = self.pool.getconn()
+        try:
+            cur = conn.cursor()
+
+            if completed_job_type in self._INDEXING_TYPES:
+                # Check if any indexing jobs still active for this user
+                cur.execute(
+                    """
+                    SELECT COUNT(*) FROM indexing_jobs
+                    WHERE user_id = %s
+                      AND job_type = ANY(%s)
+                      AND status IN ('queued', 'running', 'retrying')
+                    """,
+                    (user_id, list(self._INDEXING_TYPES)),
+                )
+                remaining = cur.fetchone()[0]
+                if remaining > 0:
+                    cur.close()
+                    return  # Still indexing — wait
+
+                # All indexing done — schedule first downstream stage
+                next_stage = self._DOWNSTREAM_PIPELINE[0]
+
+            elif completed_job_type in self._DOWNSTREAM_PIPELINE:
+                # Find the next stage in the pipeline
+                idx = self._DOWNSTREAM_PIPELINE.index(completed_job_type)
+                if idx >= len(self._DOWNSTREAM_PIPELINE) - 1:
+                    cur.close()
+                    return  # Last stage — pipeline complete
+                next_stage = self._DOWNSTREAM_PIPELINE[idx + 1]
+
+            else:
+                cur.close()
+                return  # Not a pipeline job
+
+            # Check if next stage already queued/running
+            cur.execute(
+                """
+                SELECT COUNT(*) FROM indexing_jobs
+                WHERE user_id = %s AND job_type = %s
+                  AND status IN ('queued', 'running', 'retrying')
+                """,
+                (user_id, next_stage),
+            )
+            if cur.fetchone()[0] > 0:
+                cur.close()
+                return  # Already scheduled
+
+            # Get any wallet_id for this user (needed for job row)
+            cur.execute(
+                "SELECT id FROM wallets WHERE user_id = %s LIMIT 1",
+                (user_id,),
+            )
+            wallet_row = cur.fetchone()
+            if not wallet_row:
+                cur.close()
+                return
+            wallet_id = wallet_row[0]
+
+            cur.execute(
+                """
+                INSERT INTO indexing_jobs
+                    (user_id, wallet_id, job_type, chain, status, priority)
+                VALUES (%s, %s, %s, 'NEAR', 'queued', 1)
+                """,
+                (user_id, wallet_id, next_stage),
+            )
+            conn.commit()
+            cur.close()
+            logger.info(
+                "Auto-scheduled %s for user_id=%s (downstream pipeline)",
+                next_stage, user_id,
+            )
+
+        except Exception:
+            conn.rollback()
+            logger.warning(
+                "Failed to schedule downstream pipeline for user_id=%s",
+                user_id, exc_info=True,
+            )
+        finally:
+            self.pool.putconn(conn)
 
     def check_incremental_syncs(self) -> None:
         """
