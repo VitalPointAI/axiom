@@ -113,12 +113,12 @@ WHERE t.user_id = %s
 """
 
 _EXCHANGE_REBUYS_QUERY = """
-SELECT et.quantity, EXTRACT(EPOCH FROM et.timestamp)::BIGINT AS ts
+SELECT et.quantity, EXTRACT(EPOCH FROM et.tx_date)::BIGINT AS ts
 FROM exchange_transactions et
 WHERE et.user_id = %s
   AND UPPER(et.asset) = %s
   AND et.tx_type IN ('buy', 'receive')
-  AND EXTRACT(EPOCH FROM et.timestamp)::BIGINT BETWEEN %s AND %s
+  AND EXTRACT(EPOCH FROM et.tx_date)::BIGINT BETWEEN %s AND %s
 """
 
 _UPDATE_LEDGER_SUPERFICIAL = """

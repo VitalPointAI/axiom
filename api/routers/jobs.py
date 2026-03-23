@@ -18,8 +18,13 @@ Pipeline stage mapping (from RESEARCH.md):
 import logging
 import math
 import os
+import time
 
 import boto3
+
+# Per-user high-water mark for progress: {user_id: (pct, timestamp)}
+# Ensures progress never drops between polls. Expires after 60s of no active jobs.
+_progress_hwm: dict[int, tuple[int, float]] = {}
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
@@ -329,8 +334,9 @@ async def get_active_jobs(
             )
             active = cur.fetchall()
 
-            # Get ALL batch jobs (last 24h) grouped by pipeline stage
-            # so we can calculate true cumulative progress
+            # Get ALL batch jobs since the earliest active job was created.
+            # This ensures long-running batches (>24h) don't lose progress.
+            # Falls back to 7 days if no active jobs exist (for final display).
             cur.execute(
                 """
                 SELECT
@@ -340,9 +346,14 @@ async def get_active_jobs(
                     COALESCE(progress_total, 0)
                 FROM indexing_jobs
                 WHERE user_id = %s
-                  AND created_at > NOW() - INTERVAL '24 hours'
+                  AND created_at >= COALESCE(
+                      (SELECT MIN(created_at) FROM indexing_jobs
+                       WHERE user_id = %s
+                         AND status IN ('queued', 'running', 'retrying')),
+                      NOW() - INTERVAL '7 days'
+                  )
                 """,
-                (user_id,),
+                (user_id, user_id),
             )
             all_batch = cur.fetchall()
             return active, all_batch
@@ -361,6 +372,19 @@ async def get_active_jobs(
     # Calculate cumulative progress from ALL batch jobs (completed + active)
     # This ensures progress never drops when jobs finish and new ones start
     pct = _cumulative_pipeline_pct(all_batch)
+
+    # Monotonic high-water mark: progress can only go up while jobs are active
+    now = time.monotonic()
+    if rows:
+        prev = _progress_hwm.get(user_id)
+        if prev and prev[0] > pct:
+            pct = prev[0]  # Never drop below previous high
+        _progress_hwm[user_id] = (pct, now)
+    else:
+        # No active jobs — clear HWM after a grace period so next batch starts fresh
+        prev = _progress_hwm.get(user_id)
+        if prev and (now - prev[1]) > 60:
+            _progress_hwm.pop(user_id, None)
 
     # If pipeline just finished, check if user wants a completion email
     if not rows:

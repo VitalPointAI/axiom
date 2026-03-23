@@ -30,7 +30,7 @@ SELECT tc.id, tc.category, tc.leg_type, tc.fmv_usd, tc.fmv_cad,
        tc.staking_event_id, tc.lockup_event_id, tc.parent_classification_id,
        tc.transaction_id, tc.exchange_transaction_id,
        t.block_timestamp AS t_block_timestamp, t.amount, t.fee, t.token_id, t.chain,
-       et.asset, et.quantity, et.fee AS et_fee, et.timestamp AS et_timestamp,
+       et.asset, et.quantity, et.fee AS et_fee, et.tx_date AS et_timestamp,
        se.fmv_usd AS se_fmv_usd, se.fmv_cad AS se_fmv_cad, se.amount_near AS se_amount_near,
        le.fmv_usd AS le_fmv_usd, le.fmv_cad AS le_fmv_cad, le.amount_near AS le_amount_near
 FROM transaction_classifications tc
@@ -40,7 +40,7 @@ LEFT JOIN staking_events se ON tc.staking_event_id = se.id
 LEFT JOIN lockup_events le ON tc.lockup_event_id = le.id
 WHERE tc.user_id = %s
   AND tc.category NOT IN ('spam', 'transfer', 'internal_transfer')
-ORDER BY COALESCE(t.block_timestamp, EXTRACT(EPOCH FROM et.timestamp)::BIGINT) ASC, tc.id ASC
+ORDER BY COALESCE(t.block_timestamp, EXTRACT(EPOCH FROM et.tx_date)::BIGINT) ASC, tc.id ASC
 """
 
 _SNAPSHOT_UPSERT_SQL = """

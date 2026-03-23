@@ -168,7 +168,7 @@ class TransactionClassifier:
             # 2. Exchange transactions
             cur.execute(
                 """
-                SELECT et.id, et.tx_type, et.amount, et.raw_data
+                SELECT et.id, et.tx_type, et.quantity, et.raw_data
                 FROM exchange_transactions et
                 WHERE et.user_id = %s
                   AND NOT EXISTS (

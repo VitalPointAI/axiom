@@ -194,25 +194,15 @@ class DuplicateDetector:
                         f"Score=1.0. Auto-merged."
                     )
 
-                    # Soft-delete the duplicate transaction
-                    cur.execute(
-                        """
-                        UPDATE transactions
-                        SET needs_review = TRUE,
-                            notes = %s
-                        WHERE id = %s
-                        """,
-                        (note, dupe_id),
-                    )
-
-                    # Also flag any related transaction_classifications
+                    # Flag any related transaction_classifications for review
                     cur.execute(
                         """
                         UPDATE transaction_classifications
-                        SET needs_review = TRUE
+                        SET needs_review = TRUE,
+                            notes = %s
                         WHERE transaction_id = %s
                         """,
-                        (dupe_id,),
+                        (note, dupe_id),
                     )
 
                     # Log merge in verification_results
@@ -372,10 +362,10 @@ class DuplicateDetector:
 
                     cur.execute(
                         """
-                        UPDATE transactions
+                        UPDATE transaction_classifications
                         SET needs_review = TRUE,
                             notes = %s
-                        WHERE id = %s AND (needs_review IS NOT TRUE
+                        WHERE transaction_id = %s AND (needs_review IS NOT TRUE
                               OR notes IS NULL
                               OR notes NOT LIKE %s)
                         """,
@@ -383,10 +373,10 @@ class DuplicateDetector:
                     )
                     cur.execute(
                         """
-                        UPDATE transactions
+                        UPDATE transaction_classifications
                         SET needs_review = TRUE,
                             notes = %s
-                        WHERE id = %s AND (needs_review IS NOT TRUE
+                        WHERE transaction_id = %s AND (needs_review IS NOT TRUE
                               OR notes IS NULL
                               OR notes NOT LIKE %s)
                         """,
