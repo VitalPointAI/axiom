@@ -267,11 +267,18 @@ class NearStreamFetcher(ChainFetcher):
             len(tracked_wallets), ", ".join(sorted(tracked_wallets)),
         )
 
-        # Determine start block from job cursor or highest block across all wallets
+        # Determine start block from job cursor or highest block across all wallets.
+        # NearBlocks cursors are large numbers (>1B) that aren't block heights.
+        # NEAR block heights are currently ~190M, so reject anything > 500M.
+        MAX_VALID_BLOCK = 500_000_000
         cursor = job.get("cursor")
         start_height = None
         if cursor and str(cursor).isdigit():
-            start_height = int(cursor)
+            val = int(cursor)
+            if val <= MAX_VALID_BLOCK:
+                start_height = val
+            else:
+                logger.info("Ignoring non-block-height cursor: %s", cursor)
         if not start_height:
             start_height = self._get_highest_block_all_wallets(user_id)
         if not start_height:
