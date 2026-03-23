@@ -207,12 +207,13 @@ def test_list_wallets(mock_pool, mock_conn, mock_cursor, mock_user):
         resp = client.get("/api/wallets")
         assert resp.status_code == 200, resp.json()
         body = resp.json()
-        assert len(body) == 2
-        assert body[0]["id"] == 1
-        assert body[0]["account_id"] == "alice.near"
-        assert "sync_status" in body[0]
+        wallets = body["wallets"]
+        assert len(wallets) == 2
+        assert wallets[0]["id"] == 1
+        assert wallets[0]["account_id"] == "alice.near"
+        assert "sync_status" in wallets[0]
         # wallet 2 has a running evm_full_sync job => mapped to "indexing"
-        assert body[1]["sync_status"] in ("indexing", "running")
+        assert wallets[1]["sync_status"] in ("indexing", "running")
 
 
 # ---------------------------------------------------------------------------
