@@ -70,7 +70,7 @@ def write_records(
             classification_id = upsert_classification(
                 classifier,
                 conn,
-                {**rec, "transaction_id": tx_id, "exchange_transaction_id": exc_tx_id}
+                {**rec, "user_id": user_id, "transaction_id": tx_id, "exchange_transaction_id": exc_tx_id}
             )
             write_audit_log(classifier, conn, classification_id, rec)
             stats["classified"] += 1

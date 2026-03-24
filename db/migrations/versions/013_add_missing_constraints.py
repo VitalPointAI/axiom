@@ -2,13 +2,19 @@
 
 This constraint is required by the classifier's ON CONFLICT upsert logic.
 It was referenced in code but never created by a migration.
+
+Revision ID: 013
+Revises: 012
 """
 
+from alembic import op
 
-def upgrade(cur):
-    # Add unique constraint for classifier upsert
-    # Only applies to rows with a non-null transaction_id
-    cur.execute("""
+revision = "013"
+down_revision = "012"
+
+
+def upgrade():
+    op.execute("""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -23,8 +29,8 @@ def upgrade(cur):
     """)
 
 
-def downgrade(cur):
-    cur.execute("""
+def downgrade():
+    op.execute("""
         ALTER TABLE transaction_classifications
         DROP CONSTRAINT IF EXISTS uq_tc_tx_leg
     """)
