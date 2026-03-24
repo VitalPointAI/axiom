@@ -48,6 +48,8 @@ def write_audit(
         return
     try:
         cur = conn.cursor()
+        # Use savepoint so audit failures don't poison the parent transaction
+        cur.execute("SAVEPOINT audit_sp")
         cur.execute(
             """INSERT INTO audit_log
                (user_id, entity_type, entity_id, action, old_value, new_value, actor_type, notes)
@@ -63,5 +65,10 @@ def write_audit(
                 notes,
             ),
         )
+        cur.execute("RELEASE SAVEPOINT audit_sp")
     except Exception:
+        try:
+            conn.cursor().execute("ROLLBACK TO SAVEPOINT audit_sp")
+        except Exception:
+            pass
         logger.warning("Failed to write audit log entry", exc_info=True)
