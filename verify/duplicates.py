@@ -43,14 +43,14 @@ EXCHANGE_WINDOW_SECONDS = 600  # 10 minutes for exchange-vs-on-chain
 _AMOUNT_TOLERANCE = Decimal(str(AMOUNT_TOLERANCE))
 
 
-def _resolve_token_symbol(token_id: str) -> str:
+def _resolve_token_symbol(token_id: str, chain: str = "near") -> str:
     """Normalize a token_id to a canonical symbol for comparison.
 
     Tries engine.acb.resolve_token_symbol first; falls back to uppercase.
     """
     try:
         from engine.acb import resolve_token_symbol
-        return resolve_token_symbol(token_id)
+        return resolve_token_symbol(token_id, chain=chain)
     except ImportError:
         return (token_id or "").upper()
 
@@ -321,7 +321,7 @@ class DuplicateDetector:
                 if out_id in flagged_ids:
                     continue
 
-                out_symbol = _resolve_token_symbol(out_token or "")
+                out_symbol = _resolve_token_symbol(out_token or "", out_chain or "near")
                 out_human_amount = _convert_onchain_amount(out_amount, out_symbol)
 
                 for in_id, in_hash, in_chain, in_amount, in_token, in_ts, in_wallet in incoming_txs:
@@ -332,7 +332,7 @@ class DuplicateDetector:
                     if out_chain == in_chain:
                         continue
 
-                    in_symbol = _resolve_token_symbol(in_token or "")
+                    in_symbol = _resolve_token_symbol(in_token or "", in_chain or "near")
 
                     # Same or equivalent asset
                     if out_symbol != in_symbol:
@@ -518,7 +518,7 @@ class DuplicateDetector:
                 for oc_row in onchain_txs:
                     oc_id, oc_hash, oc_chain, oc_amount, oc_token, oc_ts, oc_dir, oc_wallet = oc_row
 
-                    oc_symbol = _resolve_token_symbol(oc_token or "")
+                    oc_symbol = _resolve_token_symbol(oc_token or "", oc_chain or "near")
                     oc_human = _convert_onchain_amount(oc_amount, oc_symbol)
 
                     try:
