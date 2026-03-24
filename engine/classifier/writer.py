@@ -81,21 +81,23 @@ def write_records(
         classifier.pool.putconn(conn)
 
 
-def upsert_classification(classifier, conn, record: dict) -> int:
-    """Upsert a classification record. Preserves specialist-confirmed records.
+_UPSERT_DO_UPDATE = """
+        DO UPDATE SET
+            category = EXCLUDED.category,
+            confidence = EXCLUDED.confidence,
+            classification_source = EXCLUDED.classification_source,
+            rule_id = EXCLUDED.rule_id,
+            staking_event_id = EXCLUDED.staking_event_id,
+            lockup_event_id = EXCLUDED.lockup_event_id,
+            fmv_usd = EXCLUDED.fmv_usd,
+            fmv_cad = EXCLUDED.fmv_cad,
+            needs_review = EXCLUDED.needs_review,
+            updated_at = NOW()
+        WHERE transaction_classifications.specialist_confirmed = FALSE
+        RETURNING id
+"""
 
-    Uses INSERT ... ON CONFLICT DO UPDATE WHERE specialist_confirmed = FALSE.
-    Returns classification id.
-    """
-    cur = conn.cursor()
-
-    tx_id = record.get("transaction_id")
-    exc_tx_id = record.get("exchange_transaction_id")
-    leg_type = record.get("leg_type", "parent")
-    leg_index = record.get("leg_index", 0)
-
-    cur.execute(
-        """
+_INSERT_COLS = """
         INSERT INTO transaction_classifications
             (user_id, transaction_id, exchange_transaction_id,
              leg_type, leg_index, category, confidence,
@@ -110,38 +112,55 @@ def upsert_classification(classifier, conn, record: dict) -> int:
              %(staking_event_id)s, %(lockup_event_id)s,
              %(fmv_usd)s, %(fmv_cad)s, %(needs_review)s,
              FALSE, NOW(), NOW())
+"""
+
+# On-chain: conflict on (user_id, transaction_id, leg_type)
+_UPSERT_ONCHAIN = _INSERT_COLS + """
         ON CONFLICT ON CONSTRAINT uq_tc_tx_leg
-        DO UPDATE SET
-            category = EXCLUDED.category,
-            confidence = EXCLUDED.confidence,
-            classification_source = EXCLUDED.classification_source,
-            rule_id = EXCLUDED.rule_id,
-            staking_event_id = EXCLUDED.staking_event_id,
-            lockup_event_id = EXCLUDED.lockup_event_id,
-            fmv_usd = EXCLUDED.fmv_usd,
-            fmv_cad = EXCLUDED.fmv_cad,
-            needs_review = EXCLUDED.needs_review,
-            updated_at = NOW()
-        WHERE transaction_classifications.specialist_confirmed = FALSE
-        RETURNING id
-        """,
-        {
-            "user_id": record.get("user_id", 0),
-            "transaction_id": tx_id,
-            "exchange_transaction_id": exc_tx_id,
-            "leg_type": leg_type,
-            "leg_index": leg_index,
-            "category": record["category"],
-            "confidence": record["confidence"],
-            "classification_source": record.get("classification_source", "rule"),
-            "rule_id": record.get("rule_id"),
-            "staking_event_id": record.get("staking_event_id"),
-            "lockup_event_id": record.get("lockup_event_id"),
-            "fmv_usd": record.get("fmv_usd"),
-            "fmv_cad": record.get("fmv_cad"),
-            "needs_review": record.get("needs_review", True),
-        },
-    )
+""" + _UPSERT_DO_UPDATE
+
+# Exchange: conflict on (user_id, exchange_transaction_id, leg_type)
+_UPSERT_EXCHANGE = _INSERT_COLS + """
+        ON CONFLICT (user_id, exchange_transaction_id, leg_type)
+        WHERE exchange_transaction_id IS NOT NULL
+""" + _UPSERT_DO_UPDATE
+
+
+def upsert_classification(classifier, conn, record: dict) -> int:
+    """Upsert a classification record. Preserves specialist-confirmed records.
+
+    Uses INSERT ... ON CONFLICT DO UPDATE WHERE specialist_confirmed = FALSE.
+    Picks the correct conflict target based on whether transaction_id or
+    exchange_transaction_id is set.
+    Returns classification id.
+    """
+    cur = conn.cursor()
+
+    tx_id = record.get("transaction_id")
+    exc_tx_id = record.get("exchange_transaction_id")
+    leg_type = record.get("leg_type", "parent")
+    leg_index = record.get("leg_index", 0)
+
+    sql = _UPSERT_EXCHANGE if exc_tx_id else _UPSERT_ONCHAIN
+
+    params = {
+        "user_id": record.get("user_id", 0),
+        "transaction_id": tx_id,
+        "exchange_transaction_id": exc_tx_id,
+        "leg_type": leg_type,
+        "leg_index": leg_index,
+        "category": record["category"],
+        "confidence": record["confidence"],
+        "classification_source": record.get("classification_source", "rule"),
+        "rule_id": record.get("rule_id"),
+        "staking_event_id": record.get("staking_event_id"),
+        "lockup_event_id": record.get("lockup_event_id"),
+        "fmv_usd": record.get("fmv_usd"),
+        "fmv_cad": record.get("fmv_cad"),
+        "needs_review": record.get("needs_review", True),
+    }
+
+    cur.execute(sql, params)
     row = cur.fetchone()
     return row[0] if row else 0
 

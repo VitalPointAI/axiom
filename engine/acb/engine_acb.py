@@ -92,7 +92,8 @@ class ACBEngine:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM acb_snapshots WHERE user_id = %s", (user_id,))
 
-            with conn.cursor() as cur:
+            from psycopg2.extras import NamedTupleCursor
+            with conn.cursor(cursor_factory=NamedTupleCursor) as cur:
                 cur.execute(_CLASSIFY_SQL, (user_id,))
                 rows = cur.fetchall()
 
