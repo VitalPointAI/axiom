@@ -875,6 +875,14 @@ class DuplicateDetector:
                 'duplicate_merged', %s, %s,
                 %s, NOW(), %s
             )
+            ON CONFLICT (wallet_id, token_symbol) DO UPDATE SET
+                diagnosis_category = EXCLUDED.diagnosis_category,
+                diagnosis_detail = EXCLUDED.diagnosis_detail,
+                diagnosis_confidence = EXCLUDED.diagnosis_confidence,
+                status = EXCLUDED.status,
+                verified_at = NOW(),
+                notes = EXCLUDED.notes,
+                updated_at = NOW()
             """,
             (
                 user_id,

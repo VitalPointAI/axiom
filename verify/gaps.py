@@ -227,6 +227,12 @@ class GapDetector:
                     VALUES (%s, %s, 'near', 'NEAR',
                             'unindexed_period', %s::jsonb,
                             %s, 'open')
+                    ON CONFLICT (wallet_id, token_symbol) DO UPDATE SET
+                        diagnosis_category = EXCLUDED.diagnosis_category,
+                        diagnosis_detail = EXCLUDED.diagnosis_detail,
+                        diagnosis_confidence = EXCLUDED.diagnosis_confidence,
+                        status = EXCLUDED.status,
+                        updated_at = NOW()
                     """,
                     (
                         user_id, wallet_id,
