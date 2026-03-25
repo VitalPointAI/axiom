@@ -67,12 +67,13 @@ def write_records(
         for rec in records:
             tx_id = None if is_exchange else rec.get("transaction_id")
             exc_tx_id = exchange_tx_id if is_exchange else None
+            enriched = {**rec, "user_id": user_id, "transaction_id": tx_id, "exchange_transaction_id": exc_tx_id}
             classification_id = upsert_classification(
                 classifier,
                 conn,
-                {**rec, "user_id": user_id, "transaction_id": tx_id, "exchange_transaction_id": exc_tx_id}
+                enriched,
             )
-            write_audit_log(classifier, conn, classification_id, rec)
+            write_audit_log(classifier, conn, classification_id, enriched)
             stats["classified"] += 1
             if rec.get("needs_review"):
                 stats["needs_review"] += 1
