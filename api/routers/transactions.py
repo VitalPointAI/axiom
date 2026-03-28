@@ -135,7 +135,10 @@ async def get_review_queue(
                         ) AS timestamp_iso,
                         CASE WHEN t.direction = 'out' THEN '' ELSE COALESCE(t.counterparty, '') END AS sender,
                         CASE WHEN t.direction = 'in' THEN '' ELSE COALESCE(t.counterparty, '') END AS receiver,
-                        CAST(t.amount AS TEXT) AS amount_str,
+                        CASE
+                            WHEN t.chain = 'near' THEN CAST(t.amount / 1e24 AS NUMERIC(30,8))::TEXT
+                            ELSE CAST(t.amount / 1e18 AS NUMERIC(30,8))::TEXT
+                        END AS amount_str,
                         COALESCE(t.token_id, '') AS token_symbol,
                         COALESCE(t.action_type, '') AS action_type,
                         COALESCE(tc.category, '') AS tax_category,
@@ -332,7 +335,10 @@ async def list_transactions(
                         ) AS timestamp_iso,
                         CASE WHEN t.direction = 'out' THEN '' ELSE COALESCE(t.counterparty, '') END AS sender,
                         CASE WHEN t.direction = 'in' THEN '' ELSE COALESCE(t.counterparty, '') END AS receiver,
-                        CAST(t.amount AS TEXT) AS amount_str,
+                        CASE
+                            WHEN t.chain = 'near' THEN CAST(t.amount / 1e24 AS NUMERIC(30,8))::TEXT
+                            ELSE CAST(t.amount / 1e18 AS NUMERIC(30,8))::TEXT
+                        END AS amount_str,
                         COALESCE(t.token_id, '') AS token_symbol,
                         COALESCE(t.action_type, '') AS action_type,
                         COALESCE(tc.category, '') AS tax_category,
