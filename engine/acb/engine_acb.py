@@ -19,6 +19,38 @@ from db.audit import write_audit
 
 logger = logging.getLogger(__name__)
 
+# Map uppercase token symbols to CoinGecko coin IDs for price lookups.
+# Tokens not in this map are looked up as symbol.lower() (works for "NEAR" → "near").
+_SYMBOL_TO_COINGECKO: dict[str, str] = {
+    "NEAR": "near",
+    "ETH": "ethereum",
+    "BTC": "bitcoin",
+    "MATIC": "matic-network",
+    "OP": "optimism",
+    "SOL": "solana",
+    "AVAX": "avalanche-2",
+    "XRP": "ripple",
+    "AKT": "akash-network",
+    "ATOM": "cosmos",
+    "USDT": "tether",
+    "USDC": "usd-coin",
+    "DAI": "dai",
+}
+
+# Fiat currencies and tokens that shouldn't be price-looked-up
+_SKIP_PRICE_LOOKUP: set[str] = {
+    "CAD", "USD", "EUR", "GBP", "AUD", "JPY",  # Fiat
+    "UNKNOWN",  # Unresolved tokens
+}
+
+
+def _symbol_to_coin_id(symbol: str) -> str | None:
+    """Map a token symbol to a CoinGecko coin_id, or None if not priceable."""
+    if symbol in _SKIP_PRICE_LOOKUP:
+        return None
+    return _SYMBOL_TO_COINGECKO.get(symbol, symbol.lower())
+
+
 # GainsCalculator is imported lazily inside calculate_for_user() to:
 #   1. Avoid circular import (gains.py imports normalize_timestamp from acb.py)
 #   2. Allow test patching via: patch("engine.acb.GainsCalculator")
@@ -100,7 +132,9 @@ class ACBEngine:
         for row in rows:
             chain = row.chain or "near"
             symbol = resolve_token_symbol(row.token_id, chain, asset=row.asset)
-            coin_id = symbol.lower()
+            coin_id = _symbol_to_coin_id(symbol)
+            if coin_id is None:
+                continue  # Skip fiat currencies and unknown tokens
 
             raw_ts = row.t_block_timestamp
             if raw_ts is None and row.et_timestamp is not None:
@@ -272,7 +306,12 @@ class ACBEngine:
                 Decimal(str(row.le_fmv_cad)), False,
             )
 
-        coin_id = symbol.lower()
+        coin_id = _symbol_to_coin_id(symbol)
+        if coin_id is None:
+            # Fiat currency — FMV is 1:1 in its own currency
+            if symbol in ("CAD", "USD"):
+                return None, Decimal("1"), False
+            return None, None, True
 
         # Tier 3: Minute-level precision for large dispositions
         if require_precision:
