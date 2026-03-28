@@ -333,6 +333,161 @@ class PriceService:
         return (price_cad, usd_estimated)
 
     # ------------------------------------------------------------------
+    # Bulk pre-warm: fetch daily prices for a date range in one API call
+    # ------------------------------------------------------------------
+
+    def bulk_fetch_daily_prices(
+        self, coin_id: str, start_date: str, end_date: str, currency: str = "usd"
+    ) -> int:
+        """Fetch daily prices for a date range using CoinGecko market_chart.
+
+        Uses /coins/{id}/market_chart/range which returns daily data points
+        for ranges > 90 days — one API call covers an entire year.
+
+        Only fetches for dates NOT already in price_cache. Caches all results.
+
+        Args:
+            coin_id:    CoinGecko coin id (e.g. "near", "ethereum")
+            start_date: ISO date "YYYY-MM-DD"
+            end_date:   ISO date "YYYY-MM-DD"
+            currency:   "usd" or "cad"
+
+        Returns:
+            Number of new prices cached.
+        """
+        global _last_coingecko_call
+
+        currency = currency.lower()
+
+        # Find which dates we're missing
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        all_dates = set()
+        d = start_dt
+        while d <= end_dt:
+            all_dates.add(d.strftime("%Y-%m-%d"))
+            d += timedelta(days=1)
+
+        # Check cache for existing dates
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT date FROM price_cache
+                   WHERE coin_id = %s AND currency = %s
+                     AND date >= %s AND date <= %s""",
+                (coin_id, currency, start_date, end_date),
+            )
+            cached_dates = {row[0] for row in cur.fetchall()}
+            cur.close()
+        finally:
+            self._put_conn(conn)
+
+        missing_dates = all_dates - cached_dates
+        if not missing_dates:
+            logger.info("Bulk price cache hit: %s %s→%s (%d dates cached)",
+                        coin_id, start_date, end_date, len(cached_dates))
+            return 0
+
+        logger.info("Bulk fetching %d daily prices for %s (%s→%s, %d cached)",
+                     len(missing_dates), coin_id, start_date, end_date, len(cached_dates))
+
+        # Stablecoin shortcut
+        if coin_id in STABLECOIN_MAP:
+            stable_price = STABLECOIN_MAP[coin_id]
+            for ds in missing_dates:
+                self._cache_price(coin_id, ds, currency, stable_price, "stablecoin")
+            return len(missing_dates)
+
+        # CoinGecko market_chart/range — returns daily data for ranges > 90 days
+        elapsed = time.time() - _last_coingecko_call
+        if elapsed < _COINGECKO_DELAY:
+            time.sleep(_COINGECKO_DELAY - elapsed)
+        _last_coingecko_call = time.time()
+
+        from_ts = int(start_dt.timestamp())
+        to_ts = int(end_dt.timestamp()) + 86400  # Include end date
+
+        base = COINGECKO_PRO_BASE if self.coingecko_api_key else COINGECKO_BASE
+        url = f"{base}/coins/{coin_id}/market_chart/range"
+        params = {"vs_currency": currency, "from": from_ts, "to": to_ts}
+        headers = {}
+        if self.coingecko_api_key:
+            headers["x-cg-pro-api-key"] = self.coingecko_api_key
+
+        cached_count = 0
+        for attempt in range(3):
+            try:
+                resp = requests.get(url, params=params, headers=headers, timeout=30)
+
+                if resp.status_code == 429:
+                    wait = 60 * (attempt + 1)
+                    logger.warning("Rate limited on bulk fetch, waiting %ds", wait)
+                    time.sleep(wait)
+                    continue
+
+                if resp.status_code == 404:
+                    logger.warning("Coin %s not found on CoinGecko", coin_id)
+                    return 0
+
+                resp.raise_for_status()
+                data = resp.json()
+                prices = data.get("prices", [])
+
+                if not prices:
+                    return 0
+
+                # prices: [[timestamp_ms, price], ...] — group by date
+                date_prices: dict[str, list[float]] = {}
+                for ts_ms, price in prices:
+                    ds = datetime.utcfromtimestamp(ts_ms / 1000).strftime("%Y-%m-%d")
+                    date_prices.setdefault(ds, []).append(price)
+
+                # Cache the daily average for each missing date
+                for ds, price_list in date_prices.items():
+                    if ds in missing_dates:
+                        avg_price = sum(price_list) / len(price_list)
+                        self._cache_price(coin_id, ds, currency,
+                                          Decimal(str(avg_price)), "coingecko_bulk")
+                        cached_count += 1
+
+                logger.info("Bulk cached %d daily prices for %s", cached_count, coin_id)
+                return cached_count
+
+            except requests.RequestException as exc:
+                logger.warning("Bulk fetch attempt %d failed for %s: %s",
+                               attempt + 1, coin_id, exc)
+                if attempt < 2:
+                    time.sleep(5)
+                    continue
+                return 0
+
+        return 0
+
+    def get_daily_price_cad(
+        self, coin_id: str, date_str: str
+    ) -> tuple[Optional[Decimal], bool]:
+        """Get daily price in CAD from cache (no API call).
+
+        Used by the tiered pricing system for non-disposition transactions
+        where daily precision is sufficient.
+
+        Returns (price_cad, is_estimated=True) since daily price is an estimate
+        of the exact transaction-time FMV.
+        """
+        # Get USD price from daily cache
+        price_usd = self._get_cached(coin_id, date_str, "usd")
+        if price_usd is None:
+            return (None, True)
+
+        # Get CAD rate
+        cad_rate = self.get_boc_cad_rate(date_str)
+        if cad_rate is None:
+            return (None, True)
+
+        return (price_usd * cad_rate, True)
+
+    # ------------------------------------------------------------------
     # Internal: symbol mapping
     # ------------------------------------------------------------------
 

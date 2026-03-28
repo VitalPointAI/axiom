@@ -77,8 +77,81 @@ class ACBEngine:
         self._pool = pool
         self._price_service = price_service
 
+    # Disposition threshold: transactions above this CAD value get minute-level
+    # price precision. Below this, daily prices are used.
+    DISPOSITION_PRECISION_THRESHOLD_CAD = Decimal("500")
+
+    def _pre_warm_price_cache(self, rows) -> dict:
+        """Pre-warm the price cache with bulk daily prices.
+
+        Analyzes all transaction rows to find unique (coin_id, date_range) pairs,
+        then fetches daily prices in bulk (1 CoinGecko call per token per year).
+
+        This replaces thousands of individual API calls with a handful of bulk
+        fetches. See docs/FMV_METHODOLOGY.md for the tiered pricing rationale.
+
+        Returns:
+            dict of coin_id -> set of cached date strings
+        """
+        from datetime import datetime as dt
+
+        # Collect unique tokens and their date ranges
+        token_dates: dict[str, set] = {}
+        for row in rows:
+            chain = row.chain or "near"
+            symbol = resolve_token_symbol(row.token_id, chain, asset=row.asset)
+            coin_id = symbol.lower()
+
+            raw_ts = row.t_block_timestamp
+            if raw_ts is None and row.et_timestamp is not None:
+                try:
+                    unix_ts = int(row.et_timestamp.timestamp())
+                except Exception:
+                    continue
+            else:
+                unix_ts = normalize_timestamp(raw_ts or 0, chain)
+
+            if unix_ts <= 0:
+                continue
+
+            date_str = dt.utcfromtimestamp(unix_ts).strftime("%Y-%m-%d")
+            token_dates.setdefault(coin_id, set()).add(date_str)
+
+        # Bulk fetch daily prices for each token's full date range
+        for coin_id, dates in token_dates.items():
+            if not dates:
+                continue
+            sorted_dates = sorted(dates)
+            start_date = sorted_dates[0]
+            end_date = sorted_dates[-1]
+            logger.info(
+                "Pre-warming price cache: %s (%s → %s, %d unique dates)",
+                coin_id, start_date, end_date, len(dates),
+            )
+            self._price_service.bulk_fetch_daily_prices(
+                coin_id, start_date, end_date, "usd"
+            )
+
+        # Also pre-warm BoC CAD rates for the full date range
+        all_dates = set()
+        for dates in token_dates.values():
+            all_dates.update(dates)
+        if all_dates:
+            sorted_all = sorted(all_dates)
+            logger.info("Pre-warming BoC CAD rates: %s → %s", sorted_all[0], sorted_all[-1])
+            for date_str in sorted_all:
+                self._price_service.get_boc_cad_rate(date_str)
+
+        return {k: v for k, v in token_dates.items()}
+
     def calculate_for_user(self, user_id: int) -> dict:
-        """Replay all classified transactions for user, writing ACB snapshots."""
+        """Replay all classified transactions for user, writing ACB snapshots.
+
+        Uses tiered FMV pricing (see docs/FMV_METHODOLOGY.md):
+          - Tier 1: Staking/lockup FMV from on-chain data (exact, no API call)
+          - Tier 2: Daily price for income, fees, small transactions (bulk-fetched)
+          - Tier 3: Minute-level price for dispositions > $500 CAD (per-tx API call)
+        """
         conn = self._pool.getconn()
         try:
             import engine.acb as _acb_mod
@@ -96,6 +169,9 @@ class ACBEngine:
             with conn.cursor(cursor_factory=NamedTupleCursor) as cur:
                 cur.execute(_CLASSIFY_SQL, (user_id,))
                 rows = cur.fetchall()
+
+            # Pre-warm price cache with bulk daily prices (1 API call per token)
+            self._pre_warm_price_cache(rows)
 
             pools: dict[str, ACBPool] = {}
             stats = {
@@ -159,8 +235,28 @@ class ACBEngine:
             pools[symbol] = ACBPool(symbol)
         return pools[symbol]
 
-    def _resolve_fmv_cad(self, row, unix_ts: int, symbol: str) -> tuple[Optional[Decimal], Optional[Decimal], bool]:
-        """Resolve FMV in CAD for a transaction row."""
+    def _resolve_fmv_cad(
+        self, row, unix_ts: int, symbol: str,
+        require_precision: bool = False,
+    ) -> tuple[Optional[Decimal], Optional[Decimal], bool]:
+        """Resolve FMV in CAD for a transaction row.
+
+        Uses tiered pricing (see docs/FMV_METHODOLOGY.md):
+          - Tier 1: On-chain FMV from staking/lockup events (exact)
+          - Tier 2: Daily price from pre-warmed cache (no API call)
+          - Tier 3: Minute-level price from CoinGecko range API
+
+        Args:
+            row:                Transaction classification row (NamedTuple)
+            unix_ts:            Unix timestamp in seconds
+            symbol:             Resolved token symbol (e.g. "NEAR", "ETH")
+            require_precision:  If True, use minute-level price (Tier 3).
+                                Set for dispositions above the threshold.
+
+        Returns:
+            (fmv_usd, fmv_cad, is_estimated) tuple
+        """
+        # Tier 1: On-chain FMV (staking rewards, lockup events)
         if row.fmv_cad is not None:
             fmv_cad = Decimal(str(row.fmv_cad))
             fmv_usd = Decimal(str(row.fmv_usd)) if row.fmv_usd is not None else None
@@ -175,9 +271,39 @@ class ACBEngine:
                 Decimal(str(row.le_fmv_usd)) if row.le_fmv_usd is not None else None,
                 Decimal(str(row.le_fmv_cad)), False,
             )
+
         coin_id = symbol.lower()
+
+        # Tier 3: Minute-level precision for large dispositions
+        if require_precision:
+            try:
+                price_cad, is_estimated = self._price_service.get_price_cad_at_timestamp(
+                    coin_id, unix_ts
+                )
+                return None, price_cad, is_estimated
+            except Exception as exc:
+                logger.warning("Minute-level FMV lookup failed for %s at %s: %s",
+                               symbol, unix_ts, exc)
+                # Fall through to daily price as fallback
+
+        # Tier 2: Daily price from pre-warmed cache (no API call needed)
         try:
-            price_cad, is_estimated = self._price_service.get_price_cad_at_timestamp(coin_id, unix_ts)
+            from datetime import datetime as dt
+            date_str = dt.utcfromtimestamp(unix_ts).strftime("%Y-%m-%d")
+            price_cad, is_estimated = self._price_service.get_daily_price_cad(
+                coin_id, date_str
+            )
+            if price_cad is not None:
+                return None, price_cad, True  # Daily price = estimated
+        except Exception as exc:
+            logger.warning("Daily FMV lookup failed for %s at %s: %s",
+                           symbol, unix_ts, exc)
+
+        # Final fallback: minute-level API call
+        try:
+            price_cad, is_estimated = self._price_service.get_price_cad_at_timestamp(
+                coin_id, unix_ts
+            )
             return None, price_cad, is_estimated
         except Exception as exc:
             logger.warning("FMV lookup failed for %s at %s: %s", symbol, unix_ts, exc)
@@ -294,7 +420,16 @@ class ACBEngine:
     def _handle_disposal(self, row, pool, symbol, units, fee_human, unix_ts, raw_ts, chain,
                          conn, gains, user_id, stats, proceeds_override=None):
         """Handle a simple disposal (sell, swap sell-leg, fee disposal)."""
+        # First get daily price to estimate value; upgrade to minute-level if large
         price_usd, price_cad, is_estimated = self._resolve_fmv_cad(row, unix_ts, symbol)
+        if (price_cad is not None
+                and units * price_cad > self.DISPOSITION_PRECISION_THRESHOLD_CAD
+                and is_estimated
+                and proceeds_override is None):
+            # Large disposition — upgrade to minute-level precision
+            price_usd, price_cad, is_estimated = self._resolve_fmv_cad(
+                row, unix_ts, symbol, require_precision=True
+            )
         if proceeds_override is not None:
             proceeds_cad = proceeds_override
         else:
@@ -334,8 +469,14 @@ class ACBEngine:
         else:
             sell_units = Decimal("0")
 
+        # Swaps are always dispositions — use daily first, upgrade if large
         _, sell_price_cad, sell_is_est = self._resolve_fmv_cad(sell_leg, unix_ts, sell_symbol)
         sell_proceeds_cad = sell_units * (sell_price_cad or Decimal("0"))
+        if sell_proceeds_cad > self.DISPOSITION_PRECISION_THRESHOLD_CAD and sell_is_est:
+            _, sell_price_cad, sell_is_est = self._resolve_fmv_cad(
+                sell_leg, unix_ts, sell_symbol, require_precision=True
+            )
+            sell_proceeds_cad = sell_units * (sell_price_cad or Decimal("0"))
         sell_snap = sell_pool.dispose(sell_units, sell_proceeds_cad)
         check_acb_pool_invariants(sell_pool, conn=conn, user_id=user_id, context=f"swap-sell:{sell_leg.id}")
         sell_snap_id = self._persist_snapshot(
