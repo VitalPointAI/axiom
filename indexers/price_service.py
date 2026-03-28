@@ -399,18 +399,29 @@ class PriceService:
                 self._cache_price(coin_id, ds, currency, stable_price, "stablecoin")
             return len(missing_dates)
 
-        # CoinGecko market_chart/range — returns daily data for ranges > 90 days
+        # Use /market_chart?days=N (works on free tier).
+        # /market_chart/range requires paid plan on free tier.
+        # days > 90 returns daily data points; days <= 90 returns hourly.
         elapsed = time.time() - _last_coingecko_call
         if elapsed < _COINGECKO_DELAY:
             time.sleep(_COINGECKO_DELAY - elapsed)
         _last_coingecko_call = time.time()
 
-        from_ts = int(start_dt.timestamp())
-        to_ts = int(end_dt.timestamp()) + 86400  # Include end date
+        total_days = (end_dt - start_dt).days + 1
 
         base = COINGECKO_PRO_BASE if self.coingecko_api_key else COINGECKO_BASE
-        url = f"{base}/coins/{coin_id}/market_chart/range"
-        params = {"vs_currency": currency, "from": from_ts, "to": to_ts}
+
+        # For ranges > 365 days, use /market_chart/range with API key,
+        # otherwise use /market_chart?days=N which works on free tier
+        if self.coingecko_api_key:
+            from_ts = int(start_dt.timestamp())
+            to_ts = int(end_dt.timestamp()) + 86400
+            url = f"{base}/coins/{coin_id}/market_chart/range"
+            params = {"vs_currency": currency, "from": from_ts, "to": to_ts}
+        else:
+            url = f"{base}/coins/{coin_id}/market_chart"
+            params = {"vs_currency": currency, "days": min(total_days, 365)}
+
         headers = {}
         if self.coingecko_api_key:
             headers["x-cg-pro-api-key"] = self.coingecko_api_key

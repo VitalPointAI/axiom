@@ -35,6 +35,15 @@ _SYMBOL_TO_COINGECKO: dict[str, str] = {
     "USDT": "tether",
     "USDC": "usd-coin",
     "DAI": "dai",
+    "CRO": "crypto-com-chain",
+    "WETH": "ethereum",
+    "WBTC": "bitcoin",
+    "WMATIC": "matic-network",
+    "WNEAR": "near",
+    "LINK": "chainlink",
+    "UNI": "uniswap",
+    "AAVE": "aave",
+    "SUSHI": "sushi",
 }
 
 # Fiat currencies and tokens that shouldn't be price-looked-up
