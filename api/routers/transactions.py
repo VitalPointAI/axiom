@@ -133,8 +133,8 @@ async def get_review_queue(
                             TO_TIMESTAMP(t.block_timestamp / 1000000000.0),
                             'YYYY-MM-DD"T"HH24:MI:SS'
                         ) AS timestamp_iso,
-                        COALESCE(t.sender_id, '') AS sender,
-                        COALESCE(t.receiver_id, '') AS receiver,
+                        CASE WHEN t.direction = 'out' THEN '' ELSE COALESCE(t.counterparty, '') END AS sender,
+                        CASE WHEN t.direction = 'in' THEN '' ELSE COALESCE(t.counterparty, '') END AS receiver,
                         CAST(t.amount AS TEXT) AS amount_str,
                         COALESCE(t.token_id, '') AS token_symbol,
                         COALESCE(t.action_type, '') AS action_type,
@@ -309,7 +309,7 @@ async def list_transactions(
                 onchain_extra_params.append(needs_review)
             if search:
                 onchain_where_clauses.append(
-                    "(t.tx_hash ILIKE %s OR t.sender_id ILIKE %s OR t.receiver_id ILIKE %s)"
+                    "(t.tx_hash ILIKE %s OR t.counterparty ILIKE %s OR t.counterparty ILIKE %s)"
                 )
                 search_pat = f"%{search}%"
                 onchain_extra_params.extend([search_pat, search_pat, search_pat])
@@ -330,8 +330,8 @@ async def list_transactions(
                             TO_TIMESTAMP(t.block_timestamp / 1000000000.0),
                             'YYYY-MM-DD"T"HH24:MI:SS'
                         ) AS timestamp_iso,
-                        COALESCE(t.sender_id, '') AS sender,
-                        COALESCE(t.receiver_id, '') AS receiver,
+                        CASE WHEN t.direction = 'out' THEN '' ELSE COALESCE(t.counterparty, '') END AS sender,
+                        CASE WHEN t.direction = 'in' THEN '' ELSE COALESCE(t.counterparty, '') END AS receiver,
                         CAST(t.amount AS TEXT) AS amount_str,
                         COALESCE(t.token_id, '') AS token_symbol,
                         COALESCE(t.action_type, '') AS action_type,
