@@ -69,8 +69,10 @@ else
         BUILD_WEB=true ;;
       api/*|indexers/*|engine/*|verify/*|db/*|config.py|requirements*.txt|Dockerfile)
         BUILD_BACKEND=true ;;
-      docker-compose*.yml|scripts/*|.github/*)
+      docker-compose*.yml)
         BUILD_WEB=true; BUILD_BACKEND=true ;;
+      scripts/*|.github/*)
+        BUILD_BACKEND=true ;;
     esac
   done <<< "$CHANGED_FILES"
 fi
