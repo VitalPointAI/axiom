@@ -129,7 +129,6 @@ class ClassificationUpdate(BaseModel):
     """
 
     tax_category: Optional[str] = None
-    sub_category: Optional[str] = None
     reviewer_notes: Optional[str] = None
     needs_review: Optional[bool] = None
 

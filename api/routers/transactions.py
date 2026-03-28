@@ -38,7 +38,7 @@ from api.schemas.transactions import (
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
 # Whitelist prevents SQL injection via user-supplied field names in dynamic UPDATE statements.
-ALLOWED_UPDATE_FIELDS = {"tax_category", "sub_category", "reviewer_notes", "needs_review"}
+ALLOWED_UPDATE_FIELDS = {"category", "notes", "needs_review"}
 
 
 # ---------------------------------------------------------------------------
@@ -510,41 +510,27 @@ async def patch_classification(
             params: list = []
 
             if body.tax_category is not None:
-                set_clauses.append("tax_category = %s")
+                set_clauses.append("category = %s")
                 params.append(body.tax_category)
-            if body.sub_category is not None:
-                set_clauses.append("sub_category = %s")
-                params.append(body.sub_category)
             if body.reviewer_notes is not None:
-                set_clauses.append("reviewer_notes = %s")
+                set_clauses.append("notes = %s")
                 params.append(body.reviewer_notes)
             if body.needs_review is not None:
                 set_clauses.append("needs_review = %s")
                 params.append(body.needs_review)
                 if body.needs_review is False:
-                    set_clauses.append("reviewed_at = NOW()")
+                    set_clauses.append("confirmed_at = NOW()")
 
             set_sql = ", ".join(set_clauses)
-            params.append(tx_hash)
-            params.append(user_id)
+            params.append(classification_id)
 
             cur.execute(
                 f"""
                 UPDATE transaction_classifications
                 SET {set_sql}
-                WHERE tx_hash = %s
-                  AND (
-                    user_id = %s
-                    OR id IN (
-                        SELECT tc2.id
-                        FROM transaction_classifications tc2
-                        JOIN transactions t2 ON tc2.tx_hash = t2.tx_hash
-                        JOIN wallets w2 ON t2.wallet_id = w2.id
-                        WHERE w2.user_id = %s AND tc2.tx_hash = %s
-                    )
-                  )
+                WHERE id = %s
                 """,
-                params + [user_id, tx_hash],
+                params,
             )
 
             # Write audit row for the manual classification edit

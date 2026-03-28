@@ -142,7 +142,7 @@ class KoinlyExport(ReportEngine):
                 """
                 SELECT
                     tc.category,
-                    tc.direction,
+                    tc.leg_type AS direction,
                     t.amount,
                     t.fee,
                     t.block_timestamp,
@@ -167,8 +167,8 @@ class KoinlyExport(ReportEngine):
                 """
                 SELECT
                     tc.category,
-                    tc.direction,
-                    et.amount,
+                    tc.leg_type AS direction,
+                    et.quantity,
                     et.fee,
                     et.tx_date,
                     et.tx_id,
