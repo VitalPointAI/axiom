@@ -8,31 +8,24 @@ COMPOSE_FILE="${1:-docker-compose.prod.yml}"
 MAX_RETRIES=10
 RETRY_DELAY=5
 
-check_service() {
-  local service=$1
-  local container_status
-  container_status=$(docker compose -f "$COMPOSE_FILE" ps --format json "$service" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('Health','') or d.get('State',''))" 2>/dev/null || echo "not_found")
-  echo "$container_status"
-}
-
 echo "=== Axiom Health Check ==="
 
 FAILED=0
 
 # Check postgres
 echo -n "PostgreSQL: "
-PG_STATUS=$(check_service postgres)
-if [[ "$PG_STATUS" == *"healthy"* ]] || [[ "$PG_STATUS" == *"running"* ]]; then
-  echo "OK"
+PG_STATUS=$(docker compose -f "$COMPOSE_FILE" ps postgres --format '{{.Status}}' 2>/dev/null || echo "not_found")
+if [[ "$PG_STATUS" == *"healthy"* ]] || [[ "$PG_STATUS" == *"Up"* ]]; then
+  echo "OK ($PG_STATUS)"
 else
   echo "FAIL ($PG_STATUS)"
   FAILED=1
 fi
 
-# Check api via HTTP health endpoint (direct port, not through proxy)
+# Check api health via docker exec (it's not exposed on host ports)
 echo -n "API (FastAPI): "
 for i in $(seq 1 $MAX_RETRIES); do
-  if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+  if docker compose -f "$COMPOSE_FILE" exec -T api curl -sf http://localhost:8000/health > /dev/null 2>&1; then
     echo "OK"
     break
   fi
@@ -44,11 +37,11 @@ for i in $(seq 1 $MAX_RETRIES); do
   fi
 done
 
-# Check web container is running (don't HTTP check — it's behind proxy)
+# Check web container is running
 echo -n "Web (Next.js): "
-WEB_STATUS=$(check_service web)
-if [[ "$WEB_STATUS" == *"healthy"* ]] || [[ "$WEB_STATUS" == *"running"* ]]; then
-  echo "OK"
+WEB_STATUS=$(docker compose -f "$COMPOSE_FILE" ps web --format '{{.Status}}' 2>/dev/null || echo "not_found")
+if [[ "$WEB_STATUS" == *"healthy"* ]] || [[ "$WEB_STATUS" == *"Up"* ]]; then
+  echo "OK ($WEB_STATUS)"
 else
   echo "FAIL ($WEB_STATUS)"
   FAILED=1
@@ -56,20 +49,36 @@ fi
 
 # Check indexer is running
 echo -n "Indexer: "
-IDX_STATUS=$(check_service indexer)
-if [[ "$IDX_STATUS" == *"running"* ]]; then
-  echo "OK"
+IDX_STATUS=$(docker compose -f "$COMPOSE_FILE" ps indexer --format '{{.Status}}' 2>/dev/null || echo "not_found")
+if [[ "$IDX_STATUS" == *"Up"* ]]; then
+  echo "OK ($IDX_STATUS)"
 else
   echo "FAIL ($IDX_STATUS)"
   FAILED=1
 fi
 
+# Check proxy can reach the app
+echo -n "Proxy (nginx): "
+for i in $(seq 1 $MAX_RETRIES); do
+  if curl -sf http://localhost:3003/health > /dev/null 2>&1; then
+    echo "OK"
+    break
+  fi
+  if [[ $i -eq $MAX_RETRIES ]]; then
+    echo "FAIL (proxy unreachable after ${MAX_RETRIES} retries)"
+    FAILED=1
+  else
+    sleep $RETRY_DELAY
+  fi
+done
+
 echo "========================="
 
 if [[ $FAILED -eq 1 ]]; then
   echo "HEALTH CHECK FAILED"
-  # Show logs for debugging
-  docker compose -f "$COMPOSE_FILE" logs --tail=20 2>/dev/null || true
+  docker compose -f "$COMPOSE_FILE" ps 2>/dev/null || true
+  echo "--- Recent logs ---"
+  docker compose -f "$COMPOSE_FILE" logs --tail=10 api web proxy 2>/dev/null || true
   exit 1
 fi
 

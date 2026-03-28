@@ -153,10 +153,14 @@ elif [[ "$BUILD_WEB" == "true" ]]; then
   $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d proxy"
 fi
 
-echo "==> Waiting for services to stabilize (15s)"
-sleep 15
+# Step 6: Ensure ALL services are up (catches containers lost from previous failed deploys)
+echo "==> Ensuring all services are running"
+$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d postgres api web proxy indexer"
 
-# Step 6: Run health checks
+echo "==> Waiting for services to stabilize (20s)"
+sleep 20
+
+# Step 7: Run health checks
 echo "==> Running health checks"
 $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && bash scripts/healthcheck.sh"
 
