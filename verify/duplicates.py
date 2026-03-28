@@ -462,7 +462,7 @@ class DuplicateDetector:
             cur.execute(
                 """
                 SELECT id, exchange, tx_id, tx_type, asset, quantity, tx_date,
-                       wallet_id
+                       NULL AS wallet_id
                 FROM exchange_transactions
                 WHERE user_id = %s
                 ORDER BY tx_date
@@ -721,7 +721,7 @@ class DuplicateDetector:
         # Get exchange tx details
         cur.execute(
             """
-            SELECT asset, quantity, tx_type, wallet_id
+            SELECT asset, quantity, tx_type, NULL AS wallet_id
             FROM exchange_transactions
             WHERE id = %s
             """,

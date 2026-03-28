@@ -5,8 +5,8 @@ set -euo pipefail
 # Run on the server after deployment
 
 COMPOSE_FILE="${1:-docker-compose.prod.yml}"
-MAX_RETRIES=5
-RETRY_DELAY=10
+MAX_RETRIES=10
+RETRY_DELAY=5
 
 check_service() {
   local service=$1
@@ -29,10 +29,10 @@ else
   FAILED=1
 fi
 
-# Check api via HTTP health endpoint
+# Check api via HTTP health endpoint (direct port, not through proxy)
 echo -n "API (FastAPI): "
 for i in $(seq 1 $MAX_RETRIES); do
-  if curl -sf http://localhost:3003/health > /dev/null 2>&1; then
+  if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
     echo "OK"
     break
   fi
@@ -44,20 +44,15 @@ for i in $(seq 1 $MAX_RETRIES); do
   fi
 done
 
-# Check web via HTTP
+# Check web container is running (don't HTTP check — it's behind proxy)
 echo -n "Web (Next.js): "
-for i in $(seq 1 $MAX_RETRIES); do
-  if curl -sf http://localhost:3003 > /dev/null 2>&1; then
-    echo "OK"
-    break
-  fi
-  if [[ $i -eq $MAX_RETRIES ]]; then
-    echo "FAIL (web unreachable after ${MAX_RETRIES} retries)"
-    FAILED=1
-  else
-    sleep $RETRY_DELAY
-  fi
-done
+WEB_STATUS=$(check_service web)
+if [[ "$WEB_STATUS" == *"healthy"* ]] || [[ "$WEB_STATUS" == *"running"* ]]; then
+  echo "OK"
+else
+  echo "FAIL ($WEB_STATUS)"
+  FAILED=1
+fi
 
 # Check indexer is running
 echo -n "Indexer: "
