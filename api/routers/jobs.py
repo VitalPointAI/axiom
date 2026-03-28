@@ -73,18 +73,22 @@ _STAGE_PRIORITY = {
 
 
 def _estimate_minutes(jobs: list) -> int | None:
-    """Estimate remaining minutes based on job count and types.
+    """Estimate remaining minutes from active jobs.
 
-    Heuristics (based on observed performance):
-    - NEAR incremental via neardata.xyz: ~12 min per wallet (10K block scan)
-    - EVM sync via Etherscan: ~2 min per wallet
-    - Classification/ACB/Verify: ~1 min total
-    - Queued jobs run sequentially
+    For running jobs with a started_at timestamp, uses actual elapsed time
+    to project remaining time. For queued jobs, uses heuristic defaults.
+
+    Active job row schema:
+      0: id, 1: wallet_id, 2: job_type, 3: status,
+      4: progress_fetched, 5: progress_total,
+      6: error_message, 7: started_at, 8: completed_at
 
     Returns estimated minutes remaining, or None if no jobs.
     """
     if not jobs:
         return None
+
+    from datetime import datetime, timezone
 
     total_minutes = 0
     for job in jobs:
@@ -92,32 +96,49 @@ def _estimate_minutes(jobs: list) -> int | None:
         job_status = job[3]
         fetched = job[4] or 0
         total = job[5] or 0
+        started_at = job[7]  # datetime or None
 
         if job_status == "completed":
             continue
 
-        if jtype in ("full_sync", "incremental_sync", "staking_sync", "lockup_sync"):
+        # For running jobs: use elapsed time to project remaining
+        if job_status == "running" and started_at is not None:
+            now = datetime.now(timezone.utc)
+            if hasattr(started_at, 'tzinfo') and started_at.tzinfo is None:
+                from datetime import timezone as tz
+                started_at = started_at.replace(tzinfo=tz.utc)
+            elapsed_min = max(1, (now - started_at).total_seconds() / 60)
+
             if total > 0 and fetched > 0:
-                # Estimate from actual progress rate
-                remaining_blocks = total - fetched
-                # ~15 blocks/sec observed rate
-                total_minutes += max(1, remaining_blocks // 900)
-            else:
-                total_minutes += 12  # Default per NEAR wallet
+                # Progress-based estimate: elapsed * (remaining / done)
+                remaining_frac = (total - fetched) / total
+                done_frac = fetched / total
+                if done_frac > 0.01:
+                    est_remaining = elapsed_min * (remaining_frac / done_frac)
+                    total_minutes += max(1, int(est_remaining))
+                    continue
+
+            # No progress data — estimate based on how long it's been running.
+            # If it's been running > 5 min, assume it needs at least that much more.
+            # Jobs that finish fast will already be done; long jobs need honest estimates.
+            total_minutes += max(1, int(elapsed_min * 0.5))
+            continue
+
+        # Queued jobs: use heuristic defaults
+        if jtype in ("full_sync", "incremental_sync", "staking_sync", "lockup_sync"):
+            total_minutes += 12
         elif jtype in ("evm_full_sync", "evm_incremental"):
             total_minutes += 2
-        elif jtype in ("xrp_full_sync", "xrp_incremental"):
-            total_minutes += 3
-        elif jtype in ("akash_full_sync", "akash_incremental"):
+        elif jtype in ("xrp_full_sync", "xrp_incremental", "akash_full_sync", "akash_incremental"):
             total_minutes += 3
         elif jtype in ("dedup_scan", "classify_transactions"):
-            total_minutes += 1
-        elif jtype == "calculate_acb":
-            total_minutes += 1
-        elif jtype in ("verify_balances", "generate_reports"):
-            total_minutes += 1
-        else:
             total_minutes += 2
+        elif jtype == "calculate_acb":
+            total_minutes += 15  # First run with uncached prices can be very slow
+        elif jtype in ("verify_balances", "generate_reports"):
+            total_minutes += 2
+        else:
+            total_minutes += 3
 
     return max(1, total_minutes) if total_minutes > 0 else None
 
