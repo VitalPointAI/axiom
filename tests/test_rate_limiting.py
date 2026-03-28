@@ -52,11 +52,10 @@ class TestRateLimiting:
         """ALLOWED_UPDATE_FIELDS whitelist must be defined in transactions router."""
         from api.routers.transactions import ALLOWED_UPDATE_FIELDS
         # Verify the expected fields are present
-        assert "tax_category" in ALLOWED_UPDATE_FIELDS
-        assert "sub_category" in ALLOWED_UPDATE_FIELDS
-        assert "reviewer_notes" in ALLOWED_UPDATE_FIELDS
+        assert "category" in ALLOWED_UPDATE_FIELDS
+        assert "notes" in ALLOWED_UPDATE_FIELDS
         assert "needs_review" in ALLOWED_UPDATE_FIELDS
         # Verify no additional unexpected fields (security: whitelist should be minimal)
-        assert len(ALLOWED_UPDATE_FIELDS) == 4, (
-            f"ALLOWED_UPDATE_FIELDS should have exactly 4 fields, got {len(ALLOWED_UPDATE_FIELDS)}"
+        assert len(ALLOWED_UPDATE_FIELDS) == 3, (
+            f"ALLOWED_UPDATE_FIELDS should have exactly 3 fields, got {len(ALLOWED_UPDATE_FIELDS)}"
         )
