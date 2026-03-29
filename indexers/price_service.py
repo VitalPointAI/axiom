@@ -36,8 +36,11 @@ from indexers.db import get_pool
 COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 CRYPTOCOMPARE_BASE = "https://min-api.cryptocompare.com/data"
 
-# CoinGecko Pro base (used when API key is present)
+# CoinGecko Pro base (used when Pro API key is present — starts with "CG-pro-")
 COINGECKO_PRO_BASE = "https://pro-api.coingecko.com/api/v3"
+
+# CoinGecko Demo base (used when Demo API key is present — starts with "CG-")
+COINGECKO_DEMO_BASE = "https://api.coingecko.com/api/v3"
 
 # Bank of Canada Valet API base
 BOC_VALET_BASE = "https://www.bankofcanada.ca/valet"
@@ -102,6 +105,16 @@ class PriceService:
         self.db_pool = db_pool
         self.coingecko_api_key = COINGECKO_API_KEY
         self.cryptocompare_api_key = CRYPTOCOMPARE_API_KEY
+        # Detect Pro vs Demo key. Pro keys start with "CG-pro-", demo with "CG-"
+        if self.coingecko_api_key and self.coingecko_api_key.startswith("CG-pro-"):
+            self._cg_base = COINGECKO_PRO_BASE
+            self._cg_header = "x-cg-pro-api-key"
+        elif self.coingecko_api_key:
+            self._cg_base = COINGECKO_DEMO_BASE
+            self._cg_header = "x-cg-demo-api-key"
+        else:
+            self._cg_base = COINGECKO_BASE
+            self._cg_header = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -406,7 +419,7 @@ class PriceService:
         today = datetime.utcnow().date()
         days_ago = (today - start_dt.date()).days
 
-        base = COINGECKO_PRO_BASE if self.coingecko_api_key else COINGECKO_BASE
+        base = self._cg_base
 
         if self.coingecko_api_key:
             # Paid plan: use market_chart/range for any range
@@ -434,7 +447,7 @@ class PriceService:
         to_ts = int(end_dt.timestamp()) + 86400
         url = f"{base}/coins/{coin_id}/market_chart/range"
         params = {"vs_currency": currency, "from": from_ts, "to": to_ts}
-        headers = {"x-cg-pro-api-key": self.coingecko_api_key} if self.coingecko_api_key else {}
+        headers = {self._cg_header: self.coingecko_api_key} if self._cg_header else {}
 
         return self._parse_market_chart(url, params, headers, coin_id, currency, missing_dates)
 
@@ -665,12 +678,13 @@ class PriceService:
             time.sleep(_COINGECKO_DELAY - elapsed)
         _last_coingecko_call = time.time()
 
-        base = COINGECKO_PRO_BASE if self.coingecko_api_key else COINGECKO_BASE
+        base = self._cg_base
         url = f"{base}/coins/{coin_id}/history"
         params = {"date": cg_date, "localization": "false"}
         headers = {}
         if self.coingecko_api_key:
-            headers["x-cg-pro-api-key"] = self.coingecko_api_key
+            if self._cg_header:
+                headers[self._cg_header] = self.coingecko_api_key
 
         for attempt in range(3):
             try:
@@ -865,12 +879,13 @@ class PriceService:
         from_ts = unix_ts - 3600
         to_ts = unix_ts + 3600
 
-        base = COINGECKO_PRO_BASE if self.coingecko_api_key else COINGECKO_BASE
+        base = self._cg_base
         url = f"{base}/coins/{coin_id}/market_chart/range"
         params = {"vs_currency": currency, "from": from_ts, "to": to_ts}
         headers = {}
         if self.coingecko_api_key:
-            headers["x-cg-pro-api-key"] = self.coingecko_api_key
+            if self._cg_header:
+                headers[self._cg_header] = self.coingecko_api_key
 
         for attempt in range(3):
             try:
