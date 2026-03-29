@@ -119,13 +119,17 @@ class SpamDetector:
                     }
 
         # Signal 2: Dust amount (value below threshold)
-        if amount_usd < self.DUST_THRESHOLD_USD and amount_usd >= 0:
+        # Only fire if amount_usd was actually provided (> 0 means it was priced).
+        # amount_usd defaults to 0 when FMV isn't available at classification time,
+        # which would falsely flag every unpriced transaction as dust.
+        has_price = tx.get("amount_usd") is not None and float(tx.get("amount_usd", 0)) > 0
+        if has_price and amount_usd < self.DUST_THRESHOLD_USD:
             signals.append("dust_amount")
             confidence += self.SIGNAL_WEIGHT
 
         # Signal 3: Unsolicited incoming (direction='in' with negligible value)
-        # Only counts as a separate signal if the transfer is incoming (user didn't initiate)
-        if direction == "in" and amount_usd < self.DUST_THRESHOLD_USD:
+        # Only counts if we actually know the value is negligible
+        if direction == "in" and has_price and amount_usd < self.DUST_THRESHOLD_USD:
             signals.append("unsolicited")
             confidence += self.SIGNAL_WEIGHT
 
