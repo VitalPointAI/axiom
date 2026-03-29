@@ -262,10 +262,13 @@ class ACBEngine:
                 (user_id,),
             )
             row = cur.fetchone()
+        except Exception:
+            # Columns may not exist yet (pre-migration 014) — full replay
+            return True, None
         finally:
             cur.close()
 
-        if row is None:
+        if row is None or len(row) < 2:
             return True, None
 
         hwm, replay_required = row
