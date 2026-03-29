@@ -220,6 +220,12 @@ async def create_wallet(
 
             wallet_id = row[0]
 
+            # Flag ACB for full replay (new wallet may have older transactions)
+            cur.execute(
+                "UPDATE users SET acb_full_replay_required = TRUE WHERE id = %s",
+                (user_id,),
+            )
+
             # Queue pipeline jobs
             jobs = _jobs_for_chain(body.chain)
             for job_type, priority in jobs:

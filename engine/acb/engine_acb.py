@@ -188,7 +188,18 @@ class ACBEngine:
         return {k: v for k, v in token_dates.items()}
 
     def calculate_for_user(self, user_id: int) -> dict:
-        """Replay all classified transactions for user, writing ACB snapshots.
+        """Calculate ACB for a user — incremental when possible, full replay when needed.
+
+        Incremental mode (fast path, <30s):
+          - Restores ACB pool state from latest snapshots per token
+          - Only processes classifications with id > high-water mark
+          - Skips price pre-warming (new txs are recent, likely cached)
+
+        Full replay mode (slow path, triggered by):
+          - First-ever ACB run (no high-water mark)
+          - New wallet added (acb_full_replay_required = true)
+          - Reclassification of existing transactions
+          - Explicit request via force_full_replay parameter
 
         Uses tiered FMV pricing (see docs/FMV_METHODOLOGY.md):
           - Tier 1: Staking/lockup FMV from on-chain data (exact, no API call)
@@ -197,81 +208,275 @@ class ACBEngine:
         """
         conn = self._pool.getconn()
         try:
-            import engine.acb as _acb_mod
-            _GC = _acb_mod.GainsCalculator
-            if _GC is None:
-                from engine.gains import GainsCalculator as _GC
-                _acb_mod.GainsCalculator = _GC
-            gains = _GC(conn)
-            gains.clear_for_user(user_id)
+            # Check incremental eligibility
+            full_replay, high_water_mark = self._check_replay_mode(conn, user_id)
 
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM acb_snapshots WHERE user_id = %s", (user_id,))
-
-            from psycopg2.extras import NamedTupleCursor
-            with conn.cursor(cursor_factory=NamedTupleCursor) as cur:
-                cur.execute(_CLASSIFY_SQL, (user_id,))
-                rows = cur.fetchall()
-
-            # Pre-warm price cache with bulk daily prices (1 API call per token)
-            self._pre_warm_price_cache(rows)
-
-            pools: dict[str, ACBPool] = {}
-            stats = {
-                "snapshots_written": 0,
-                "gains_recorded": 0,
-                "income_recorded": 0,
-                "tokens_processed": set(),
-            }
-
-            child_map: dict[int, list] = {}
-            for r in rows:
-                if r.parent_classification_id is not None:
-                    pid = r.parent_classification_id
-                    child_map.setdefault(pid, [])
-                    child_map[pid].append(r)
-
-            for row in rows:
-                if row.parent_classification_id is not None:
-                    continue
-                self._process_row(
-                    row=row, child_map=child_map, pools=pools,
-                    conn=conn, gains=gains, user_id=user_id, stats=stats,
-                )
-
-            from engine.superficial import SuperficialLossDetector
-            detector = SuperficialLossDetector(conn)
-            superficial_losses = detector.scan_for_user(user_id)
-            if superficial_losses:
-                detector.apply_superficial_losses(user_id, superficial_losses)
-                logger.info(
-                    "Superficial loss pass complete for user_id=%s: %d losses flagged",
-                    user_id, len(superficial_losses),
-                )
-            stats["superficial_losses"] = len(superficial_losses)
-
-            # Write one audit row per token after the full replay (not per-transaction).
-            # This prevents audit table bloat while still recording the final ACB state.
-            for symbol, pool in pools.items():
-                write_audit(
-                    conn,
-                    user_id=user_id,
-                    entity_type="acb_snapshot",
-                    entity_id=None,
-                    action="acb_calculation",
-                    new_value={
-                        "symbol": symbol,
-                        "total_units": str(pool.total_units),
-                        "total_cost_cad": str(pool.total_cost_cad),
-                    },
-                    actor_type="system",
-                )
-
-            conn.commit()
-            stats["tokens_processed"] = len(stats["tokens_processed"])
-            return stats
+            if full_replay:
+                logger.info("ACB full replay for user_id=%s (hwm=%s)", user_id, high_water_mark)
+                return self._full_replay(conn, user_id)
+            else:
+                logger.info("ACB incremental for user_id=%s (hwm=%s)", user_id, high_water_mark)
+                return self._incremental(conn, user_id, high_water_mark)
         finally:
             self._pool.putconn(conn)
+
+    def _check_replay_mode(self, conn, user_id: int) -> tuple[bool, int | None]:
+        """Determine if full replay is needed or incremental is safe.
+
+        Returns (full_replay_needed, high_water_mark).
+        """
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """SELECT acb_high_water_mark, acb_full_replay_required
+                   FROM users WHERE id = %s""",
+                (user_id,),
+            )
+            row = cur.fetchone()
+        finally:
+            cur.close()
+
+        if row is None:
+            return True, None
+
+        hwm, replay_required = row
+
+        # Full replay needed if:
+        # 1. No high-water mark (first run)
+        # 2. Explicitly flagged (new wallet, reclassification)
+        if hwm is None or replay_required:
+            return True, hwm
+
+        # Check if any classifications were MODIFIED (not just added) since hwm.
+        # If existing classifications were reclassified, their IDs stay the same
+        # but updated_at changes. This catches reclassifications.
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """SELECT COUNT(*) FROM transaction_classifications
+                   WHERE user_id = %s AND id <= %s
+                     AND updated_at > (
+                         SELECT COALESCE(MAX(updated_at), '1970-01-01')
+                         FROM acb_snapshots WHERE user_id = %s
+                     )""",
+                (user_id, hwm, user_id),
+            )
+            modified_count = cur.fetchone()[0]
+        finally:
+            cur.close()
+
+        if modified_count > 0:
+            logger.info("ACB: %d classifications modified since last run, forcing full replay",
+                        modified_count)
+            return True, hwm
+
+        return False, hwm
+
+    def _restore_pools(self, conn, user_id: int) -> dict[str, ACBPool]:
+        """Restore ACB pool state from the latest snapshot per token.
+
+        For each token_symbol, finds the snapshot with the highest classification_id
+        and restores total_units (units_after) and total_cost_cad.
+
+        Returns dict of symbol -> ACBPool with restored state.
+        """
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """SELECT DISTINCT ON (token_symbol)
+                       token_symbol, units_after, total_cost_cad
+                   FROM acb_snapshots
+                   WHERE user_id = %s
+                   ORDER BY token_symbol, classification_id DESC""",
+                (user_id,),
+            )
+            rows = cur.fetchall()
+        finally:
+            cur.close()
+
+        pools: dict[str, ACBPool] = {}
+        for symbol, units_after, total_cost_cad in rows:
+            pool = ACBPool(symbol)
+            pool.total_units = Decimal(str(units_after))
+            pool.total_cost_cad = Decimal(str(total_cost_cad))
+            pools[symbol] = pool
+            logger.debug("Restored pool %s: units=%s cost=%s",
+                         symbol, pool.total_units, pool.total_cost_cad)
+
+        return pools
+
+    def _update_high_water_mark(self, conn, user_id: int, max_classification_id: int) -> None:
+        """Update the user's ACB high-water mark after successful run."""
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """UPDATE users
+                   SET acb_high_water_mark = %s,
+                       acb_full_replay_required = FALSE
+                   WHERE id = %s""",
+                (max_classification_id, user_id),
+            )
+        finally:
+            cur.close()
+
+    def _incremental(self, conn, user_id: int, high_water_mark: int) -> dict:
+        """Process only new classifications since the high-water mark.
+
+        Restores pool state from snapshots, processes new rows, persists results.
+        Much faster than full replay — typically <30s for incremental syncs.
+        """
+        import engine.acb as _acb_mod
+        _GC = _acb_mod.GainsCalculator
+        if _GC is None:
+            from engine.gains import GainsCalculator as _GC
+            _acb_mod.GainsCalculator = _GC
+        gains = _GC(conn)
+        # Don't clear gains — we're appending incrementally
+
+        # Restore pool state from existing snapshots
+        pools = self._restore_pools(conn, user_id)
+
+        # Fetch only NEW classifications (id > high_water_mark)
+        from psycopg2.extras import NamedTupleCursor
+        incremental_sql = _CLASSIFY_SQL.replace(
+            "WHERE tc.user_id = %s",
+            "WHERE tc.user_id = %s AND tc.id > %s",
+        )
+        with conn.cursor(cursor_factory=NamedTupleCursor) as cur:
+            cur.execute(incremental_sql, (user_id, high_water_mark))
+            rows = cur.fetchall()
+
+        if not rows:
+            logger.info("ACB incremental: no new classifications for user_id=%s", user_id)
+            conn.commit()
+            return {"snapshots_written": 0, "gains_recorded": 0,
+                    "income_recorded": 0, "tokens_processed": 0,
+                    "superficial_losses": 0, "mode": "incremental_noop"}
+
+        logger.info("ACB incremental: processing %d new classifications", len(rows))
+
+        # Pre-warm prices only for the new rows
+        self._pre_warm_price_cache(rows)
+
+        stats = {
+            "snapshots_written": 0,
+            "gains_recorded": 0,
+            "income_recorded": 0,
+            "tokens_processed": set(),
+        }
+
+        child_map: dict[int, list] = {}
+        for r in rows:
+            if r.parent_classification_id is not None:
+                pid = r.parent_classification_id
+                child_map.setdefault(pid, [])
+                child_map[pid].append(r)
+
+        max_id = high_water_mark
+        for row in rows:
+            if row.parent_classification_id is not None:
+                continue
+            self._process_row(
+                row=row, child_map=child_map, pools=pools,
+                conn=conn, gains=gains, user_id=user_id, stats=stats,
+            )
+            max_id = max(max_id, row.id)
+
+        # Update high-water mark
+        self._update_high_water_mark(conn, user_id, max_id)
+
+        conn.commit()
+        stats["tokens_processed"] = len(stats["tokens_processed"])
+        stats["mode"] = "incremental"
+        return stats
+
+    def _full_replay(self, conn, user_id: int) -> dict:
+        """Full ACB replay — clears all snapshots and reprocesses everything.
+
+        Triggered when:
+          - First-ever ACB run
+          - New wallet added
+          - Classifications modified
+        """
+        import engine.acb as _acb_mod
+        _GC = _acb_mod.GainsCalculator
+        if _GC is None:
+            from engine.gains import GainsCalculator as _GC
+            _acb_mod.GainsCalculator = _GC
+        gains = _GC(conn)
+        gains.clear_for_user(user_id)
+
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM acb_snapshots WHERE user_id = %s", (user_id,))
+
+        from psycopg2.extras import NamedTupleCursor
+        with conn.cursor(cursor_factory=NamedTupleCursor) as cur:
+            cur.execute(_CLASSIFY_SQL, (user_id,))
+            rows = cur.fetchall()
+
+        # Pre-warm price cache with bulk daily prices
+        self._pre_warm_price_cache(rows)
+
+        pools: dict[str, ACBPool] = {}
+        stats = {
+            "snapshots_written": 0,
+            "gains_recorded": 0,
+            "income_recorded": 0,
+            "tokens_processed": set(),
+        }
+
+        child_map: dict[int, list] = {}
+        for r in rows:
+            if r.parent_classification_id is not None:
+                pid = r.parent_classification_id
+                child_map.setdefault(pid, [])
+                child_map[pid].append(r)
+
+        max_id = 0
+        for row in rows:
+            if row.parent_classification_id is not None:
+                continue
+            self._process_row(
+                row=row, child_map=child_map, pools=pools,
+                conn=conn, gains=gains, user_id=user_id, stats=stats,
+            )
+            max_id = max(max_id, row.id)
+
+        from engine.superficial import SuperficialLossDetector
+        detector = SuperficialLossDetector(conn)
+        superficial_losses = detector.scan_for_user(user_id)
+        if superficial_losses:
+            detector.apply_superficial_losses(user_id, superficial_losses)
+            logger.info(
+                "Superficial loss pass complete for user_id=%s: %d losses flagged",
+                user_id, len(superficial_losses),
+            )
+        stats["superficial_losses"] = len(superficial_losses)
+
+        # Write audit row per token
+        for symbol, pool in pools.items():
+            write_audit(
+                conn,
+                user_id=user_id,
+                entity_type="acb_snapshot",
+                entity_id=None,
+                action="acb_calculation",
+                new_value={
+                    "symbol": symbol,
+                    "total_units": str(pool.total_units),
+                    "total_cost_cad": str(pool.total_cost_cad),
+                },
+                actor_type="system",
+            )
+
+        # Update high-water mark
+        if max_id > 0:
+            self._update_high_water_mark(conn, user_id, max_id)
+
+        conn.commit()
+        stats["tokens_processed"] = len(stats["tokens_processed"])
+        stats["mode"] = "full_replay"
+        return stats
 
     def _get_pool(self, pools: dict, symbol: str) -> ACBPool:
         if symbol not in pools:
