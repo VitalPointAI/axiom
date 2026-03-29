@@ -205,15 +205,14 @@ class ACBEngine:
                 coin_id, start_date, end_date, "usd"
             )
 
-        # Also pre-warm BoC CAD rates for the full date range
+        # Bulk pre-warm BoC CAD rates for the full date range (single API call)
         all_dates = set()
         for dates in token_dates.values():
             all_dates.update(dates)
         if all_dates:
             sorted_all = sorted(all_dates)
-            logger.info("Pre-warming BoC CAD rates: %s → %s", sorted_all[0], sorted_all[-1])
-            for date_str in sorted_all:
-                self._price_service.get_boc_cad_rate(date_str)
+            logger.info("Pre-warming BoC CAD rates: %s → %s (bulk)", sorted_all[0], sorted_all[-1])
+            self._price_service.bulk_fetch_boc_cad_rates(sorted_all[0], sorted_all[-1])
 
         return {k: v for k, v in token_dates.items()}
 

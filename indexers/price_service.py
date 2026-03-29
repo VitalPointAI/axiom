@@ -876,6 +876,102 @@ class PriceService:
     # Internal: Bank of Canada Valet API
     # ------------------------------------------------------------------
 
+    def bulk_fetch_boc_cad_rates(self, start_date: str, end_date: str) -> int:
+        """Bulk fetch BoC USD/CAD rates for a date range in a single API call.
+
+        The Valet API supports date ranges — returns all business day rates
+        in one response. Weekends/holidays are filled from the previous
+        business day.
+
+        Args:
+            start_date: ISO date "YYYY-MM-DD"
+            end_date:   ISO date "YYYY-MM-DD"
+
+        Returns:
+            Number of new rates cached.
+        """
+        # Check what's already cached
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT date FROM price_cache
+                   WHERE coin_id = 'usd' AND currency = 'cad'
+                     AND date >= %s AND date <= %s""",
+                (start_date, end_date),
+            )
+            cached_dates = {row[0] for row in cur.fetchall()}
+            cur.close()
+        finally:
+            self._put_conn(conn)
+
+        # Build set of all dates we need
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        all_dates = set()
+        d = start_dt
+        while d <= end_dt:
+            all_dates.add(d.strftime("%Y-%m-%d"))
+            d += timedelta(days=1)
+
+        missing = all_dates - cached_dates
+        if not missing:
+            logger.info("BoC CAD rates fully cached for %s → %s (%d dates)",
+                        start_date, end_date, len(cached_dates))
+            return 0
+
+        logger.info("Bulk fetching BoC CAD rates: %s → %s (%d missing, %d cached)",
+                     start_date, end_date, len(missing), len(cached_dates))
+
+        # Fetch entire range in one call
+        url = f"{BOC_VALET_BASE}/observations/FXUSDCAD/json"
+        params = {"start_date": start_date, "end_date": end_date}
+
+        try:
+            resp = requests.get(url, params=params, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            observations = data.get("observations", [])
+        except Exception as exc:
+            logger.warning("BoC Valet bulk fetch failed: %s", exc)
+            return 0
+
+        if not observations:
+            return 0
+
+        # Build date -> rate mapping from business days
+        biz_rates: dict[str, Decimal] = {}
+        for obs in observations:
+            obs_date = obs.get("d")
+            rate_str = obs.get("FXUSDCAD", {}).get("v")
+            if obs_date and rate_str:
+                biz_rates[obs_date] = Decimal(str(rate_str))
+
+        # Fill all dates (weekends/holidays get previous business day rate)
+        cached_count = 0
+        sorted_biz = sorted(biz_rates.keys())
+        last_rate = None
+
+        d = start_dt
+        biz_idx = 0
+        while d <= end_dt:
+            ds = d.strftime("%Y-%m-%d")
+
+            # Advance to current or next business day rate
+            while biz_idx < len(sorted_biz) and sorted_biz[biz_idx] <= ds:
+                last_rate = biz_rates[sorted_biz[biz_idx]]
+                biz_idx += 1
+
+            if ds in missing and last_rate is not None:
+                source = "bank_of_canada" if ds in biz_rates else "bank_of_canada_fillforward"
+                self._cache_price("usd", ds, "cad", last_rate, source)
+                cached_count += 1
+
+            d += timedelta(days=1)
+
+        logger.info("BoC CAD rates: cached %d new rates", cached_count)
+        return cached_count
+
     def _fetch_boc_rate(self, date_str: str) -> Optional[Decimal]:
         """
         Fetch USD/CAD rate from Bank of Canada Valet API for a single date.
