@@ -399,33 +399,74 @@ class PriceService:
                 self._cache_price(coin_id, ds, currency, stable_price, "stablecoin")
             return len(missing_dates)
 
-        # Use /market_chart?days=N (works on free tier).
-        # /market_chart/range requires paid plan on free tier.
-        # days > 90 returns daily data points; days <= 90 returns hourly.
+        # Strategy depends on whether dates are recent or historical:
+        # - /market_chart?days=N returns data from today-N (free tier, good for recent)
+        # - /coins/{id}/history?date=DD-MM-YYYY works for any historical date (free tier)
+        # - /market_chart/range works for any range but requires paid plan
+        today = datetime.utcnow().date()
+        days_ago = (today - start_dt.date()).days
+
+        base = COINGECKO_PRO_BASE if self.coingecko_api_key else COINGECKO_BASE
+
+        if self.coingecko_api_key:
+            # Paid plan: use market_chart/range for any range
+            return self._bulk_fetch_range(coin_id, start_dt, end_dt, currency,
+                                          missing_dates, base)
+
+        if days_ago <= 365:
+            # Recent dates: market_chart?days=N covers them
+            return self._bulk_fetch_days(coin_id, days_ago + 1, currency,
+                                         missing_dates, base)
+
+        # Historical dates: use per-date /history endpoint (rate limited)
+        # Only fetch for actual missing dates to minimize API calls
+        return self._bulk_fetch_history(coin_id, sorted(missing_dates), currency, base)
+
+    def _bulk_fetch_range(self, coin_id, start_dt, end_dt, currency, missing_dates, base):
+        """Bulk fetch using /market_chart/range (requires API key)."""
+        global _last_coingecko_call
         elapsed = time.time() - _last_coingecko_call
         if elapsed < _COINGECKO_DELAY:
             time.sleep(_COINGECKO_DELAY - elapsed)
         _last_coingecko_call = time.time()
 
-        total_days = (end_dt - start_dt).days + 1
+        from_ts = int(start_dt.timestamp())
+        to_ts = int(end_dt.timestamp()) + 86400
+        url = f"{base}/coins/{coin_id}/market_chart/range"
+        params = {"vs_currency": currency, "from": from_ts, "to": to_ts}
+        headers = {"x-cg-pro-api-key": self.coingecko_api_key} if self.coingecko_api_key else {}
 
-        base = COINGECKO_PRO_BASE if self.coingecko_api_key else COINGECKO_BASE
+        return self._parse_market_chart(url, params, headers, coin_id, currency, missing_dates)
 
-        # For ranges > 365 days, use /market_chart/range with API key,
-        # otherwise use /market_chart?days=N which works on free tier
-        if self.coingecko_api_key:
-            from_ts = int(start_dt.timestamp())
-            to_ts = int(end_dt.timestamp()) + 86400
-            url = f"{base}/coins/{coin_id}/market_chart/range"
-            params = {"vs_currency": currency, "from": from_ts, "to": to_ts}
-        else:
-            url = f"{base}/coins/{coin_id}/market_chart"
-            params = {"vs_currency": currency, "days": min(total_days, 365)}
+    def _bulk_fetch_days(self, coin_id, days, currency, missing_dates, base):
+        """Bulk fetch using /market_chart?days=N (free tier, recent data only)."""
+        global _last_coingecko_call
+        elapsed = time.time() - _last_coingecko_call
+        if elapsed < _COINGECKO_DELAY:
+            time.sleep(_COINGECKO_DELAY - elapsed)
+        _last_coingecko_call = time.time()
 
-        headers = {}
-        if self.coingecko_api_key:
-            headers["x-cg-pro-api-key"] = self.coingecko_api_key
+        url = f"{base}/coins/{coin_id}/market_chart"
+        params = {"vs_currency": currency, "days": min(days, 365)}
+        return self._parse_market_chart(url, params, {}, coin_id, currency, missing_dates)
 
+    def _bulk_fetch_history(self, coin_id, sorted_dates, currency, base):
+        """Fetch historical prices one date at a time via /history endpoint."""
+        global _last_coingecko_call
+        cached_count = 0
+
+        for date_str in sorted_dates:
+            # Use existing single-date fetch (which also caches)
+            price = self._fetch_coingecko(coin_id, date_str, currency)
+            if price is not None:
+                cached_count += 1
+
+        logger.info("History-fetched %d prices for %s (%d dates)",
+                     cached_count, coin_id, len(sorted_dates))
+        return cached_count
+
+    def _parse_market_chart(self, url, params, headers, coin_id, currency, missing_dates):
+        """Shared parser for market_chart and market_chart/range responses."""
         cached_count = 0
         for attempt in range(3):
             try:
@@ -454,7 +495,6 @@ class PriceService:
                     ds = datetime.utcfromtimestamp(ts_ms / 1000).strftime("%Y-%m-%d")
                     date_prices.setdefault(ds, []).append(price)
 
-                # Cache the daily average for each missing date
                 for ds, price_list in date_prices.items():
                     if ds in missing_dates:
                         avg_price = sum(price_list) / len(price_list)
