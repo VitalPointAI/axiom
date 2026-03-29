@@ -83,25 +83,32 @@ $SSH_CMD "$SSH_TARGET" "docker image prune -af --filter 'until=72h' && docker bu
 
 # Step 3: Smart build - only rebuild what changed
 COMMIT_SHA=$($SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && git rev-parse --short HEAD")
-SERVICES_TO_BUILD=""
 
+# Authenticate to GHCR for pulling pre-built images
+if [[ -n "${GHCR_TOKEN:-}" ]]; then
+  echo "==> Authenticating to GHCR"
+  $SSH_CMD "$SSH_TARGET" "echo $GHCR_TOKEN | docker login ghcr.io -u $GHCR_USER --password-stdin" 2>/dev/null || true
+fi
+
+# Web: pull pre-built image from GHCR (built in CI, not on server)
 if [[ "$BUILD_WEB" == "true" ]]; then
-  SERVICES_TO_BUILD="$SERVICES_TO_BUILD web"
-  echo "==> Will rebuild: web (frontend changed)"
+  echo "==> Pulling pre-built web image from GHCR"
+  $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml pull web" || {
+    echo "==> GHCR pull failed, falling back to local build"
+    $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml build web"
+  }
 fi
 
+# Backend: build on server (fast — Python images, no npm)
 if [[ "$BUILD_BACKEND" == "true" ]]; then
-  SERVICES_TO_BUILD="$SERVICES_TO_BUILD api indexer"
-  echo "==> Will rebuild: api indexer (backend changed)"
+  echo "==> Building backend images: api indexer"
+  $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml build --build-arg COMMIT_SHA=$COMMIT_SHA api indexer"
 fi
 
-if [[ -z "$SERVICES_TO_BUILD" ]]; then
+if [[ "$BUILD_WEB" != "true" && "$BUILD_BACKEND" != "true" ]]; then
   echo "==> No service rebuilds needed (only docs/planning changed)"
   exit 0
 fi
-
-echo "==> Building Docker images: $SERVICES_TO_BUILD"
-$SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml build --build-arg COMMIT_SHA=$COMMIT_SHA $SERVICES_TO_BUILD"
 
 # Step 4: Run migrations (one-shot container)
 # Always rebuild migrate image when backend changes — it shares the indexer Dockerfile

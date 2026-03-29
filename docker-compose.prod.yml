@@ -70,6 +70,7 @@ services:
         max-file: "3"
 
   web:
+    image: ${WEB_IMAGE:-axiom-web:local}
     build:
       context: ./web
       dockerfile: Dockerfile
