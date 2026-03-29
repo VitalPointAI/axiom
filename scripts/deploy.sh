@@ -104,9 +104,11 @@ echo "==> Building Docker images: $SERVICES_TO_BUILD"
 $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml build --build-arg COMMIT_SHA=$COMMIT_SHA $SERVICES_TO_BUILD"
 
 # Step 4: Run migrations (one-shot container)
+# Always rebuild migrate image when backend changes — it shares the indexer Dockerfile
+# and contains the migration files. Without rebuilding, new migrations won't be detected.
 if [[ "$BUILD_BACKEND" == "true" ]]; then
-  echo "==> Running database migrations"
-  $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up migrate --exit-code-from migrate"
+  echo "==> Building and running database migrations"
+  $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml build migrate && docker compose -f docker-compose.prod.yml up migrate --exit-code-from migrate"
 fi
 
 # Step 5: Rolling restart - only restart what was rebuilt
