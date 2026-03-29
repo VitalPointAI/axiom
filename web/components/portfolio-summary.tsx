@@ -154,10 +154,10 @@ export function PortfolioSummary() {
                   </div>
                   <div className="text-right">
                     <span className="text-slate-600 dark:text-slate-400">
-                      {h.total_units.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                      {(h.total_units ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}
                     </span>
                     <span className="text-slate-400 dark:text-slate-500 ml-2">
-                      {formatCad(h.total_cost_cad)}
+                      {formatCad(h.total_cost_cad ?? 0)}
                     </span>
                   </div>
                 </div>
@@ -205,7 +205,7 @@ export function PortfolioSummary() {
                         </span>
                       </div>
                       <span className="text-purple-600 dark:text-purple-400">
-                        {pos.staked_balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}{' '}
+                        {(pos.staked_balance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}{' '}
                         NEAR
                       </span>
                     </div>
