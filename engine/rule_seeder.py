@@ -273,6 +273,313 @@ def get_near_rules() -> list:
     })
 
     # -----------------------------------------------------------------------
+    # EPOCH STAKING REWARDS (system account) — priority 95
+    # On NEAR, validator epoch rewards are native TRANSFERs from "system"
+    # -----------------------------------------------------------------------
+    rules.append({
+        "name": "near_system_staking_reward",
+        "chain": "near",
+        "pattern": {
+            "action_type": "TRANSFER",
+            "direction": "in",
+            "counterparty_exact": "system",
+        },
+        "category": "reward",
+        "confidence": 0.99,
+        "priority": 95,
+    })
+
+    # -----------------------------------------------------------------------
+    # FARMING REWARDS — priority 85
+    # Ref Finance boost farming, LP farming, and other reward claims
+    # -----------------------------------------------------------------------
+    rules.append({
+        "name": "near_farming_claim_reward",
+        "chain": "near",
+        "pattern": {
+            "action_type": "FUNCTION_CALL",
+            "method_name": ["claim_reward_by_seed", "account_farm_claim_all",
+                            "withdraw_reward", "claim_reward"],
+        },
+        "category": "reward",
+        "confidence": 0.95,
+        "priority": 85,
+    })
+
+    # -----------------------------------------------------------------------
+    # wNEAR WRAP/UNWRAP — priority 85
+    # wrap.near near_deposit = wrapping NEAR, near_withdraw = unwrapping
+    # -----------------------------------------------------------------------
+    rules.append({
+        "name": "near_wnear_wrap",
+        "chain": "near",
+        "pattern": {
+            "action_type": "FUNCTION_CALL",
+            "method_name": ["near_deposit"],
+            "counterparty_exact": "wrap.near",
+        },
+        "category": "trade",
+        "confidence": 0.95,
+        "priority": 85,
+    })
+
+    rules.append({
+        "name": "near_wnear_unwrap",
+        "chain": "near",
+        "pattern": {
+            "action_type": "FUNCTION_CALL",
+            "method_name": ["near_withdraw"],
+            "counterparty_exact": "wrap.near",
+        },
+        "category": "trade",
+        "confidence": 0.95,
+        "priority": 85,
+    })
+
+    # Inbound TRANSFER from wrap.near = wNEAR unwrap receipt
+    rules.append({
+        "name": "near_wnear_unwrap_receipt",
+        "chain": "near",
+        "pattern": {
+            "action_type": "TRANSFER",
+            "direction": "in",
+            "counterparty_exact": "wrap.near",
+        },
+        "category": "trade",
+        "confidence": 0.95,
+        "priority": 85,
+    })
+
+    # -----------------------------------------------------------------------
+    # LENDING REWARDS (Burrow) — priority 85
+    # -----------------------------------------------------------------------
+    rules.append({
+        "name": "near_burrow_oracle_call",
+        "chain": "near",
+        "pattern": {
+            "action_type": "FUNCTION_CALL",
+            "method_name": ["oracle_call"],
+            "counterparty_exact": "priceoracle.near",
+        },
+        "category": "internal",
+        "confidence": 0.99,
+        "priority": 85,
+    })
+
+    rules.append({
+        "name": "near_burrow_execute_pyth",
+        "chain": "near",
+        "pattern": {
+            "action_type": "FUNCTION_CALL",
+            "method_name": ["execute_with_pyth"],
+            "counterparty_in": LENDING_CONTRACTS,
+        },
+        "category": "internal",
+        "confidence": 0.95,
+        "priority": 85,
+    })
+
+    # -----------------------------------------------------------------------
+    # DEX INTENTS — priority 85
+    # intents.near is NEAR's intent-based swap system
+    # -----------------------------------------------------------------------
+    rules.append({
+        "name": "near_intents_swap_receipt",
+        "chain": "near",
+        "pattern": {
+            "action_type": "TRANSFER",
+            "direction": "in",
+            "counterparty_exact": "intents.near",
+        },
+        "category": "trade",
+        "confidence": 0.95,
+        "priority": 85,
+    })
+
+    # -----------------------------------------------------------------------
+    # DEX SWAP RECEIPTS — priority 85
+    # Inbound TRANSFERs from known DEX contracts = swap output
+    # -----------------------------------------------------------------------
+    DEX_CONTRACTS_EXTENDED = DEX_CONTRACTS + [
+        "dclv2.ref-labs.near", "dcl.ref-labs.near",
+    ]
+    rules.append({
+        "name": "near_dex_swap_receipt",
+        "chain": "near",
+        "pattern": {
+            "action_type": "TRANSFER",
+            "direction": "in",
+            "counterparty_in": DEX_CONTRACTS_EXTENDED,
+        },
+        "category": "trade",
+        "confidence": 0.95,
+        "priority": 85,
+    })
+
+    # -----------------------------------------------------------------------
+    # LIQUID STAKING — priority 80
+    # meta-pool.near, linear-protocol.near
+    # -----------------------------------------------------------------------
+    LIQUID_STAKING_CONTRACTS = ["meta-pool.near", "linear-protocol.near"]
+    rules.append({
+        "name": "near_liquid_staking_receipt",
+        "chain": "near",
+        "pattern": {
+            "action_type": "TRANSFER",
+            "direction": "in",
+            "counterparty_in": LIQUID_STAKING_CONTRACTS,
+        },
+        "category": "unstake",
+        "confidence": 0.90,
+        "priority": 80,
+    })
+
+    # -----------------------------------------------------------------------
+    # INSCRIPTION OPS — priority 70
+    # inscription.near inscribe method = NFT-like, non-taxable
+    # -----------------------------------------------------------------------
+    rules.append({
+        "name": "near_inscription",
+        "chain": "near",
+        "pattern": {
+            "action_type": "FUNCTION_CALL",
+            "method_name": ["inscribe"],
+            "counterparty_exact": "inscription.near",
+        },
+        "category": "internal",
+        "confidence": 0.95,
+        "priority": 70,
+    })
+
+    # -----------------------------------------------------------------------
+    # DID / SOCIAL — priority 60
+    # social.near, did.near: non-financial identity/social operations
+    # -----------------------------------------------------------------------
+    rules.append({
+        "name": "near_social_operations",
+        "chain": "near",
+        "pattern": {
+            "action_type": "FUNCTION_CALL",
+            "method_name": ["set"],
+            "counterparty_exact": "social.near",
+        },
+        "category": "internal",
+        "confidence": 0.99,
+        "priority": 60,
+    })
+
+    rules.append({
+        "name": "near_did_operations",
+        "chain": "near",
+        "pattern": {
+            "action_type": "FUNCTION_CALL",
+            "method_name": ["storeAlias", "storeSchema", "storeDefinition",
+                            "deleteSchema", "deleteDefinition", "putDID"],
+        },
+        "category": "internal",
+        "confidence": 0.99,
+        "priority": 60,
+    })
+
+    # -----------------------------------------------------------------------
+    # DAO PAYOUTS — priority 55
+    # *.cdao.near and *.sputnikdao.near inbound transfers = income/bounty
+    # -----------------------------------------------------------------------
+    rules.append({
+        "name": "near_dao_payout",
+        "chain": "near",
+        "pattern": {
+            "action_type": "TRANSFER",
+            "direction": "in",
+            "counterparty_suffix": [".cdao.near", ".sputnikdao.near"],
+        },
+        "category": "income",
+        "confidence": 0.90,
+        "priority": 55,
+    })
+
+    # -----------------------------------------------------------------------
+    # VOTING / GOVERNANCE — priority 55
+    # -----------------------------------------------------------------------
+    rules.append({
+        "name": "near_voting",
+        "chain": "near",
+        "pattern": {
+            "action_type": "FUNCTION_CALL",
+            "method_name": ["vote", "act_proposal"],
+        },
+        "category": "internal",
+        "confidence": 0.99,
+        "priority": 55,
+    })
+
+    # -----------------------------------------------------------------------
+    # TRANSFER TO OTHER PERSON — priority 55
+    # transfer_near method (e.g. to transfer-near.near) = outbound transfer
+    # -----------------------------------------------------------------------
+    rules.append({
+        "name": "near_transfer_near_method",
+        "chain": "near",
+        "pattern": {
+            "action_type": "FUNCTION_CALL",
+            "method_name": ["transfer_near"],
+        },
+        "category": "withdrawal",
+        "confidence": 0.90,
+        "priority": 55,
+    })
+
+    # -----------------------------------------------------------------------
+    # MFT TRANSFER CALL — priority 55
+    # Multi-fungible token transfer (DEX LP shares, etc.)
+    # -----------------------------------------------------------------------
+    rules.append({
+        "name": "near_mft_transfer_call",
+        "chain": "near",
+        "pattern": {
+            "action_type": "FUNCTION_CALL",
+            "method_name": ["mft_transfer_call"],
+        },
+        "category": "trade",
+        "confidence": 0.85,
+        "priority": 55,
+    })
+
+    # -----------------------------------------------------------------------
+    # DELTA TRADE — priority 55
+    # Inbound transfers from grid trading bots
+    # -----------------------------------------------------------------------
+    rules.append({
+        "name": "near_deltatrade_receipt",
+        "chain": "near",
+        "pattern": {
+            "action_type": "TRANSFER",
+            "direction": "in",
+            "counterparty_suffix": [".deltatrade.near"],
+        },
+        "category": "trade",
+        "confidence": 0.90,
+        "priority": 55,
+    })
+
+    # -----------------------------------------------------------------------
+    # NF-PAYMENTS — priority 55
+    # nf-payments.near, nf-finance.near = NFT marketplace payouts
+    # -----------------------------------------------------------------------
+    rules.append({
+        "name": "near_nf_payout",
+        "chain": "near",
+        "pattern": {
+            "action_type": "TRANSFER",
+            "direction": "in",
+            "counterparty_in": ["nf-payments.near", "nf-finance.near"],
+        },
+        "category": "nft_sale",
+        "confidence": 0.85,
+        "priority": 55,
+    })
+
+    # -----------------------------------------------------------------------
     # FT TRANSFERS (own wallet) — priority 50
     # -----------------------------------------------------------------------
     rules.append({
@@ -305,6 +612,9 @@ def get_near_rules() -> list:
 
     # -----------------------------------------------------------------------
     # BASIC NEAR TRANSFERS — priority 50
+    # After all specific counterparty rules above, remaining inbound
+    # TRANSFERs are genuine deposits from unknown external addresses.
+    # Confidence raised to 0.90 since all known special cases handled above.
     # -----------------------------------------------------------------------
     rules.append({
         "name": "near_transfer_in",
@@ -314,7 +624,7 @@ def get_near_rules() -> list:
             "direction": "in",
         },
         "category": "deposit",
-        "confidence": 0.70,
+        "confidence": 0.90,
         "priority": 50,
     })
 
@@ -326,7 +636,7 @@ def get_near_rules() -> list:
             "direction": "out",
         },
         "category": "withdrawal",
-        "confidence": 0.70,
+        "confidence": 0.90,
         "priority": 50,
     })
 

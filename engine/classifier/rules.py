@@ -23,6 +23,7 @@ def match_rules(classifier, tx: dict, rules: list, chain: str) -> dict | None:
         action_type          - str or list[str]: exact match
         counterparty_suffix  - str or list[str]: endswith check
         counterparty_in      - list[str]: exact counterparty match
+        counterparty_exact   - str: exact counterparty match (single value)
         counterparty_contains - str: contains check
         tx_type              - str or list[str]: exact match (exchange rules)
         input_selector       - str or None: EVM 4-byte selector startswith
@@ -111,6 +112,14 @@ def match_rules(classifier, tx: dict, rules: list, chain: str) -> dict | None:
         if "counterparty_in" in pattern:
             contracts = [c.lower() for c in pattern["counterparty_in"]]
             if tx_counterparty not in contracts:
+                matched = False
+        if not matched:
+            continue
+
+        # counterparty_exact: exact match against a single counterparty
+        if "counterparty_exact" in pattern:
+            expected_cp = pattern["counterparty_exact"].lower()
+            if tx_counterparty != expected_cp:
                 matched = False
         if not matched:
             continue
