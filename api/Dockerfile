@@ -19,6 +19,9 @@ COPY db/ ./db/
 COPY indexers/ ./indexers/
 COPY engine/ ./engine/
 COPY reports/ ./reports/
+COPY tax/ ./tax/
+COPY verify/ ./verify/
+COPY defi/ ./defi/
 COPY api/ ./api/
 
 # Ensure packages are importable
