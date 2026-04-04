@@ -426,14 +426,17 @@ class PriceService:
             return self._bulk_fetch_range(coin_id, start_dt, end_dt, currency,
                                           missing_dates, base)
 
+        # Demo/free tier: use /market_chart?days=N (single call covers all dates).
+        # CoinGecko allows days=max for full history; for recent data, use exact days.
+        # The demo key header is sent so rate limits are per-key (500/min) not per-IP (30/min).
+        headers = {self._cg_header: self.coingecko_api_key} if self._cg_header else {}
         if days_ago <= 365:
-            # Recent dates: market_chart?days=N covers them
             return self._bulk_fetch_days(coin_id, days_ago + 1, currency,
-                                         missing_dates, base)
-
-        # Historical dates: use per-date /history endpoint (rate limited)
-        # Only fetch for actual missing dates to minimize API calls
-        return self._bulk_fetch_history(coin_id, sorted(missing_dates), currency, base)
+                                         missing_dates, base, headers=headers)
+        else:
+            # Historical: use days=max to get all available data in one call
+            return self._bulk_fetch_days(coin_id, "max", currency,
+                                         missing_dates, base, headers=headers)
 
     def _bulk_fetch_range(self, coin_id, start_dt, end_dt, currency, missing_dates, base):
         """Bulk fetch using /market_chart/range (requires API key)."""
@@ -451,8 +454,11 @@ class PriceService:
 
         return self._parse_market_chart(url, params, headers, coin_id, currency, missing_dates)
 
-    def _bulk_fetch_days(self, coin_id, days, currency, missing_dates, base):
-        """Bulk fetch using /market_chart?days=N (free tier, recent data only)."""
+    def _bulk_fetch_days(self, coin_id, days, currency, missing_dates, base, headers=None):
+        """Bulk fetch using /market_chart?days=N.
+
+        Works with free and demo tiers. Accepts days="max" for full history.
+        """
         global _last_coingecko_call
         elapsed = time.time() - _last_coingecko_call
         if elapsed < _COINGECKO_DELAY:
@@ -460,8 +466,8 @@ class PriceService:
         _last_coingecko_call = time.time()
 
         url = f"{base}/coins/{coin_id}/market_chart"
-        params = {"vs_currency": currency, "days": min(days, 365)}
-        return self._parse_market_chart(url, params, {}, coin_id, currency, missing_dates)
+        params = {"vs_currency": currency, "days": days if days == "max" else min(days, 365)}
+        return self._parse_market_chart(url, params, headers or {}, coin_id, currency, missing_dates)
 
     def _bulk_fetch_history(self, coin_id, sorted_dates, currency, base):
         """Fetch historical prices one date at a time via /history endpoint."""
