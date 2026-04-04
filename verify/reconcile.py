@@ -101,6 +101,8 @@ class BalanceReconciler:
 
         for wallet_id, account_id, chain in wallets:
             try:
+                # Normalize chain to lowercase for consistent matching
+                chain = chain.lower() if chain else chain
                 # Determine token symbol based on chain
                 token_symbol = self._chain_to_token(chain)
                 result = self._reconcile_wallet(

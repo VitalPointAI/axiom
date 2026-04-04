@@ -421,8 +421,8 @@ class PriceService:
 
         base = self._cg_base
 
-        if self.coingecko_api_key:
-            # Paid plan: use market_chart/range for any range
+        if self.coingecko_api_key and self.coingecko_api_key.startswith("CG-pro-"):
+            # Pro plan: use market_chart/range for any range
             return self._bulk_fetch_range(coin_id, start_dt, end_dt, currency,
                                           missing_dates, base)
 
