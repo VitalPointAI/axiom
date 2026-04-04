@@ -8,23 +8,21 @@ import { apiClient, ApiError } from '@/lib/api';
 interface HoldingResponse {
   token_symbol: string;
   chain: string;
-  total_units: number;
-  acb_per_unit_cad: number;
-  total_cost_cad: number;
-  as_of_date: string;
+  quantity: string;        // Decimal as string from API
+  acb_per_unit: string;    // Decimal as string
+  total_acb: string;       // Decimal as string (total cost basis in CAD)
 }
 
 interface StakingPositionResponse {
-  wallet_id: number;
-  account_id: string;
   validator_id: string;
-  staked_balance: number;
-  chain: string;
+  staked_amount: string;   // Decimal as string
+  token_symbol: string;
 }
 
 interface PortfolioSummaryResponse {
   holdings: HoldingResponse[];
   staking_positions: StakingPositionResponse[];
+  total_holdings_count: number;
 }
 
 export function PortfolioSummary() {
@@ -83,12 +81,12 @@ export function PortfolioSummary() {
   const holdings = data.holdings || [];
   const stakingPositions = data.staking_positions || [];
 
-  const totalCostCad = holdings.reduce((sum, h) => sum + (h.total_cost_cad || 0), 0);
+  const totalCostCad = holdings.reduce((sum, h) => sum + parseFloat(h.total_acb || '0'), 0);
   const assetCount = holdings.length;
 
   // Find NEAR holding for display
   const nearHolding = holdings.find((h) => h.token_symbol === 'NEAR');
-  const totalNearUnits = nearHolding?.total_units ?? 0;
+  const totalNearUnits = nearHolding ? parseFloat(nearHolding.quantity || '0') : 0;
 
   const formatCad = (n: number) =>
     '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -154,10 +152,10 @@ export function PortfolioSummary() {
                   </div>
                   <div className="text-right">
                     <span className="text-slate-600 dark:text-slate-400">
-                      {(h.total_units ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                      {parseFloat(h.quantity || '0').toLocaleString(undefined, { maximumFractionDigits: 4 })}
                     </span>
                     <span className="text-slate-400 dark:text-slate-500 ml-2">
-                      {formatCad(h.total_cost_cad ?? 0)}
+                      {formatCad(parseFloat(h.total_acb || '0'))}
                     </span>
                   </div>
                 </div>
@@ -187,26 +185,20 @@ export function PortfolioSummary() {
                     .replace('.near', '');
                   return (
                     <div
-                      key={pos.account_id + pos.validator_id + idx}
+                      key={pos.validator_id + idx}
                       className="flex justify-between items-center text-sm py-1"
                     >
                       <div className="flex flex-col truncate max-w-[55%]">
                         <span
-                          className="text-purple-800 dark:text-purple-200 font-medium truncate text-xs"
-                          title={pos.account_id}
-                        >
-                          {pos.account_id.replace('.near', '')}
-                        </span>
-                        <span
                           className="text-purple-500 dark:text-purple-400 text-xs truncate"
                           title={pos.validator_id}
                         >
-                          → {validatorName}
+                          {validatorName}
                         </span>
                       </div>
                       <span className="text-purple-600 dark:text-purple-400">
-                        {(pos.staked_balance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}{' '}
-                        NEAR
+                        {parseFloat(pos.staked_amount || '0').toLocaleString(undefined, { maximumFractionDigits: 2 })}{' '}
+                        {pos.token_symbol}
                       </span>
                     </div>
                   );
