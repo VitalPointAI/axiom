@@ -16,6 +16,7 @@ import os
 # Tests use a mocked DB pool; this value is never used to connect,
 # but validate_env() checks for its presence on startup.
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/test")
+os.environ.setdefault("DB_POOL_MIN", "1")
 
 from unittest.mock import MagicMock, patch
 
