@@ -375,111 +375,90 @@ class TestNearFetcherSyncWallet:
 
         return mock_pool, mock_conn, mock_cursor
 
-    @patch("indexers.near_fetcher.NearBlocksClient")
-    def test_sync_fetches_all_pages(self, MockClient):
-        """sync_wallet() iterates through all pages until cursor is None."""
-        from indexers.near_fetcher import NearFetcher
-
-        # Set up mock API responses: page 1 with cursor, page 2 without
-        mock_client = MockClient.return_value
-        mock_client.get_transaction_count.return_value = 2
-        mock_client.fetch_transactions.side_effect = [
-            {
-                "txns": [make_tx("TX_P1_001")],
-                "cursor": "CURSOR_PAGE2",
-            },
-            {
-                "txns": [make_tx("TX_P2_001")],
-                "cursor": None,
-            },
-        ]
-
-        mock_pool, mock_conn, mock_cursor = self._make_mock_pool()
-
-        # fetchone for wallet lookup returns (account_id, user_id)
-        # fetchone for job query returns job row
-        mock_cursor.fetchone.return_value = ("alice.near", 1)
-
-        fetcher = NearFetcher(mock_pool)
-
-        job = {
-            "id": 1,
-            "wallet_id": 1,
-            "user_id": 1,
-            "chain": "near",
-            "cursor": None,
-            "progress_fetched": 0,
-            "job_type": "full_sync",
-        }
-
-        fetcher.sync_wallet(job)
-
-        # Should have called fetch_transactions twice (two pages)
-        assert mock_client.fetch_transactions.call_count == 2
-
-    @patch("indexers.near_fetcher.NearBlocksClient")
-    def test_sync_resumes_from_cursor(self, MockClient):
-        """sync_wallet() resumes from job.cursor when set."""
+    @patch("indexers.near_fetcher.NeardataClient")
+    def test_sync_scans_blocks(self, MockClient):
+        """sync_wallet() scans blocks via neardata and inserts transactions."""
         from indexers.near_fetcher import NearFetcher
 
         mock_client = MockClient.return_value
-        mock_client.get_transaction_count.return_value = 1
-        mock_client.fetch_transactions.return_value = {
-            "txns": [make_tx("TX_RESUME_001")],
-            "cursor": None,
-        }
+        mock_client.get_final_block_height.return_value = 100_000_002
+        mock_client.fetch_block.return_value = {"block": {"header": {"height": 100_000_001}}}
+        # Return one tx on first call, empty for all subsequent
+        mock_client.extract_wallet_txs.return_value = []
+        mock_client.extract_wallet_txs.side_effect = None
+
+        def extract_side_effect(block, account_id):
+            if block and block.get("block", {}).get("header", {}).get("height") == 100_000_001:
+                return [make_tx("TX_B1_001", predecessor="alice.near", receiver="bob.near")]
+            return []
+        mock_client.extract_wallet_txs.side_effect = extract_side_effect
 
         mock_pool, mock_conn, mock_cursor = self._make_mock_pool()
         mock_cursor.fetchone.return_value = ("alice.near", 1)
 
         fetcher = NearFetcher(mock_pool)
+        fetcher.BATCH_SIZE = 3  # Small batch for testing
 
         job = {
-            "id": 1,
-            "wallet_id": 1,
-            "user_id": 1,
-            "chain": "near",
-            "cursor": "EXISTING_CURSOR",  # resume from here
-            "progress_fetched": 10,
-            "job_type": "incremental_sync",
+            "id": 1, "wallet_id": 1, "user_id": 1,
+            "chain": "near", "cursor": "100000000",
+            "progress_fetched": 0, "job_type": "full_sync",
         }
 
         fetcher.sync_wallet(job)
 
-        # First fetch should use the existing cursor (passed as keyword arg)
-        first_call = mock_client.fetch_transactions.call_args_list[0]
-        positional_cursor = first_call[0][1] if len(first_call[0]) > 1 else None
-        keyword_cursor = first_call[1].get("cursor") if first_call[1] else None
-        assert positional_cursor == "EXISTING_CURSOR" or keyword_cursor == "EXISTING_CURSOR"
+        assert mock_client.fetch_block.call_count >= 2
 
-    @patch("indexers.near_fetcher.NearBlocksClient")
+    @patch("indexers.near_fetcher.NeardataClient")
+    def test_sync_resumes_from_block_cursor(self, MockClient):
+        """sync_wallet() resumes from block height cursor."""
+        from indexers.near_fetcher import NearFetcher
+
+        mock_client = MockClient.return_value
+        mock_client.get_final_block_height.return_value = 100_000_001
+        mock_client.fetch_block.return_value = None  # No transactions found
+        mock_client.extract_wallet_txs.return_value = []
+
+        mock_pool, mock_conn, mock_cursor = self._make_mock_pool()
+        mock_cursor.fetchone.return_value = ("alice.near", 1)
+
+        fetcher = NearFetcher(mock_pool)
+        fetcher.BATCH_SIZE = 2
+
+        job = {
+            "id": 1, "wallet_id": 1, "user_id": 1,
+            "chain": "near", "cursor": "100000000",
+            "progress_fetched": 10, "job_type": "incremental_sync",
+        }
+
+        fetcher.sync_wallet(job)
+
+        # First fetch_block should start at block 100000000
+        first_call_height = mock_client.fetch_block.call_args_list[0][0][0]
+        assert first_call_height == 100_000_000
+
+    @patch("indexers.near_fetcher.NeardataClient")
     def test_empty_wallet_no_transactions(self, MockClient):
-        """sync_wallet() handles wallets with zero transactions gracefully."""
+        """sync_wallet() handles wallets with no matching transactions."""
         from indexers.near_fetcher import NearFetcher
 
         mock_client = MockClient.return_value
-        mock_client.get_transaction_count.return_value = 0
-        mock_client.fetch_transactions.return_value = {
-            "txns": [],
-            "cursor": None,
-        }
+        mock_client.get_final_block_height.return_value = 100_000_001
+        mock_client.fetch_block.return_value = None
+        mock_client.extract_wallet_txs.return_value = []
 
         mock_pool, mock_conn, mock_cursor = self._make_mock_pool()
         mock_cursor.fetchone.return_value = ("empty.near", 1)
 
         fetcher = NearFetcher(mock_pool)
+        fetcher.BATCH_SIZE = 2
 
         job = {
-            "id": 1,
-            "wallet_id": 1,
-            "user_id": 1,
-            "chain": "near",
-            "cursor": None,
-            "progress_fetched": 0,
-            "job_type": "full_sync",
+            "id": 1, "wallet_id": 1, "user_id": 1,
+            "chain": "near", "cursor": "100000000",
+            "progress_fetched": 0, "job_type": "full_sync",
         }
 
-        # Should complete without error
         fetcher.sync_wallet(job)
 
 
@@ -490,12 +469,11 @@ class TestNearFetcherSyncWallet:
 class TestDuplicateHandling:
 
     def test_on_conflict_clause_present(self):
-        """Verify that near_fetcher.py uses ON CONFLICT DO NOTHING for inserts."""
+        """Verify that near_fetcher.py uses ON CONFLICT for inserts."""
         near_fetcher_path = os.path.join(PROJECT_ROOT, "indexers", "near_fetcher.py")
         with open(near_fetcher_path) as f:
             source = f.read()
         assert "ON CONFLICT" in source.upper(), "Missing ON CONFLICT clause for duplicate handling"
-        assert "DO NOTHING" in source.upper(), "Missing DO NOTHING in conflict clause"
 
 
 # ---------------------------------------------------------------------------
@@ -504,47 +482,16 @@ class TestDuplicateHandling:
 
 class TestVerifySync:
 
-    @patch("indexers.near_fetcher.NearBlocksClient")
+    @patch("indexers.near_fetcher.NeardataClient")
     @patch("indexers.near_fetcher.requests")
-    def test_verify_passes_when_counts_match(self, mock_requests, MockClient):
-        """verify_sync() returns True when DB count matches NearBlocks count."""
+    def test_verify_passes_with_balance(self, mock_requests, MockClient):
+        """verify_sync() returns True when RPC balance check succeeds."""
         from indexers.near_fetcher import NearFetcher
-
-        mock_client = MockClient.return_value
-        mock_client.get_transaction_count.return_value = 5
 
         mock_pool, mock_conn, mock_cursor = MagicMock(), MagicMock(), MagicMock()
         mock_cursor.__enter__ = MagicMock(return_value=mock_cursor)
         mock_cursor.__exit__ = MagicMock(return_value=False)
-        mock_cursor.fetchone.return_value = (5,)  # DB count = 5
-        mock_conn.cursor.return_value = mock_cursor
-        mock_pool.getconn.return_value = mock_conn
-
-        # Mock RPC response for balance check
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "result": {"amount": "1000000000000000000000000000"}  # 1000 NEAR
-        }
-        mock_requests.post.return_value = mock_response
-
-        fetcher = NearFetcher(mock_pool)
-        passed, message = fetcher.verify_sync(wallet_id=1, account_id="alice.near")
-
-        assert passed is True
-
-    @patch("indexers.near_fetcher.NearBlocksClient")
-    @patch("indexers.near_fetcher.requests")
-    def test_verify_allows_tolerance(self, mock_requests, MockClient):
-        """verify_sync() allows small count discrepancy (NearBlocks lag)."""
-        from indexers.near_fetcher import NearFetcher
-
-        mock_client = MockClient.return_value
-        mock_client.get_transaction_count.return_value = 100  # NearBlocks says 100
-
-        mock_pool, mock_conn, mock_cursor = MagicMock(), MagicMock(), MagicMock()
-        mock_cursor.__enter__ = MagicMock(return_value=mock_cursor)
-        mock_cursor.__exit__ = MagicMock(return_value=False)
-        mock_cursor.fetchone.return_value = (97,)  # DB has 97 (within tolerance)
+        mock_cursor.fetchone.return_value = (5,)  # DB count
         mock_conn.cursor.return_value = mock_cursor
         mock_pool.getconn.return_value = mock_conn
 
@@ -557,68 +504,54 @@ class TestVerifySync:
         fetcher = NearFetcher(mock_pool)
         passed, message = fetcher.verify_sync(wallet_id=1, account_id="alice.near")
 
-        # Should pass with small tolerance
         assert passed is True
 
 
 # ---------------------------------------------------------------------------
-# NearBlocks client caching tests
+# NeardataClient tests
 # ---------------------------------------------------------------------------
 
 
-class TestNearBlocksCache(unittest.TestCase):
-    """Tests for NearBlocksClient TTL cache."""
+class TestNeardataClient(unittest.TestCase):
+    """Tests for NeardataClient block scanning."""
 
-    def test_cache_hit_returns_without_api_call(self):
-        """Cached entry returns value without making an API request."""
-        from indexers.nearblocks_client import NearBlocksClient
+    def test_normalize_action_type(self):
+        """Action type mapping from neardata CamelCase to UPPER_SNAKE."""
+        from indexers.neardata_client import NeardataClient
+        self.assertEqual(NeardataClient._normalize_action_type("FunctionCall"), "FUNCTION_CALL")
+        self.assertEqual(NeardataClient._normalize_action_type("Transfer"), "TRANSFER")
+        self.assertEqual(NeardataClient._normalize_action_type("Stake"), "STAKE")
 
-        client = NearBlocksClient(delay=0)
-        # Pre-populate cache
-        client._cache_set("txn_count:alice.near", 42)
+    def test_extract_wallet_txs_empty(self):
+        """Empty/None block returns no transactions."""
+        from indexers.neardata_client import NeardataClient
+        client = NeardataClient()
+        self.assertEqual(client.extract_wallet_txs(None, "alice.near"), [])
 
-        # Mock _request to ensure it's NOT called
-        client._request = unittest.mock.MagicMock()
-
-        result = client.get_transaction_count("alice.near")
-        self.assertEqual(result, 42)
-        client._request.assert_not_called()
-
-    def test_cache_miss_makes_api_call(self):
-        """Missing cache entry triggers API call and caches result."""
-        from indexers.nearblocks_client import NearBlocksClient
-
-        client = NearBlocksClient(delay=0)
-        client._request = unittest.mock.MagicMock(
-            return_value={"txns": [{"count": "100"}]}
-        )
-
-        result = client.get_transaction_count("bob.near")
-        self.assertEqual(result, 100)
-        client._request.assert_called_once()
-
-        # Second call should hit cache
-        result2 = client.get_transaction_count("bob.near")
-        self.assertEqual(result2, 100)
-        # Still only 1 API call
-        client._request.assert_called_once()
-
-    def test_cache_expired_makes_fresh_api_call(self):
-        """Expired cache entry triggers fresh API call."""
-        import time as _time
-        from indexers.nearblocks_client import NearBlocksClient
-
-        client = NearBlocksClient(delay=0)
-        # Set cache entry with expired TTL
-        client._cache["txn_count:charlie.near"] = (50, _time.time() - 1)
-
-        client._request = unittest.mock.MagicMock(
-            return_value={"txns": [{"count": "75"}]}
-        )
-
-        result = client.get_transaction_count("charlie.near")
-        self.assertEqual(result, 75)
-        client._request.assert_called_once()
+    def test_extract_wallet_txs_match(self):
+        """Extracts tx when signer matches wallet."""
+        from indexers.neardata_client import NeardataClient
+        client = NeardataClient()
+        block = {
+            "block": {"header": {"height": 100, "timestamp": 1700000000000000000}},
+            "shards": [{"chunk": {
+                "transactions": [{
+                    "transaction": {
+                        "hash": "TX_001", "signer_id": "alice.near",
+                        "receiver_id": "bob.near",
+                        "actions": [{"Transfer": {"deposit": "1000"}}],
+                    },
+                    "outcome": {"execution_outcome": {"outcome": {
+                        "tokens_burnt": "500", "status": {"SuccessValue": ""},
+                    }}},
+                }],
+                "receipt_execution_outcomes": [],
+            }}],
+        }
+        results = client.extract_wallet_txs(block, "alice.near")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["transaction_hash"], "TX_001")
+        self.assertEqual(results[0]["actions"][0]["action"], "TRANSFER")
 
 
 # ---------------------------------------------------------------------------

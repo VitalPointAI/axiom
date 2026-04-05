@@ -1,8 +1,12 @@
 """
-NEAR transaction fetcher using NearBlocks API.
+NEAR transaction fetcher using neardata.xyz block scanning.
 
-Handles cursor-based resume, all NEAR action types, and post-sync verification.
-Used by IndexerService to process full_sync and incremental_sync jobs.
+Scans blocks from neardata.xyz (free, no API key) and filters for
+wallet-relevant transactions. Replaces the previous NearBlocks-based
+approach which required a paid API subscription.
+
+Handles block-height cursor resume, all NEAR action types, and
+post-sync verification via FastNear RPC.
 """
 
 import base64
@@ -19,7 +23,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
 from config import FASTNEAR_RPC
-from indexers.nearblocks_client import NearBlocksClient
+from indexers.neardata_client import NeardataClient
 
 logger = logging.getLogger(__name__)
 
@@ -249,13 +253,16 @@ class NearFetcher:
     """
     NEAR chain handler for IndexerService.
 
-    Fetches complete transaction history for a wallet via NearBlocks API
-    with cursor-based resume support. Stores transactions in PostgreSQL
-    using ON CONFLICT DO NOTHING for duplicate safety.
+    Scans blocks from neardata.xyz (free, unlimited) and filters for
+    wallet-relevant transactions. Uses block_height as cursor for
+    crash-safe resume.
     """
 
+    # Number of blocks to scan per batch before committing progress
+    BATCH_SIZE = 100
+
     def __init__(self, db_pool):
-        self.client = NearBlocksClient()
+        self.client = NeardataClient()
         self.db_pool = db_pool
 
     # ------------------------------------------------------------------
@@ -264,84 +271,115 @@ class NearFetcher:
 
     def sync_wallet(self, job_row: dict) -> None:
         """
-        Sync all transactions for a wallet, resuming from job.cursor if set.
+        Sync all transactions for a wallet by scanning neardata.xyz blocks.
 
-        Updates the job's cursor and progress_fetched after each page commit.
-        Marks the job as completed and runs verification when finished.
+        Resumes from the last scanned block_height stored in job cursor.
+        For new wallets, starts from the wallet's earliest known block
+        or a configurable default.
 
         Args:
-            job_row: Row dict from indexing_jobs table (id, wallet_id, user_id, cursor, ...)
+            job_row: Row dict from indexing_jobs table
         """
         wallet_id = job_row["wallet_id"]
         user_id = job_row["user_id"]
         job_id = job_row["id"]
 
-        # Look up the wallet's account_id
         account_id = self._get_account_id(wallet_id)
         if not account_id:
             raise ValueError(f"Wallet {wallet_id} not found in database")
 
-        logger.info("Syncing %s (wallet_id=%s, job_id=%s)", account_id, wallet_id, job_id)
+        logger.info("Syncing %s (wallet_id=%s, job_id=%s) via neardata.xyz",
+                     account_id, wallet_id, job_id)
 
+        # Determine start block: resume from cursor or find earliest known
         cursor = job_row.get("cursor")
+        start_block = self._parse_block_cursor(cursor, wallet_id)
         progress_fetched = job_row.get("progress_fetched", 0)
 
-        # Set progress_total upfront so the UI can show real percentages
-        try:
-            total_count = self.client.get_transaction_count(account_id)
-            if total_count > 0:
-                self._set_progress_total(job_id, total_count)
-        except Exception as exc:
-            logger.warning("Could not fetch tx count for %s: %s", account_id, exc)
+        # Get chain tip
+        final_block = self.client.get_final_block_height()
+        total_blocks = final_block - start_block
+        if total_blocks > 0:
+            self._set_progress_total(job_id, total_blocks)
 
-        while True:
-            # Fetch one page of transactions (100 per page for throughput)
-            result = self.client.fetch_transactions(account_id, cursor=cursor, per_page=100)
-            txns = result.get("txns", [])
-            next_cursor = result.get("cursor")
+        logger.info("Scanning blocks %d → %d (%d blocks) for %s",
+                     start_block, final_block, total_blocks, account_id)
 
-            if not txns:
-                logger.info("No transactions on page, sync complete for %s", account_id)
-                break
+        current = start_block
+        while current <= final_block:
+            batch_end = min(current + self.BATCH_SIZE, final_block + 1)
+            batch_txs = []
 
-            # Parse and batch-insert this page
-            rows = []
-            for raw_tx in txns:
-                parsed = parse_transaction(raw_tx, wallet_id=wallet_id, user_id=user_id, account_id=account_id)
-                if parsed:
-                    rows.append(parsed)
+            for height in range(current, batch_end):
+                block = self.client.fetch_block(height)
+                if block:
+                    raw_txs = self.client.extract_wallet_txs(block, account_id)
+                    for raw_tx in raw_txs:
+                        parsed = parse_transaction(
+                            raw_tx, wallet_id=wallet_id,
+                            user_id=user_id, account_id=account_id
+                        )
+                        if parsed:
+                            batch_txs.append(parsed)
 
-            if rows:
-                self._batch_insert(rows)
+            if batch_txs:
+                self._batch_insert(batch_txs)
 
-            progress_fetched += len(txns)
-            cursor = next_cursor
+            current = batch_end
+            progress_fetched += self.BATCH_SIZE
 
-            # Commit progress after each page (crash-safe resume)
-            self._update_job_progress(job_id, cursor, progress_fetched)
+            # Save block height as cursor for resume
+            self._update_job_progress(job_id, str(current), progress_fetched)
 
-            logger.debug("Page done: fetched=%s, next_cursor=%s", progress_fetched, cursor)
+            if total_blocks > 0:
+                pct = min(100, (current - start_block) * 100 // total_blocks)
+                if pct % 10 == 0:
+                    logger.info("Scan progress for %s: %d%% (block %d)",
+                                account_id, pct, current)
 
-            if not next_cursor:
-                break
-
-        # Mark job complete
         self._complete_job(job_id)
 
-        # Run post-sync verification
         passed, message = self.verify_sync(wallet_id, account_id)
         if not passed:
             logger.warning("Verification warning for %s: %s", account_id, message)
         else:
             logger.info("Verification passed for %s: %s", account_id, message)
 
+    def _parse_block_cursor(self, cursor, wallet_id):
+        """Parse cursor to block height. Falls back to earliest DB block or default."""
+        if cursor:
+            try:
+                val = int(cursor)
+                # NearBlocks cursors are huge numbers (>1B), block heights are <200M
+                if val < 500_000_000:
+                    return val
+            except (ValueError, TypeError):
+                pass
+
+        # Check if we have existing transactions for this wallet
+        conn = self.db_pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT MIN(block_height), MAX(block_height) "
+                "FROM transactions WHERE wallet_id = %s AND chain = 'near'",
+                (wallet_id,),
+            )
+            row = cur.fetchone()
+            cur.close()
+            if row and row[1]:
+                # Resume from after our latest known block
+                return row[1]
+        finally:
+            self.db_pool.putconn(conn)
+
+        # Default: NEAR mainnet genesis was ~9.8M but most activity starts later.
+        # Use 45M (~mid 2021) as sensible default for new wallets.
+        return int(os.environ.get("NEAR_SCAN_START_BLOCK", "45000000"))
+
     def verify_sync(self, wallet_id: int, account_id: str) -> Tuple[bool, str]:
         """
-        Verify sync completeness after a full wallet sync.
-
-        Checks:
-        1. DB transaction count vs NearBlocks reported count (with tolerance)
-        2. On-chain balance via FastNear RPC
+        Verify sync completeness via on-chain balance check.
 
         Args:
             wallet_id: Database wallet ID
@@ -353,27 +391,8 @@ class NearFetcher:
         messages = []
         passed = True
 
-        # --- Count verification ---
-        try:
-            expected_count = self.client.get_transaction_count(account_id)
-            db_count = self._get_db_tx_count(wallet_id)
-
-            if expected_count > 0:
-                pct_diff = abs(expected_count - db_count) / expected_count
-                if pct_diff > COUNT_TOLERANCE_PCT:
-                    passed = False
-                    messages.append(
-                        f"Count mismatch: DB={db_count}, NearBlocks={expected_count} "
-                        f"({pct_diff:.1%} diff, tolerance={COUNT_TOLERANCE_PCT:.0%})"
-                    )
-                else:
-                    messages.append(f"Count OK: DB={db_count}, NearBlocks={expected_count}")
-            else:
-                messages.append(f"Count OK: {db_count} transactions (NearBlocks reports 0)")
-
-        except Exception as e:
-            messages.append(f"Count check error: {e}")
-            # Don't fail verification for count check errors
+        db_count = self._get_db_tx_count(wallet_id)
+        messages.append(f"DB transaction count: {db_count}")
 
         # --- Balance verification via FastNear RPC ---
         try:
