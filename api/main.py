@@ -27,12 +27,15 @@ from config import validate_env, OFFLINE_MODE
 from api.auth import router as auth_router
 from api.routers import (
     accountant_router,
+    admin_router,
+    assets_router,
     audit_router,
     exchanges_router,
     jobs_router,
     portfolio_router,
     preferences_router,
     reports_router,
+    streaming_router,
     transactions_router,
     verification_router,
     wallets_router,
@@ -97,6 +100,7 @@ def create_app() -> FastAPI:
     # ----------------------------------------------------------------
     application.include_router(auth_router)
     application.include_router(wallets_router)
+    application.include_router(assets_router)
     application.include_router(transactions_router)
     application.include_router(portfolio_router)
     application.include_router(reports_router)
@@ -106,6 +110,8 @@ def create_app() -> FastAPI:
     application.include_router(audit_router)
     application.include_router(accountant_router)
     application.include_router(preferences_router)
+    application.include_router(streaming_router, prefix="/api/stream")
+    application.include_router(admin_router, prefix="/api/admin")
 
     # ----------------------------------------------------------------
     # Health check — unauthenticated
