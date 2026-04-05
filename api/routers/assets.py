@@ -106,22 +106,24 @@ async def get_assets(
                 }
 
             # Per-wallet balance breakdown via transaction replay
-            # Group by wallet_id and compute net balance per token
+            # Uses token_metadata table for dynamic symbol resolution;
+            # falls back to UPPER(token_id) for unmapped tokens.
             cur.execute(
                 """
                 SELECT t.wallet_id,
                        CASE
-                           WHEN t.token_id IS NULL THEN
-                               CASE WHEN LOWER(t.chain) = 'near' THEN 'NEAR'
-                                    ELSE UPPER(t.chain)
-                               END
-                           ELSE UPPER(t.token_id)
+                           WHEN t.token_id IS NOT NULL THEN
+                               COALESCE(tm.symbol, UPPER(t.token_id))
+                           WHEN LOWER(t.chain) = 'near' THEN 'NEAR'
+                           WHEN LOWER(t.chain) IN ('ethereum','polygon','optimism','cronos') THEN 'ETH'
+                           ELSE 'UNKNOWN'
                        END AS token,
                        LOWER(t.chain) AS chain,
                        SUM(CASE WHEN t.direction = 'in' THEN t.amount ELSE 0 END) AS total_in,
                        SUM(CASE WHEN t.direction = 'out' THEN t.amount ELSE 0 END) AS total_out,
                        SUM(CASE WHEN t.direction = 'out' THEN COALESCE(t.fee, 0) ELSE 0 END) AS total_fees
                 FROM transactions t
+                LEFT JOIN token_metadata tm ON LOWER(t.token_id) = tm.contract_id
                 WHERE t.user_id = %s
                 GROUP BY t.wallet_id, token, chain
                 """,

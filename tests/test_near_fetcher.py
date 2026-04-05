@@ -250,6 +250,91 @@ class TestParseTransaction:
         assert result is not None
         assert result["success"] is False
 
+    def test_ft_transfer_sets_token_id(self):
+        """ft_transfer sets token_id to the receiver contract."""
+        raw = make_tx(
+            tx_hash="TX_FT_001",
+            predecessor="alice.near",
+            receiver="token.sweat",
+            actions=[{
+                "action": "FUNCTION_CALL",
+                "method": "ft_transfer",
+                "deposit": "1",
+                "args": '{"receiver_id": "bob.near", "amount": "5000000000000000000"}',
+            }],
+        )
+        result = self.parse_transaction(raw, wallet_id=1, user_id=1, account_id="alice.near")
+
+        assert result is not None
+        assert result["token_id"] == "token.sweat"
+        assert result["method_name"] == "ft_transfer"
+        assert result["counterparty"] == "bob.near"
+        assert int(result["amount"]) == 5000000000000000000
+
+    def test_ft_transfer_call_sets_token_id(self):
+        """ft_transfer_call also sets token_id correctly."""
+        import base64
+        import json
+        args_b64 = base64.b64encode(json.dumps({
+            "receiver_id": "v2.ref-finance.near",
+            "amount": "1000000",
+        }).encode()).decode()
+
+        raw = make_tx(
+            tx_hash="TX_FTC_001",
+            predecessor="alice.near",
+            receiver="usdt.tether-token.near",
+            actions=[{
+                "action": "FUNCTION_CALL",
+                "method": "ft_transfer_call",
+                "deposit": "1",
+                "args": args_b64,
+            }],
+        )
+        result = self.parse_transaction(raw, wallet_id=1, user_id=1, account_id="alice.near")
+
+        assert result is not None
+        assert result["token_id"] == "usdt.tether-token.near"
+        assert result["counterparty"] == "v2.ref-finance.near"
+        assert int(result["amount"]) == 1000000
+
+    def test_ft_transfer_incoming(self):
+        """Incoming FT transfer: direction=in, counterparty=sender."""
+        raw = make_tx(
+            tx_hash="TX_FT_IN_001",
+            predecessor="bob.near",
+            receiver="token.sweat",
+            actions=[{
+                "action": "FUNCTION_CALL",
+                "method": "ft_transfer",
+                "deposit": "1",
+                "args": '{"receiver_id": "alice.near", "amount": "3000000000000000000"}',
+            }],
+        )
+        result = self.parse_transaction(raw, wallet_id=1, user_id=1, account_id="alice.near")
+
+        assert result is not None
+        assert result["token_id"] == "token.sweat"
+        assert result["direction"] == "in"
+        assert result["counterparty"] == "bob.near"
+
+    def test_non_ft_function_call_no_token_id(self):
+        """Regular function calls should NOT set token_id."""
+        raw = make_tx(
+            tx_hash="TX_REG_001",
+            predecessor="alice.near",
+            receiver="staking.pool.near",
+            actions=[{
+                "action": "FUNCTION_CALL",
+                "method": "deposit_and_stake",
+                "deposit": "10000000000000000000000000",
+            }],
+        )
+        result = self.parse_transaction(raw, wallet_id=1, user_id=1, account_id="alice.near")
+
+        assert result is not None
+        assert result["token_id"] is None
+
     def test_multiple_actions_uses_first(self):
         """When tx has multiple actions, the primary action_type is captured."""
         raw = make_tx(

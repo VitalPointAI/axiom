@@ -26,6 +26,20 @@ TOKEN_SYMBOL_MAP: dict[str, str] = {
     "meta-token.near": "META",
     "aurora": "AURORA",
     "ref.finance": "REF",
+    "usdt.tether-token.near": "USDT",
+    "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1": "USDC",
+    "dac17f958d2ee523a2206206994597c13d831ec7.factory.bridge.near": "USDT",
+    "a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.factory.bridge.near": "USDC",
+    "6b175474e89094c44da98b954eedeac495271d0f.factory.bridge.near": "DAI",
+    "token.v2.ref-finance.near": "REF",
+    "linear-protocol.near": "LINEAR",
+    "ft.zomland.near": "ZML",
+    "token.paras.near": "PARAS",
+    "mpdao-token.near": "mpDAO",
+    "jumptoken.near": "JUMP",
+    "blackdragon.tkn.near": "BLACKDRAGON",
+    "nkok.tkn.near": "nKOK",
+    "aaaaaa20d9e0e2461697782ef11675f668207961.factory.bridge.near": "AURORA",
     # Common EVM tokens (lowercase checksumless addresses)
     # USDC
     "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "USDC",  # ETH
@@ -44,6 +58,17 @@ TOKEN_SYMBOL_MAP: dict[str, str] = {
 }
 
 
+# Module-level reference to a TokenMetadataResolver instance.
+# Set by the ACB engine or indexer at startup when a DB pool is available.
+_metadata_resolver = None
+
+
+def set_metadata_resolver(resolver):
+    """Set the dynamic token metadata resolver (call once at startup)."""
+    global _metadata_resolver
+    _metadata_resolver = resolver
+
+
 def resolve_token_symbol(
     token_id: Optional[str],
     chain: str,
@@ -54,9 +79,10 @@ def resolve_token_symbol(
     Priority:
       1. If asset is not None (exchange transaction): return asset.upper()
       2. If token_id in TOKEN_SYMBOL_MAP: return mapped symbol
-      3. If token_id is None and chain == 'near': return 'NEAR'
-      4. If token_id is None and chain in EVM chains: return chain-native token
-      5. Otherwise: return token_id or 'UNKNOWN'
+      3. Dynamic resolver (on-chain RPC + DB cache) if available
+      4. If token_id is None and chain == 'near': return 'NEAR'
+      5. If token_id is None and chain in EVM chains: return chain-native token
+      6. Otherwise: return token_id or 'UNKNOWN'
     """
     if asset is not None:
         return asset.upper()
@@ -64,6 +90,9 @@ def resolve_token_symbol(
         lower = token_id.lower()
         if lower in TOKEN_SYMBOL_MAP:
             return TOKEN_SYMBOL_MAP[lower]
+        # Try dynamic resolver for unknown contracts
+        if _metadata_resolver:
+            return _metadata_resolver.resolve_symbol(token_id, chain)
         return token_id.upper()
     # token_id is None — infer from chain
     if chain == "near":

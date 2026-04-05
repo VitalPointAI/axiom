@@ -1,0 +1,233 @@
+"""Dynamic token metadata resolution via on-chain RPC calls.
+
+Fetches ft_metadata from NEAR contracts (and EVM token info via
+Etherscan/Alchemy in future) to resolve symbol + decimals.
+Results are cached in the token_metadata DB table.
+
+Usage:
+    resolver = TokenMetadataResolver(db_pool)
+    symbol = resolver.resolve_symbol("token.sweat", chain="near")
+    # Returns "SWEAT" (fetched from chain, cached in DB)
+"""
+
+import json
+import logging
+from typing import Optional
+
+import requests
+
+from config import FASTNEAR_RPC
+
+logger = logging.getLogger(__name__)
+
+# In-memory cache to avoid DB lookups within the same sync run
+_mem_cache: dict[str, dict] = {}
+
+# Hardcoded fallbacks for tokens where RPC is unreliable or contract
+# doesn't implement ft_metadata (e.g. system accounts, bridges)
+_FALLBACK_SYMBOLS: dict[str, str] = {
+    "near": "NEAR",
+    "wrap.near": "NEAR",
+}
+
+
+class TokenMetadataResolver:
+    """Resolve token contract IDs to symbols using on-chain metadata.
+
+    Checks (in order):
+    1. In-memory cache (per-process, survives across sync calls)
+    2. DB token_metadata table
+    3. On-chain RPC ft_metadata call (result cached to DB)
+    4. Hardcoded fallback map (for system tokens)
+    5. Returns contract_id uppercased as last resort
+    """
+
+    def __init__(self, db_pool):
+        self.pool = db_pool
+
+    def resolve_symbol(self, contract_id: str, chain: str = "near") -> str:
+        """Resolve a token contract to its symbol.
+
+        Args:
+            contract_id: The token contract address/account.
+            chain: Chain name (currently only 'near' does RPC lookup).
+
+        Returns:
+            Canonical uppercase symbol string.
+        """
+        if not contract_id:
+            if chain == "near":
+                return "NEAR"
+            return "UNKNOWN"
+
+        key = f"{chain}:{contract_id.lower()}"
+
+        # 1. In-memory cache
+        if key in _mem_cache:
+            cached = _mem_cache[key]
+            if cached.get("symbol"):
+                return cached["symbol"]
+
+        # 2. DB cache
+        db_meta = self._db_lookup(contract_id, chain)
+        if db_meta and db_meta.get("symbol"):
+            _mem_cache[key] = db_meta
+            return db_meta["symbol"]
+
+        # 3. Hardcoded fallback (system tokens)
+        lower = contract_id.lower()
+        if lower in _FALLBACK_SYMBOLS:
+            symbol = _FALLBACK_SYMBOLS[lower]
+            self._db_upsert(contract_id, chain, symbol=symbol, decimals=24, name=contract_id)
+            _mem_cache[key] = {"symbol": symbol, "decimals": 24}
+            return symbol
+
+        # 4. On-chain RPC (NEAR only for now)
+        if chain == "near":
+            meta = self._fetch_near_ft_metadata(contract_id)
+            if meta and meta.get("symbol"):
+                symbol = meta["symbol"].upper()
+                self._db_upsert(
+                    contract_id, chain,
+                    symbol=symbol,
+                    decimals=meta.get("decimals"),
+                    name=meta.get("name"),
+                    icon_url=meta.get("icon"),
+                )
+                _mem_cache[key] = {"symbol": symbol, "decimals": meta.get("decimals")}
+                return symbol
+            else:
+                # Mark as failed so we don't retry every sync
+                self._db_mark_failed(contract_id, chain)
+
+        # 5. Last resort — use contract ID
+        fallback = contract_id.split(".")[0].upper() if "." in contract_id else contract_id.upper()
+        _mem_cache[key] = {"symbol": fallback}
+        return fallback
+
+    def resolve_decimals(self, contract_id: str, chain: str = "near") -> int:
+        """Get token decimals for proper amount conversion.
+
+        Returns 24 for NEAR native, 18 for EVM native, or the on-chain value.
+        """
+        if not contract_id:
+            return 24 if chain == "near" else 18
+
+        key = f"{chain}:{contract_id.lower()}"
+        if key in _mem_cache and "decimals" in _mem_cache[key]:
+            return _mem_cache[key]["decimals"]
+
+        # Trigger full resolution which populates decimals
+        self.resolve_symbol(contract_id, chain)
+
+        if key in _mem_cache and _mem_cache[key].get("decimals") is not None:
+            return _mem_cache[key]["decimals"]
+
+        return 24 if chain == "near" else 18
+
+    # ------------------------------------------------------------------
+    # NEAR RPC
+    # ------------------------------------------------------------------
+
+    def _fetch_near_ft_metadata(self, contract_id: str) -> Optional[dict]:
+        """Call ft_metadata on a NEAR contract via RPC.
+
+        Returns dict with keys: spec, name, symbol, icon, decimals
+        or None on failure.
+        """
+        try:
+            payload = {
+                "jsonrpc": "2.0",
+                "id": "ft-meta",
+                "method": "query",
+                "params": {
+                    "request_type": "call_function",
+                    "account_id": contract_id,
+                    "method_name": "ft_metadata",
+                    "args_base64": "",
+                    "finality": "final",
+                },
+            }
+            resp = requests.post(FASTNEAR_RPC, json=payload, timeout=5)
+            data = resp.json()
+
+            result_bytes = data.get("result", {}).get("result")
+            if not result_bytes:
+                return None
+
+            result_str = bytes(result_bytes).decode("utf-8")
+            return json.loads(result_str)
+        except Exception as e:
+            logger.debug("ft_metadata failed for %s: %s", contract_id, e)
+            return None
+
+    # ------------------------------------------------------------------
+    # DB operations
+    # ------------------------------------------------------------------
+
+    def _db_lookup(self, contract_id: str, chain: str) -> Optional[dict]:
+        """Look up cached metadata from DB."""
+        conn = self.pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT symbol, decimals, name, icon_url, fetch_failed
+                   FROM token_metadata
+                   WHERE contract_id = %s AND chain = %s""",
+                (contract_id.lower(), chain),
+            )
+            row = cur.fetchone()
+            cur.close()
+            if row:
+                symbol, decimals, name, icon_url, fetch_failed = row
+                if fetch_failed:
+                    return {"symbol": None, "fetch_failed": True}
+                return {
+                    "symbol": symbol,
+                    "decimals": decimals,
+                    "name": name,
+                    "icon_url": icon_url,
+                }
+            return None
+        finally:
+            self.pool.putconn(conn)
+
+    def _db_upsert(self, contract_id, chain, symbol=None, decimals=None, name=None, icon_url=None):
+        """Insert or update token metadata in DB."""
+        conn = self.pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """INSERT INTO token_metadata (contract_id, chain, symbol, decimals, name, icon_url, fetch_failed)
+                   VALUES (%s, %s, %s, %s, %s, %s, FALSE)
+                   ON CONFLICT (contract_id) DO UPDATE SET
+                       symbol = EXCLUDED.symbol,
+                       decimals = EXCLUDED.decimals,
+                       name = EXCLUDED.name,
+                       icon_url = EXCLUDED.icon_url,
+                       fetch_failed = FALSE,
+                       fetched_at = NOW()""",
+                (contract_id.lower(), chain, symbol, decimals, name, icon_url),
+            )
+            conn.commit()
+            cur.close()
+        finally:
+            self.pool.putconn(conn)
+
+    def _db_mark_failed(self, contract_id, chain):
+        """Mark a contract as failed so we don't retry on every sync."""
+        conn = self.pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """INSERT INTO token_metadata (contract_id, chain, fetch_failed)
+                   VALUES (%s, %s, TRUE)
+                   ON CONFLICT (contract_id) DO UPDATE SET
+                       fetch_failed = TRUE,
+                       fetched_at = NOW()""",
+                (contract_id.lower(), chain),
+            )
+            conn.commit()
+            cur.close()
+        finally:
+            self.pool.putconn(conn)

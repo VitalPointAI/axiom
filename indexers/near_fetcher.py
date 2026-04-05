@@ -5,6 +5,7 @@ Handles cursor-based resume, all NEAR action types, and post-sync verification.
 Used by IndexerService to process full_sync and incremental_sync jobs.
 """
 
+import base64
 import json
 import logging
 import sys
@@ -50,6 +51,58 @@ ACTION_PRIORITY = [
     ACTION_ADD_KEY,
     ACTION_DELETE_KEY,
 ]
+
+
+# ---------------------------------------------------------------------------
+# FT args helpers
+# ---------------------------------------------------------------------------
+
+def _parse_ft_args(actions: list) -> Optional[dict]:
+    """Extract parsed args from an ft_transfer/ft_transfer_call action.
+
+    NearBlocks may provide args as a JSON string, base64-encoded string,
+    or already-parsed dict.
+    """
+    for action in actions:
+        if action.get("action") != ACTION_FUNCTION_CALL:
+            continue
+        args = action.get("args")
+        if args is None:
+            continue
+        if isinstance(args, dict):
+            return args
+        if isinstance(args, str):
+            # Try JSON string first
+            try:
+                return json.loads(args)
+            except (json.JSONDecodeError, ValueError):
+                pass
+            # Try base64 decode
+            try:
+                decoded = base64.b64decode(args)
+                return json.loads(decoded)
+            except Exception:
+                pass
+    return None
+
+
+def _parse_ft_args_amount(actions: list) -> Optional[int]:
+    """Extract the token amount from FT transfer args."""
+    parsed = _parse_ft_args(actions)
+    if parsed and "amount" in parsed:
+        try:
+            return int(parsed["amount"])
+        except (ValueError, TypeError):
+            pass
+    return None
+
+
+def _parse_ft_args_receiver(actions: list) -> Optional[str]:
+    """Extract the receiver_id from FT transfer args."""
+    parsed = _parse_ft_args(actions)
+    if parsed:
+        return parsed.get("receiver_id")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +173,34 @@ def parse_transaction(raw_tx: dict, wallet_id: int, user_id: int, account_id: st
         if action_type is None and actions:
             action_type = actions[0].get("action")
 
+        # ---------------------------------------------------------------
+        # Detect fungible token (FT) transfers
+        # For ft_transfer / ft_transfer_call, the receiver_account_id is
+        # the token contract. The actual transfer details are in the args.
+        # ---------------------------------------------------------------
+        token_id = None
+        FT_METHODS = {"ft_transfer", "ft_transfer_call"}
+
+        if method_name in FT_METHODS:
+            # The receiver of the tx is the token contract
+            token_id = receiver
+
+            # Parse the FT amount from action args
+            ft_amount = _parse_ft_args_amount(actions)
+            if ft_amount is not None:
+                amount = ft_amount
+
+            # For FT transfers, the actual counterparty is inside the args,
+            # not the contract itself
+            ft_receiver = _parse_ft_args_receiver(actions)
+            if ft_receiver:
+                if predecessor == account_id:
+                    # We sent it — counterparty is the FT receiver
+                    counterparty = ft_receiver
+                else:
+                    # We received it — counterparty is the sender
+                    counterparty = predecessor
+
         # Extract fee from outcomes_agg
         fee = None
         outcomes_agg = raw_tx.get("outcomes_agg", {})
@@ -148,7 +229,7 @@ def parse_transaction(raw_tx: dict, wallet_id: int, user_id: int, account_id: st
             "method_name": method_name,
             "amount": amount,
             "fee": fee,
-            "token_id": None,  # FT tokens handled separately
+            "token_id": token_id,
             "block_height": block_height,
             "block_timestamp": block_timestamp,
             "success": success,

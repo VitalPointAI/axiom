@@ -149,6 +149,14 @@ class ACBEngine:
         self._pool = pool
         self._price_service = price_service
 
+        # Initialize dynamic token metadata resolver
+        try:
+            from indexers.token_metadata import TokenMetadataResolver
+            from engine.acb.symbols import set_metadata_resolver
+            set_metadata_resolver(TokenMetadataResolver(pool))
+        except Exception:
+            pass  # Graceful fallback to static map
+
     # Disposition threshold: transactions above this CAD value get minute-level
     # price precision. Below this, daily prices are used.
     DISPOSITION_PRECISION_THRESHOLD_CAD = Decimal("500")
