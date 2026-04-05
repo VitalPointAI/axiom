@@ -99,7 +99,8 @@ class TestStreamingEndpointRegistered:
         # Wallet ownership check returns None (wallet not found) → yields error event
         mock_cursor.fetchone.return_value = None
 
-        with patch("indexers.db.get_pool", return_value=mock_pool), \
+        with patch("api.main.validate_env"), \
+             patch("indexers.db.get_pool", return_value=mock_pool), \
              patch("indexers.db.close_pool"):
             with TestClient(app, raise_server_exceptions=True) as client:
                 # Non-streaming GET — the generator yields the "wallet not found" error event
@@ -121,7 +122,8 @@ class TestStreamingEndpointRegistered:
         mock_cursor = mock_pool.getconn.return_value.cursor.return_value
         mock_cursor.fetchone.return_value = None
 
-        with patch("indexers.db.get_pool", return_value=mock_pool), \
+        with patch("api.main.validate_env"), \
+             patch("indexers.db.get_pool", return_value=mock_pool), \
              patch("indexers.db.close_pool"):
             with TestClient(app, raise_server_exceptions=True) as client:
                 resp = client.get("/api/stream/wallet/999")
