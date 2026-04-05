@@ -67,7 +67,7 @@ def unauth_client(mock_pool):
     """TestClient with no auth override."""
     app = create_app()
     app.dependency_overrides[get_pool_dep] = lambda: mock_pool
-    with patch("config.validate_env"), \
+    with patch("api.main.validate_env"), \
          patch("indexers.db.get_pool", return_value=mock_pool), \
          patch("indexers.db.close_pool"):
         with TestClient(app, raise_server_exceptions=False) as client:
