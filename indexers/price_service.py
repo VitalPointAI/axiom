@@ -26,24 +26,22 @@ import logging
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import COINGECKO_API_KEY, CRYPTOCOMPARE_API_KEY
+from config import (
+    COINGECKO_API_KEY, COINGECKO_BASE_URL, COINGECKO_PRO_BASE_URL,
+    CRYPTOCOMPARE_API_KEY, CRYPTOCOMPARE_BASE_URL, BOC_VALET_BASE_URL,
+)
 from indexers.db import get_pool
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-COINGECKO_BASE = "https://api.coingecko.com/api/v3"
-CRYPTOCOMPARE_BASE = "https://min-api.cryptocompare.com/data"
-
-# CoinGecko Pro base (used when Pro API key is present — starts with "CG-pro-")
-COINGECKO_PRO_BASE = "https://pro-api.coingecko.com/api/v3"
-
-# CoinGecko Demo base (used when Demo API key is present — starts with "CG-")
-COINGECKO_DEMO_BASE = "https://api.coingecko.com/api/v3"
-
-# Bank of Canada Valet API base
-BOC_VALET_BASE = "https://www.bankofcanada.ca/valet"
+# API base URLs — read from config (env-overridable)
+COINGECKO_BASE = COINGECKO_BASE_URL
+COINGECKO_PRO_BASE = COINGECKO_PRO_BASE_URL
+COINGECKO_DEMO_BASE = COINGECKO_BASE_URL
+CRYPTOCOMPARE_BASE = CRYPTOCOMPARE_BASE_URL
+BOC_VALET_BASE = BOC_VALET_BASE_URL
 
 # Outlier threshold: if |price_a - price_b| / min(price_a, price_b) > OUTLIER_THRESHOLD
 # → treat as outlier, prefer CoinGecko as primary
@@ -434,9 +432,17 @@ class PriceService:
             return self._bulk_fetch_days(coin_id, days_ago + 1, currency,
                                          missing_dates, base, headers=headers)
         else:
-            # Historical: use days=max to get all available data in one call
-            return self._bulk_fetch_days(coin_id, "max", currency,
-                                         missing_dates, base, headers=headers)
+            # Demo tier doesn't support days=max; fetch last 365 days in
+            # bulk, then fall back to per-date /history for older dates.
+            recent_count = self._bulk_fetch_days(coin_id, 365, currency,
+                                                  missing_dates, base, headers=headers)
+            # Fetch remaining older dates individually via /history endpoint
+            older_dates = [d for d in sorted(missing_dates)
+                           if (today - datetime.strptime(d, "%Y-%m-%d").date()).days > 365]
+            if older_dates:
+                recent_count += self._bulk_fetch_history(coin_id, older_dates,
+                                                         currency, base)
+            return recent_count
 
     def _bulk_fetch_range(self, coin_id, start_dt, end_dt, currency, missing_dates, base):
         """Bulk fetch using /market_chart/range (requires API key)."""

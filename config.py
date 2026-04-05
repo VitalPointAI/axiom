@@ -82,7 +82,11 @@ FASTNEAR_ARCHIVAL_RPC = "https://archival-rpc.mainnet.fastnear.com"
 # Price data APIs
 # ---------------------------------------------------------------------------
 COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY")
+COINGECKO_BASE_URL = os.environ.get("COINGECKO_BASE_URL", "https://api.coingecko.com/api/v3")
+COINGECKO_PRO_BASE_URL = os.environ.get("COINGECKO_PRO_BASE_URL", "https://pro-api.coingecko.com/api/v3")
 CRYPTOCOMPARE_API_KEY = os.environ.get("CRYPTOCOMPARE_API_KEY", "")  # optional
+CRYPTOCOMPARE_BASE_URL = os.environ.get("CRYPTOCOMPARE_BASE_URL", "https://min-api.cryptocompare.com/data")
+BOC_VALET_BASE_URL = os.environ.get("BOC_VALET_BASE_URL", "https://www.bankofcanada.ca/valet")
 
 # ---------------------------------------------------------------------------
 # Reconciliation tolerances (per-chain, in native token units)
