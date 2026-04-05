@@ -14,6 +14,7 @@ import json
 import logging
 import sys
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional, Tuple
 
 import requests
@@ -259,7 +260,9 @@ class NearFetcher:
     """
 
     # Number of blocks to scan per batch before committing progress
-    BATCH_SIZE = 100
+    BATCH_SIZE = 500
+    # Concurrent HTTP requests for block fetching
+    WORKERS = 20
 
     def __init__(self, db_pool):
         self.client = NeardataClient()
@@ -310,17 +313,30 @@ class NearFetcher:
             batch_end = min(current + self.BATCH_SIZE, final_block + 1)
             batch_txs = []
 
-            for height in range(current, batch_end):
+            # Fetch blocks in parallel for throughput
+            def _fetch_and_extract(height):
                 block = self.client.fetch_block(height)
-                if block:
-                    raw_txs = self.client.extract_wallet_txs(block, account_id)
-                    for raw_tx in raw_txs:
-                        parsed = parse_transaction(
-                            raw_tx, wallet_id=wallet_id,
-                            user_id=user_id, account_id=account_id
-                        )
-                        if parsed:
-                            batch_txs.append(parsed)
+                if not block:
+                    return []
+                return self.client.extract_wallet_txs(block, account_id)
+
+            with ThreadPoolExecutor(max_workers=self.WORKERS) as pool:
+                futures = {
+                    pool.submit(_fetch_and_extract, h): h
+                    for h in range(current, batch_end)
+                }
+                for future in as_completed(futures):
+                    try:
+                        raw_txs = future.result()
+                        for raw_tx in raw_txs:
+                            parsed = parse_transaction(
+                                raw_tx, wallet_id=wallet_id,
+                                user_id=user_id, account_id=account_id
+                            )
+                            if parsed:
+                                batch_txs.append(parsed)
+                    except Exception as e:
+                        logger.debug("Block fetch error: %s", e)
 
             if batch_txs:
                 self._batch_insert(batch_txs)
@@ -333,7 +349,7 @@ class NearFetcher:
 
             if total_blocks > 0:
                 pct = min(100, (current - start_block) * 100 // total_blocks)
-                if pct % 10 == 0:
+                if pct % 5 == 0:
                     logger.info("Scan progress for %s: %d%% (block %d)",
                                 account_id, pct, current)
 
