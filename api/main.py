@@ -35,6 +35,7 @@ from api.routers import (
     portfolio_router,
     preferences_router,
     reports_router,
+    staking_router,
     streaming_router,
     transactions_router,
     verification_router,
@@ -110,6 +111,7 @@ def create_app() -> FastAPI:
     application.include_router(audit_router)
     application.include_router(accountant_router)
     application.include_router(preferences_router)
+    application.include_router(staking_router)
     application.include_router(streaming_router, prefix="/api/stream")
     application.include_router(admin_router, prefix="/api/admin")
 

@@ -449,7 +449,10 @@ class NearFetcher:
         sql = f"""
             INSERT INTO transactions ({col_str})
             VALUES {placeholders}
-            ON CONFLICT (chain, tx_hash, receipt_id, wallet_id) DO NOTHING
+            ON CONFLICT (chain, tx_hash, receipt_id, wallet_id) DO UPDATE SET
+                token_id = EXCLUDED.token_id,
+                amount = EXCLUDED.amount,
+                counterparty = EXCLUDED.counterparty
         """
 
         conn = self.db_pool.getconn()
