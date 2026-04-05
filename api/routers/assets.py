@@ -132,7 +132,7 @@ async def get_assets(
                     FROM transactions t
                     LEFT JOIN token_metadata tm ON LOWER(t.token_id) = tm.contract_id
                     WHERE t.user_id = %s
-                    GROUP BY t.wallet_id, token, chain
+                    GROUP BY t.wallet_id, token, LOWER(t.chain)
                     """,
                     (user_id,),
                 )
@@ -152,7 +152,7 @@ async def get_assets(
                            SUM(CASE WHEN t.direction = 'out' THEN COALESCE(t.fee, 0) ELSE 0 END) AS total_fees
                     FROM transactions t
                     WHERE t.user_id = %s
-                    GROUP BY t.wallet_id, token, chain
+                    GROUP BY t.wallet_id, token, LOWER(t.chain)
                     """,
                     (user_id,),
                 )
