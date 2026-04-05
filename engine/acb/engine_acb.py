@@ -101,6 +101,7 @@ SELECT tc.id, tc.category, tc.leg_type, tc.fmv_usd, tc.fmv_cad,
        tc.staking_event_id, tc.lockup_event_id, tc.parent_classification_id,
        tc.transaction_id, tc.exchange_transaction_id,
        t.block_timestamp AS t_block_timestamp, t.amount, t.fee, t.token_id, t.chain,
+       t.direction,
        et.asset, et.quantity, et.fee AS et_fee, et.tx_date AS et_timestamp,
        se.fmv_usd AS se_fmv_usd, se.fmv_cad AS se_fmv_cad, se.amount_near AS se_amount_near,
        le.fmv_usd AS le_fmv_usd, le.fmv_cad AS le_fmv_cad, le.amount_near AS le_amount_near
@@ -626,11 +627,19 @@ class ACBEngine:
         else:
             fee_human = Decimal("0")
 
-        if category == "income":
+        # -----------------------------------------------------------
+        # ACQUISITIONS — add units to pool with cost basis at FMV
+        # -----------------------------------------------------------
+        if category in ("income", "reward", "airdrop", "interest", "buy",
+                         "nft_sale"):
             self._handle_income(row=row, pool=pool, symbol=symbol, units=units,
                                 unix_ts=unix_ts, raw_ts=raw_ts or 0, chain=chain,
                                 conn=conn, gains=gains, user_id=user_id, stats=stats)
-        elif category in ("capital_gain", "capital_loss"):
+
+        # -----------------------------------------------------------
+        # DISPOSITIONS — remove units from pool, realize gains/losses
+        # -----------------------------------------------------------
+        elif category in ("sell", "capital_gain", "capital_loss"):
             children = child_map.get(row.id, [])
             sell_leg = next((c for c in children if c.leg_type == "sell_leg"), None)
             buy_leg = next((c for c in children if c.leg_type == "buy_leg"), None)
@@ -644,12 +653,92 @@ class ACBEngine:
                 self._handle_disposal(row=row, pool=pool, symbol=symbol, units=units,
                                       fee_human=fee_human, unix_ts=unix_ts, raw_ts=raw_ts or 0,
                                       chain=chain, conn=conn, gains=gains, user_id=user_id, stats=stats)
+
+        # -----------------------------------------------------------
+        # TRADES — decomposed swaps with buy/sell child legs
+        # -----------------------------------------------------------
+        elif category == "trade":
+            children = child_map.get(row.id, [])
+            sell_leg = next((c for c in children if c.leg_type == "sell_leg"), None)
+            buy_leg = next((c for c in children if c.leg_type == "buy_leg"), None)
+            fee_leg = next((c for c in children if c.leg_type == "fee_leg"), None)
+            if sell_leg and buy_leg:
+                self._handle_swap(parent_row=row, sell_leg=sell_leg, buy_leg=buy_leg,
+                                  fee_leg=fee_leg, pools=pools, conn=conn, gains=gains,
+                                  user_id=user_id, unix_ts=unix_ts, raw_ts=raw_ts or 0,
+                                  chain=chain, stats=stats)
+            else:
+                # Trade without decomposed legs — treat as acquisition if direction=in,
+                # disposal if direction=out
+                direction = getattr(row, "direction", None)
+                if direction == "out" or (row.amount and int(row.amount) < 0):
+                    self._handle_disposal(row=row, pool=pool, symbol=symbol, units=abs(units),
+                                          fee_human=fee_human, unix_ts=unix_ts, raw_ts=raw_ts or 0,
+                                          chain=chain, conn=conn, gains=gains, user_id=user_id, stats=stats)
+                else:
+                    self._handle_income(row=row, pool=pool, symbol=symbol, units=units,
+                                        unix_ts=unix_ts, raw_ts=raw_ts or 0, chain=chain,
+                                        conn=conn, gains=gains, user_id=user_id, stats=stats)
+
+        # -----------------------------------------------------------
+        # FEES — disposal at zero proceeds (cost of doing business)
+        # -----------------------------------------------------------
         elif category == "fee":
             self._handle_disposal(row=row, pool=pool, symbol=symbol,
                                   units=fee_human if fee_human > 0 else units,
                                   fee_human=Decimal("0"), unix_ts=unix_ts, raw_ts=raw_ts or 0,
                                   chain=chain, conn=conn, gains=gains, user_id=user_id, stats=stats,
                                   proceeds_override=Decimal("0"))
+
+        # -----------------------------------------------------------
+        # NON-TAXABLE MOVEMENTS — track units but no cost basis change
+        # deposit/withdrawal/transfer_in/transfer_out/stake/unstake
+        # These don't affect ACB per CRA rules — they move crypto
+        # between wallets/platforms without triggering a taxable event.
+        # We still record a snapshot so portfolio units_after is accurate.
+        # -----------------------------------------------------------
+        elif category in ("deposit", "transfer_in", "unstake",
+                           "collateral_out", "liquidity_out", "loan_borrow"):
+            # Incoming non-taxable: add units, zero cost delta
+            in_units = abs(units)
+            pool.total_units += in_units
+            snap = {
+                "event_type": category,
+                "units_delta": in_units,
+                "total_units": pool.total_units,
+                "cost_cad_delta": Decimal("0"),
+                "total_cost_cad": pool.total_cost_cad,
+                "acb_per_unit": pool.acb_per_unit,
+            }
+            self._persist_snapshot(
+                conn=conn, user_id=user_id, symbol=symbol,
+                classification_id=row.id, block_timestamp=raw_ts or 0,
+                snap=snap, proceeds_cad=None, gain_loss_cad=None,
+                price_usd=None, price_cad=None,
+            )
+            stats["snapshots_written"] += 1
+
+        elif category in ("withdrawal", "transfer_out", "stake",
+                           "collateral_in", "liquidity_in", "loan_repay"):
+            # Outgoing non-taxable: remove units, zero cost delta
+            out_units = abs(units)
+            pool.total_units = max(Decimal("0"), pool.total_units - out_units)
+            snap = {
+                "event_type": category,
+                "units_delta": -out_units,
+                "total_units": pool.total_units,
+                "cost_cad_delta": Decimal("0"),
+                "total_cost_cad": pool.total_cost_cad,
+                "acb_per_unit": pool.acb_per_unit,
+            }
+            self._persist_snapshot(
+                conn=conn, user_id=user_id, symbol=symbol,
+                classification_id=row.id, block_timestamp=raw_ts or 0,
+                snap=snap, proceeds_cad=None, gain_loss_cad=None,
+                price_usd=None, price_cad=None,
+            )
+            stats["snapshots_written"] += 1
+
         else:
             logger.debug("Skipping category=%s classification_id=%s", category, row.id)
 

@@ -924,6 +924,112 @@ def get_exchange_rules() -> list:
         "priority": 40,
     })
 
+    # -----------------------------------------------------------------------
+    # CRYPTO.COM SPECIFIC — priority 40
+    # Crypto.com exports use non-standard tx_types for card/VIBAN operations
+    # -----------------------------------------------------------------------
+    rules.append({
+        "name": "exchange_crypto_viban",
+        "chain": "exchange",
+        "pattern": {
+            "tx_type": ["crypto_viban"],
+        },
+        "category": "sell",
+        "confidence": 0.90,
+        "priority": 40,
+    })
+
+    rules.append({
+        "name": "exchange_crypto_viban_exchange",
+        "chain": "exchange",
+        "pattern": {
+            "tx_type": ["crypto_viban_exchange"],
+        },
+        "category": "trade",
+        "confidence": 0.90,
+        "priority": 40,
+    })
+
+    rules.append({
+        "name": "exchange_viban_deposit",
+        "chain": "exchange",
+        "pattern": {
+            "tx_type": ["viban_deposit", "viban_purchase"],
+        },
+        "category": "deposit",
+        "confidence": 0.90,
+        "priority": 40,
+    })
+
+    rules.append({
+        "name": "exchange_viban_withdrawal",
+        "chain": "exchange",
+        "pattern": {
+            "tx_type": ["viban_withdrawal"],
+        },
+        "category": "withdrawal",
+        "confidence": 0.90,
+        "priority": 40,
+    })
+
+    rules.append({
+        "name": "exchange_crypto_transfer_in",
+        "chain": "exchange",
+        "pattern": {
+            "tx_type": ["exchange_to_crypto_transfer", "crypto_transfer"],
+        },
+        "category": "transfer_in",
+        "confidence": 0.85,
+        "priority": 40,
+    })
+
+    rules.append({
+        "name": "exchange_crypto_earn_deposit",
+        "chain": "exchange",
+        "pattern": {
+            "tx_type": ["crypto_earn_program_created", "crypto_earn_program_deposit",
+                        "lockup_lock"],
+        },
+        "category": "stake",
+        "confidence": 0.90,
+        "priority": 40,
+    })
+
+    rules.append({
+        "name": "exchange_crypto_earn_withdraw",
+        "chain": "exchange",
+        "pattern": {
+            "tx_type": ["crypto_earn_program_withdrawn", "crypto_earn_program_withdrawal",
+                        "lockup_unlock"],
+        },
+        "category": "unstake",
+        "confidence": 0.90,
+        "priority": 40,
+    })
+
+    rules.append({
+        "name": "exchange_crypto_earn_interest",
+        "chain": "exchange",
+        "pattern": {
+            "tx_type": ["crypto_earn_interest_paid"],
+        },
+        "category": "interest",
+        "confidence": 0.95,
+        "priority": 40,
+    })
+
+    rules.append({
+        "name": "exchange_referral_bonus",
+        "chain": "exchange",
+        "pattern": {
+            "tx_type": ["referral_bonus", "referral_card_cashback",
+                        "reimbursement", "card_cashback_reverted"],
+        },
+        "category": "reward",
+        "confidence": 0.90,
+        "priority": 40,
+    })
+
     return rules
 
 
