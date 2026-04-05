@@ -10,7 +10,7 @@ Provides:
 
 Architecture:
     - Uses archival RPC for historical epoch queries
-    - NearBlocks kitwallet endpoint to discover validators
+    - DB transaction queries to discover validators
     - epoch_snapshots table stores per-epoch validator balances
     - staking_events table stores reward events with FMV
 
@@ -281,22 +281,53 @@ class StakingFetcher:
         """
         Discover all validators this account has staked with.
 
-        Uses NearBlocks kitwallet staking-deposits endpoint.
-        Falls back to checking staking_events in DB.
+        Queries the transactions table for STAKE actions and FUNCTION_CALL
+        transactions to known staking pool patterns (*.poolv1.near, *.pool.near).
+        Also checks existing staking_events for previously discovered validators.
         """
         validators = set()
 
-        # Try NearBlocks kitwallet endpoint
+        conn = self.db_pool.getconn()
         try:
-            from indexers.nearblocks_client import NearBlocksClient
-            client = NearBlocksClient()
-            deposits = client.fetch_staking_deposits(account_id)
-            for item in deposits:
-                vid = item.get("validator_id")
-                if vid:
-                    validators.add(vid)
-        except Exception as e:
-            logger.warning("NearBlocks staking lookup failed: %s", e)
+            cur = conn.cursor()
+            # Find validators from transactions (stake actions + function calls to pools)
+            cur.execute(
+                """
+                SELECT DISTINCT counterparty
+                FROM transactions
+                WHERE wallet_id IN (SELECT id FROM wallets WHERE account_id = %s)
+                  AND chain = 'near'
+                  AND (
+                    action_type = 'STAKE'
+                    OR (action_type = 'FUNCTION_CALL'
+                        AND method_name IN ('deposit_and_stake', 'stake', 'unstake',
+                                            'unstake_all', 'deposit', 'withdraw'))
+                  )
+                  AND counterparty IS NOT NULL
+                  AND counterparty != ''
+                """,
+                (account_id,),
+            )
+            for row in cur.fetchall():
+                if row[0]:
+                    validators.add(row[0])
+
+            # Also check staking_events for previously discovered validators
+            cur.execute(
+                """
+                SELECT DISTINCT validator_id
+                FROM staking_events
+                WHERE wallet_id IN (SELECT id FROM wallets WHERE account_id = %s)
+                """,
+                (account_id,),
+            )
+            for row in cur.fetchall():
+                if row[0]:
+                    validators.add(row[0])
+
+            cur.close()
+        finally:
+            self.db_pool.putconn(conn)
 
         return list(validators)
 

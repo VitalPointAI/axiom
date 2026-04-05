@@ -53,7 +53,7 @@ class TestEnvValidation:
             importlib.reload(config)
             with caplog.at_level(logging.WARNING, logger="config"):
                 config.validate_env()
-            # NEARBLOCKS_API_KEY and COINGECKO_API_KEY should both warn
+            # COINGECKO_API_KEY should warn when missing
             warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
             # At least one warning expected for missing optional vars
             assert len(warning_messages) >= 1 or True
@@ -65,7 +65,6 @@ class TestEnvValidation:
             os.environ,
             {
                 "DATABASE_URL": "postgresql://localhost/test",
-                "NEARBLOCKS_API_KEY": "testkey",
                 "COINGECKO_API_KEY": "testkey2",
                 "ALCHEMY_API_KEY": "testkey3",
             },
@@ -91,7 +90,6 @@ class TestEnvValidation:
     def test_optional_env_vars_warn_list(self):
         """OPTIONAL_ENV_VARS_WARN must include known optional keys."""
         from config import OPTIONAL_ENV_VARS_WARN
-        assert "NEARBLOCKS_API_KEY" in OPTIONAL_ENV_VARS_WARN
         assert "COINGECKO_API_KEY" in OPTIONAL_ENV_VARS_WARN
 
 
@@ -219,11 +217,11 @@ class TestSanitizeForLog:
         """Any key containing API_KEY must be redacted."""
         from config import sanitize_for_log
         result = sanitize_for_log({
-            "NEARBLOCKS_API_KEY": "nb-secret-key-123",
             "COINGECKO_API_KEY": "cg-secret-key-456",
+            "ALCHEMY_API_KEY": "alch-secret-key-789",
         })
-        assert result["NEARBLOCKS_API_KEY"] == "***REDACTED***"
         assert result["COINGECKO_API_KEY"] == "***REDACTED***"
+        assert result["ALCHEMY_API_KEY"] == "***REDACTED***"
 
     def test_sanitize_preserves_safe_keys(self):
         """Non-sensitive keys must be preserved unchanged."""

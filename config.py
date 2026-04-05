@@ -61,16 +61,10 @@ NETWORK_JOB_TYPES = {
 }
 
 # ---------------------------------------------------------------------------
-# NearBlocks API
+# neardata.xyz (block scanning — free, no API key, no rate limits)
 # ---------------------------------------------------------------------------
-NEARBLOCKS_BASE_URL = "https://api.nearblocks.io/v1"
-NEARBLOCKS_API_KEY = os.environ.get("NEARBLOCKS_API_KEY")
-
-# Rate limiting — Paid tier: ~190 calls/min. Use 1/sec to stay safe.
-RATE_LIMIT_DELAY = 1.0 if NEARBLOCKS_API_KEY else 3.0
+NEARDATA_API_URL = os.environ.get("NEARDATA_API_URL", "https://mainnet.neardata.xyz")
 MAX_RETRIES = 5
-BACKOFF_MULTIPLIER = 2.0
-INTER_WALLET_DELAY = 2 if NEARBLOCKS_API_KEY else 10
 
 # ---------------------------------------------------------------------------
 # FastNear RPC (balance checks, no rate limit)
@@ -114,7 +108,7 @@ ETHERSCAN_API_KEY = os.environ.get("ETHERSCAN_API_KEY")
 # ---------------------------------------------------------------------------
 
 REQUIRED_ENV_VARS = ["DATABASE_URL"]
-OPTIONAL_ENV_VARS_WARN = ["NEARBLOCKS_API_KEY", "COINGECKO_API_KEY", "ALCHEMY_API_KEY"]
+OPTIONAL_ENV_VARS_WARN = ["COINGECKO_API_KEY", "ALCHEMY_API_KEY"]
 
 # Keys (or substrings) that should be redacted from log output.
 _SENSITIVE_KEY_PATTERNS = {"DATABASE_URL", "API_KEY", "TOKEN", "SECRET", "PASSWORD"}
@@ -124,7 +118,7 @@ def sanitize_for_log(env_dict: dict) -> dict:
     """Return a copy of *env_dict* with sensitive values replaced by '***REDACTED***'.
 
     Matching is case-insensitive and substring-based so that variants like
-    ``NEARBLOCKS_API_KEY``, ``SESSION_TOKEN``, and ``DB_PASSWORD`` are all
+    ``SESSION_TOKEN`` and ``DB_PASSWORD`` are both
     caught without an exhaustive allowlist.
 
     Args:

@@ -1,71 +1,91 @@
-"""Tests for indexer edge cases — rate limits, malformed responses, timeouts.
+"""Tests for indexer edge cases — retries, malformed responses, timeouts.
 
 Covers QH-10: Production resilience when APIs misbehave.
 """
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 import requests
 
-from indexers.nearblocks_client import NearBlocksClient
+from indexers.neardata_client import NeardataClient
 from indexers.near_fetcher import parse_transaction
 
 
 # ---------------------------------------------------------------------------
-# NearBlocksClient edge cases
+# NeardataClient edge cases
 # ---------------------------------------------------------------------------
 
 
-class TestNearBlocksClientEdgeCases:
-    """Edge case handling for NearBlocks API client."""
+class TestNeardataClientEdgeCases:
+    """Edge case handling for neardata.xyz client."""
 
     def _make_client(self):
-        return NearBlocksClient(delay=0, max_retries=2)
+        return NeardataClient()
 
-    def test_handles_429_response(self):
-        """429 rate limit triggers retry logic, eventually raises on exhaustion."""
-        client = self._make_client()
-        mock_resp = MagicMock()
-        mock_resp.status_code = 429
-        mock_resp.text = "Too Many Requests"
-        mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_resp)
-
-        with patch.object(client, "session") as mock_session:
-            mock_session.get.return_value = mock_resp
-            with pytest.raises((RuntimeError, requests.exceptions.HTTPError)):
-                client._nearblocks_request("/test")
-
-    def test_handles_empty_response(self):
-        """Empty JSON array response returns empty list without crash."""
+    def test_handles_null_block_response(self):
+        """Block returning 'null' text is treated as missing."""
         client = self._make_client()
         mock_resp = MagicMock()
         mock_resp.status_code = 200
-        mock_resp.json.return_value = []
-        mock_resp.raise_for_status.return_value = None
+        mock_resp.text = "null"
 
         with patch.object(client, "session") as mock_session:
             mock_session.get.return_value = mock_resp
-            result = client._nearblocks_request("/test")
-            assert result == []
+            result = client.fetch_block(100)
+            assert result is None
+
+    def test_handles_server_error_with_retry(self):
+        """500 errors trigger retries, return None on exhaustion."""
+        client = self._make_client()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+
+        with patch.object(client, "session") as mock_session:
+            mock_session.get.return_value = mock_resp
+            with patch("indexers.neardata_client.time.sleep"):
+                result = client.fetch_block(100)
+        assert result is None
 
     def test_handles_timeout(self):
-        """Timeout exception triggers retry or raises."""
+        """Timeout exception triggers retry, returns None on exhaustion."""
         client = self._make_client()
 
         with patch.object(client, "session") as mock_session:
-            mock_session.get.side_effect = requests.exceptions.Timeout("Connection timed out")
-            with pytest.raises((RuntimeError, requests.exceptions.Timeout)):
-                client._nearblocks_request("/test")
+            mock_session.get.side_effect = requests.exceptions.Timeout("timed out")
+            with patch("indexers.neardata_client.time.sleep"):
+                result = client.fetch_block(100)
+        assert result is None
 
-    def test_handles_connection_error(self):
-        """ConnectionError triggers retry or raises."""
+    def test_extract_deduplicates_by_hash(self):
+        """Same tx_hash appearing in multiple shards is only returned once."""
         client = self._make_client()
-
-        with patch.object(client, "session") as mock_session:
-            mock_session.get.side_effect = requests.exceptions.ConnectionError("Connection refused")
-            with pytest.raises((RuntimeError, requests.exceptions.ConnectionError)):
-                client._nearblocks_request("/test")
+        block = {
+            "block": {"header": {"height": 100, "timestamp": 1700000000000000000}},
+            "shards": [
+                {"chunk": {
+                    "transactions": [{
+                        "transaction": {
+                            "hash": "TX_DUP", "signer_id": "alice.near",
+                            "receiver_id": "bob.near", "actions": [],
+                        },
+                        "outcome": {},
+                    }],
+                    "receipt_execution_outcomes": [],
+                }},
+                {"chunk": {
+                    "transactions": [{
+                        "transaction": {
+                            "hash": "TX_DUP", "signer_id": "alice.near",
+                            "receiver_id": "charlie.near", "actions": [],
+                        },
+                        "outcome": {},
+                    }],
+                    "receipt_execution_outcomes": [],
+                }},
+            ],
+        }
+        results = client.extract_wallet_txs(block, "alice.near")
+        assert len(results) == 1
 
 
 # ---------------------------------------------------------------------------

@@ -1,8 +1,7 @@
 """Synchronous neardata.xyz client for historical block scanning.
 
-Provides the same interface pattern as nearblocks_client but fetches
-blocks from neardata.xyz (free, no API key, no rate limits) and
-filters for wallet-relevant transactions.
+Fetches blocks from neardata.xyz (free, no API key, no rate limits)
+and filters for wallet-relevant transactions.
 
 Used by NearFetcher for full_sync and incremental_sync jobs.
 """

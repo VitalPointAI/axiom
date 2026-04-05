@@ -78,7 +78,7 @@ class LockupFetcher:
     """
     Lockup contract event parser.
 
-    Fetches all transactions for a lockup account via NearBlocks, parses
+    Scans blocks via neardata.xyz for lockup account transactions, parses
     each for lockup-relevant methods, and stores events with FMV in lockup_events.
 
     Usage:
@@ -138,55 +138,74 @@ class LockupFetcher:
         lockup_account_id: str,
     ) -> int:
         """
-        Fetch all transactions for lockup_account_id and parse lockup events.
+        Fetch lockup events from existing transactions in the DB.
 
-        Uses NearBlocks paginated transaction API.
-        Stores meaningful events in lockup_events with FMV.
+        Lockup accounts are synced as regular wallets via neardata.xyz.
+        This method reads the already-synced transactions and parses
+        them for lockup-relevant methods.
 
         Returns:
             Number of events inserted
         """
         logger.info("[fetch_lockup_events] %s", lockup_account_id)
 
+        conn = self.db_pool.getconn()
         try:
-            from indexers.nearblocks_client import NearBlocksClient
-            client = NearBlocksClient()
-        except ImportError:
-            logger.warning("NearBlocksClient not available")
-            return 0
+            cur = conn.cursor()
+            # Fetch all transactions for this lockup account from DB
+            cur.execute(
+                """
+                SELECT tx_hash, method_name, counterparty, amount,
+                       block_timestamp, direction, action_type, raw_data
+                FROM transactions
+                WHERE chain = 'near'
+                  AND wallet_id IN (
+                      SELECT id FROM wallets WHERE account_id = %s
+                  )
+                ORDER BY block_timestamp ASC
+                """,
+                (lockup_account_id,),
+            )
+            rows = cur.fetchall()
+            cur.close()
+        finally:
+            self.db_pool.putconn(conn)
 
         events_inserted = 0
-        cursor = None
-        page = 0
-        max_pages = 500  # safety limit
+        for tx_hash, method_name, counterparty, amount, block_ts, direction, action_type, raw_data in rows:
+            # Build a minimal tx dict for the parser
+            actions = []
+            if action_type == "FUNCTION_CALL" and method_name:
+                actions.append({
+                    "action": "FUNCTION_CALL",
+                    "method": method_name,
+                    "deposit": str(amount or 0),
+                    "args": {},
+                })
+            elif action_type == "TRANSFER":
+                actions.append({
+                    "action": "TRANSFER",
+                    "deposit": str(amount or 0),
+                })
 
-        while page < max_pages:
-            page += 1
-            try:
-                data = client.fetch_transactions(lockup_account_id, cursor=cursor, per_page=25)
-            except Exception as e:
-                logger.error("Error fetching transactions (page %d): %s", page, e)
-                break
+            tx = {
+                "transaction_hash": tx_hash,
+                "block_timestamp": block_ts,
+                "receiver_account_id": counterparty or "",
+                "signer_account_id": "",
+                "actions": actions,
+            }
 
-            txns = data.get("txns", [])
-            if not txns:
-                break
-
-            for tx in txns:
-                event = self._parse_lockup_transaction(tx, lockup_account_id)
-                if event:
-                    inserted = self._insert_lockup_event(
-                        wallet_id=wallet_id,
-                        user_id=user_id,
-                        lockup_account_id=lockup_account_id,
-                        event=event,
-                    )
-                    if inserted:
-                        events_inserted += 1
-
-            cursor = data.get("cursor")
-            if not cursor:
-                break  # Last page
+            event = self._parse_lockup_transaction(tx, lockup_account_id)
+            if event:
+                inserted = self._insert_lockup_event(
+                    wallet_id=wallet_id,
+                    user_id=user_id,
+                    lockup_account_id=lockup_account_id,
+                    event=event,
+                )
+                if inserted:
+                    events_inserted += 1
 
         logger.info("Inserted %d lockup events for %s", events_inserted, lockup_account_id)
         return events_inserted
@@ -230,46 +249,17 @@ class LockupFetcher:
 
         Strategies:
             1. If account_id ends in .lockup.near → it IS the lockup account
-            2. Try to query known lockup suffix: {hash}.lockup.near
-            3. Scan DB transactions for interactions with *.lockup.near
+            2. Check DB transactions for interactions with *.lockup.near
 
         Returns:
             List of lockup account IDs
         """
-        lockup_accounts = []
-
         # Strategy 1: account IS a lockup
         if account_id.endswith(".lockup.near"):
             return [account_id]
 
         # Strategy 2: check DB for known lockup interactions
-        db_lockups = self._find_lockup_from_db(account_id)
-        lockup_accounts.extend(db_lockups)
-
-        # Strategy 3: try the well-known lockup pattern from NearBlocks transactions
-        try:
-            from indexers.nearblocks_client import NearBlocksClient
-            client = NearBlocksClient()
-            # Fetch first page of transactions, look for lockup.near interactions
-            data = client.fetch_transactions(account_id, per_page=25)
-            for tx in data.get("txns", []):
-                receiver = tx.get("receiver_account_id", "")
-                if receiver.endswith(".lockup.near") and receiver not in lockup_accounts:
-                    lockup_accounts.append(receiver)
-                # Also check if account was involved as sender in lockup txs
-                actions = tx.get("actions", [])
-                for action in actions:
-                    if isinstance(action, dict):
-                        args = action.get("args", {})
-                        if isinstance(args, dict):
-                            for v in args.values():
-                                if isinstance(v, str) and v.endswith(".lockup.near"):
-                                    if v not in lockup_accounts:
-                                        lockup_accounts.append(v)
-        except Exception as e:
-            logger.warning("Could not scan transactions for lockup accounts: %s", e)
-
-        return lockup_accounts
+        return self._find_lockup_from_db(account_id)
 
     def _find_lockup_from_db(self, account_id: str) -> list[str]:
         """Check transactions table for lockup.near counterparties."""

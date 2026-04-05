@@ -24,7 +24,7 @@ from typing import Optional
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from config import JOB_POLL_INTERVAL, SYNC_INTERVAL_MINUTES, OFFLINE_MODE, NETWORK_JOB_TYPES, NEARBLOCKS_BASE_URL
+from config import JOB_POLL_INTERVAL, SYNC_INTERVAL_MINUTES, OFFLINE_MODE, NETWORK_JOB_TYPES, NEARDATA_API_URL
 from indexers.db import get_pool, close_pool
 from indexers.near_fetcher import NearFetcher
 from indexers.near_stream_fetcher import NearStreamFetcher
@@ -109,7 +109,7 @@ class IndexerService:
 
         - "true"  → always offline (skip network jobs)
         - "false" → never offline (network failures raise normally)
-        - "auto"  → attempt a GET to NEARBLOCKS_BASE_URL with a 3-second
+        - "auto"  → attempt a GET to neardata.xyz with a 3-second
                      timeout; set offline if unreachable.
         """
         if OFFLINE_MODE == "true":
@@ -124,19 +124,19 @@ class IndexerService:
             logger.info("Offline mode: DISABLED (OFFLINE_MODE=false). Network failures will raise.")
             return
 
-        # OFFLINE_MODE == "auto" (default) — probe NearBlocks
+        # OFFLINE_MODE == "auto" (default) — probe neardata.xyz
         try:
             import requests  # type: ignore
-            health_url = f"{NEARBLOCKS_BASE_URL}/health"
+            health_url = f"{NEARDATA_API_URL}/v0/last_block/final"
             requests.get(health_url, timeout=3)
             self._is_offline = False
             self._offline_reason = ""
-            logger.info("Offline mode: auto-check PASSED. NearBlocks reachable.")
+            logger.info("Offline mode: auto-check PASSED. neardata.xyz reachable.")
         except Exception as exc:
             self._is_offline = True
-            self._offline_reason = f"NearBlocks unreachable: {exc}"
+            self._offline_reason = f"neardata.xyz unreachable: {exc}"
             logger.info(
-                "Offline mode activated: NearBlocks unreachable (%s). "
+                "Offline mode activated: neardata.xyz unreachable (%s). "
                 "Network jobs will be re-queued.",
                 exc,
             )

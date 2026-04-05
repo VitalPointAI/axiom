@@ -520,26 +520,7 @@ class BalanceReconciler:
         finally:
             self.pool.putconn(conn)
 
-        # 3. NearBlocks kitwallet fallback for pre-indexing validators
-        try:
-            from indexers.nearblocks_client import NearBlocksClient
-
-            client = NearBlocksClient()
-            deposits = client.fetch_staking_deposits(account_id)
-            if isinstance(deposits, list):
-                for item in deposits:
-                    vid = item.get("validator_id")
-                    deposit = int(item.get("deposit", 0))
-                    if vid and deposit > 0:
-                        validator_ids.add(vid)
-        except Exception as exc:
-            logger.debug(
-                "NearBlocks staking fallback unavailable for %s: %s",
-                account_id,
-                exc,
-            )
-
-        # 4. Query staked balance from each validator pool
+        # 3. Query staked balance from each validator pool
         for pool_id in validator_ids:
             try:
                 pool_balance = self._query_staked_balance(account_id, pool_id)
