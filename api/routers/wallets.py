@@ -227,14 +227,15 @@ async def create_wallet(
             )
 
             # Queue pipeline jobs
+            chain_val = (body.chain or "near").lower()
             jobs = _jobs_for_chain(body.chain)
             for job_type, priority in jobs:
                 cur.execute(
                     """
-                    INSERT INTO indexing_jobs (wallet_id, user_id, job_type, status, priority)
-                    VALUES (%s, %s, %s, 'queued', %s)
+                    INSERT INTO indexing_jobs (wallet_id, user_id, job_type, chain, status, priority)
+                    VALUES (%s, %s, %s, %s, 'queued', %s)
                     """,
-                    (wallet_id, user_id, job_type, priority),
+                    (wallet_id, user_id, job_type, chain_val, priority),
                 )
 
             conn.commit()
@@ -536,17 +537,17 @@ async def resync_wallet(
             if row is None:
                 return None
 
-            chain = row[2]
+            chain = (row[2] or "near").lower()
             jobs = _jobs_for_chain(chain)
             queued = []
             for job_type, priority in jobs:
                 cur.execute(
                     """
-                    INSERT INTO indexing_jobs (wallet_id, user_id, job_type, status, priority)
-                    VALUES (%s, %s, %s, 'queued', %s)
+                    INSERT INTO indexing_jobs (wallet_id, user_id, job_type, chain, status, priority)
+                    VALUES (%s, %s, %s, %s, 'queued', %s)
                     RETURNING id
                     """,
-                    (wallet_id, user_id, job_type, priority),
+                    (wallet_id, user_id, job_type, chain, priority),
                 )
                 job_row = cur.fetchone()
                 if job_row:

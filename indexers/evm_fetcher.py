@@ -80,6 +80,8 @@ CHAIN_NAME_MAP: Dict[str, str] = {
 
 # Map lowercase chain names (as stored in wallets.chain) back to CHAIN_CONFIG keys
 CHAIN_KEY_MAP: Dict[str, str] = {v: k for k, v in CHAIN_NAME_MAP.items()}
+# Also map the raw wallet.chain values (may be uppercase short names)
+CHAIN_KEY_MAP.update({"eth": "ETH", "ETH": "ETH", "polygon": "Polygon", "cronos": "Cronos", "optimism": "Optimism"})
 
 # ---------------------------------------------------------------------------
 # EVMFetcher
