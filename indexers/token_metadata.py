@@ -16,7 +16,7 @@ from typing import Optional
 
 import requests
 
-from config import FASTNEAR_RPC
+from config import FASTNEAR_RPC, ALCHEMY_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -82,23 +82,27 @@ class TokenMetadataResolver:
             _mem_cache[key] = {"symbol": symbol, "decimals": 24}
             return symbol
 
-        # 4. On-chain RPC (NEAR only for now)
+        # 4. On-chain RPC
         if chain == "near":
             meta = self._fetch_near_ft_metadata(contract_id)
-            if meta and meta.get("symbol"):
-                symbol = meta["symbol"].upper()
-                self._db_upsert(
-                    contract_id, chain,
-                    symbol=symbol,
-                    decimals=meta.get("decimals"),
-                    name=meta.get("name"),
-                    icon_url=meta.get("icon"),
-                )
-                _mem_cache[key] = {"symbol": symbol, "decimals": meta.get("decimals")}
-                return symbol
-            else:
-                # Mark as failed so we don't retry every sync
-                self._db_mark_failed(contract_id, chain)
+        elif contract_id.startswith("0x") or contract_id.startswith("0X"):
+            meta = self._fetch_evm_token_metadata(contract_id, chain)
+        else:
+            meta = None
+
+        if meta and meta.get("symbol"):
+            symbol = meta["symbol"].upper()
+            self._db_upsert(
+                contract_id, chain,
+                symbol=symbol,
+                decimals=meta.get("decimals"),
+                name=meta.get("name"),
+                icon_url=meta.get("icon") or meta.get("logo"),
+            )
+            _mem_cache[key] = {"symbol": symbol, "decimals": meta.get("decimals")}
+            return symbol
+        else:
+            self._db_mark_failed(contract_id, chain)
 
         # 5. Last resort — use contract ID
         fallback = contract_id.split(".")[0].upper() if "." in contract_id else contract_id.upper()
@@ -160,6 +164,101 @@ class TokenMetadataResolver:
         except Exception as e:
             logger.debug("ft_metadata failed for %s: %s", contract_id, e)
             return None
+
+    # ------------------------------------------------------------------
+    # EVM — Alchemy getTokenMetadata
+    # ------------------------------------------------------------------
+
+    # Map chain names to Alchemy network prefixes
+    _ALCHEMY_NETWORKS = {
+        "ethereum": "eth-mainnet",
+        "polygon": "polygon-mainnet",
+        "optimism": "opt-mainnet",
+        "arbitrum": "arb-mainnet",
+    }
+
+    def _fetch_evm_token_metadata(self, contract_address: str, chain: str = "ethereum") -> Optional[dict]:
+        """Fetch ERC-20 token metadata via Alchemy getTokenMetadata.
+
+        Returns dict with keys: symbol, name, decimals, logo
+        or None on failure.
+        """
+        if not ALCHEMY_API_KEY:
+            logger.debug("ALCHEMY_API_KEY not set, cannot resolve EVM token %s", contract_address)
+            return None
+
+        network = self._ALCHEMY_NETWORKS.get(chain, "eth-mainnet")
+        url = f"https://{network}.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
+
+        try:
+            resp = requests.post(
+                url,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "alchemy_getTokenMetadata",
+                    "params": [contract_address],
+                },
+                timeout=10,
+            )
+            data = resp.json()
+            result = data.get("result")
+            if not result:
+                return None
+
+            symbol = result.get("symbol")
+            if not symbol:
+                return None
+
+            return {
+                "symbol": symbol,
+                "name": result.get("name", ""),
+                "decimals": result.get("decimals"),
+                "logo": result.get("logo", ""),
+            }
+        except Exception as e:
+            logger.debug("Alchemy getTokenMetadata failed for %s on %s: %s",
+                         contract_address, chain, e)
+            return None
+
+    def resolve_all_unresolved(self, chain: str = "ethereum"):
+        """Bulk resolve all unresolved EVM tokens in the transactions table.
+
+        Queries distinct token_ids that start with 0x and don't have
+        entries in token_metadata, then resolves each via Alchemy.
+        """
+        conn = self.pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT DISTINCT LOWER(t.token_id)
+                FROM transactions t
+                WHERE t.token_id LIKE '0x%%' OR t.token_id LIKE '0X%%'
+                  AND LOWER(t.token_id) NOT IN (
+                      SELECT contract_id FROM token_metadata WHERE fetch_failed = FALSE
+                  )
+                """,
+            )
+            unresolved = [row[0] for row in cur.fetchall()]
+            cur.close()
+        finally:
+            self.pool.putconn(conn)
+
+        resolved = 0
+        for contract_id in unresolved:
+            # Check if already in DB
+            existing = self._db_lookup(contract_id, chain)
+            if existing and existing.get("symbol"):
+                continue
+
+            symbol = self.resolve_symbol(contract_id, chain)
+            if symbol and not symbol.startswith("0X"):
+                resolved += 1
+                logger.info("Resolved EVM token %s → %s", contract_id[:10], symbol)
+
+        logger.info("Resolved %d/%d EVM tokens", resolved, len(unresolved))
+        return resolved
 
     # ------------------------------------------------------------------
     # DB operations

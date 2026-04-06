@@ -317,8 +317,8 @@ async def get_assets(
         if token_symbol in acb_symbols:
             continue
 
-        # Skip unresolved EVM contract addresses (0x...) — show only named tokens
-        if token_symbol.startswith("0X") and len(token_symbol) > 10:
+        # Skip unresolved contract addresses (long hex or long .near names)
+        if len(token_symbol) > 30:
             continue
 
         is_spam = token_symbol in spam_tokens
