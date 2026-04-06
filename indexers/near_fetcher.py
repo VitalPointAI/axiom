@@ -274,38 +274,175 @@ class NearFetcher:
 
     def sync_wallet(self, job_row: dict) -> None:
         """
-        Sync all transactions for a wallet by scanning neardata.xyz blocks.
+        Sync all transactions for a wallet.
 
-        Resumes from the last scanned block_height stored in job cursor.
-        For new wallets, starts from the wallet's earliest known block
-        or a configurable default.
+        Strategy (fastest first):
+          1. If account_block_index is populated, use it — fetch only blocks
+             where this account appears. Seconds, not hours.
+          2. Otherwise, fall back to scanning all blocks from neardata.xyz.
 
         Args:
             job_row: Row dict from indexing_jobs table
         """
         wallet_id = job_row["wallet_id"]
-        user_id = job_row["user_id"]
         job_id = job_row["id"]
 
         account_id = self._get_account_id(wallet_id)
         if not account_id:
             raise ValueError(f"Wallet {wallet_id} not found in database")
 
-        logger.info("Syncing %s (wallet_id=%s, job_id=%s) via neardata.xyz",
-                     account_id, wallet_id, job_id)
+        logger.info("Syncing %s (wallet_id=%s, job_id=%s)", account_id, wallet_id, job_id)
 
-        # Determine start block: resume from cursor or find earliest known
+        # Try the fast path: account_block_index
+        indexed_blocks = self._get_indexed_blocks(account_id)
+        if indexed_blocks is not None:
+            logger.info("Using account_block_index: %d blocks for %s",
+                        len(indexed_blocks), account_id)
+            self._sync_from_index(job_row, account_id, indexed_blocks)
+        else:
+            logger.info("No account index available — falling back to block scan for %s",
+                        account_id)
+            self._sync_full_scan(job_row, account_id)
+
+        self._complete_job(job_id)
+
+        passed, message = self.verify_sync(wallet_id, account_id)
+        if not passed:
+            logger.warning("Verification warning for %s: %s", account_id, message)
+        else:
+            logger.info("Verification passed for %s: %s", account_id, message)
+
+    def _get_indexed_blocks(self, account_id: str) -> Optional[list]:
+        """Query account_block_index for blocks containing this account.
+
+        Returns a sorted list of block heights, or None if the index
+        table doesn't exist or is empty (not yet built).
+        """
+        conn = self.db_pool.getconn()
+        try:
+            cur = conn.cursor()
+            # Check if the index has been built (has data and is reasonably current)
+            try:
+                cur.execute("SELECT last_processed_block FROM account_indexer_state WHERE id = 1")
+                state = cur.fetchone()
+                if not state or state[0] < 1_000_000:
+                    cur.close()
+                    return None  # Index not built yet
+            except Exception:
+                cur.close()
+                conn.rollback()
+                return None  # Table doesn't exist yet
+
+            cur.execute(
+                "SELECT block_height FROM account_block_index WHERE account_id = %s ORDER BY block_height",
+                (account_id.lower(),),
+            )
+            rows = cur.fetchall()
+            cur.close()
+
+            if not rows:
+                # Index is built but account not found — could be a new account
+                # not yet indexed, or an account with zero on-chain activity.
+                # Check if the index is close to chain tip before trusting the
+                # empty result.
+                cur = conn.cursor()
+                cur.execute("SELECT last_processed_block FROM account_indexer_state WHERE id = 1")
+                last_block = cur.fetchone()[0]
+                cur.close()
+
+                try:
+                    tip = self.client.get_final_block_height()
+                    if tip - last_block > 10000:
+                        return None  # Index too far behind — don't trust empty result
+                except Exception:
+                    return None
+
+                # Index is current and account has no blocks — return empty list
+                return []
+
+            return [r[0] for r in rows]
+        finally:
+            self.db_pool.putconn(conn)
+
+    def _sync_from_index(self, job_row: dict, account_id: str, block_heights: list) -> None:
+        """Fetch only the specific blocks where this account has activity.
+
+        Instead of scanning millions of blocks, we fetch only the ones
+        that matter. A wallet with 5000 transactions might have activity
+        in ~2000 blocks — fetched in under a minute.
+        """
+        wallet_id = job_row["wallet_id"]
+        user_id = job_row["user_id"]
+        job_id = job_row["id"]
+
+        if not block_heights:
+            logger.info("No indexed blocks for %s — nothing to sync.", account_id)
+            return
+
+        total = len(block_heights)
+        self._set_progress_total(job_id, total)
+        logger.info("Fetching %d targeted blocks for %s", total, account_id)
+
+        # Process in batches with parallel fetching
+        for batch_start in range(0, total, self.BATCH_SIZE):
+            if not hasattr(self, '_running') or True:  # Always run unless service stops
+                batch = block_heights[batch_start:batch_start + self.BATCH_SIZE]
+                batch_txs = []
+
+                def _fetch_and_extract(height):
+                    block = self.client.fetch_block(height)
+                    if not block:
+                        return []
+                    return self.client.extract_wallet_txs(block, account_id)
+
+                with ThreadPoolExecutor(max_workers=self.WORKERS) as pool:
+                    futures = {
+                        pool.submit(_fetch_and_extract, h): h
+                        for h in batch
+                    }
+                    for future in as_completed(futures):
+                        try:
+                            raw_txs = future.result()
+                            for raw_tx in raw_txs:
+                                parsed = parse_transaction(
+                                    raw_tx, wallet_id=wallet_id,
+                                    user_id=user_id, account_id=account_id,
+                                )
+                                if parsed:
+                                    batch_txs.append(parsed)
+                        except Exception as e:
+                            logger.debug("Block fetch error: %s", e)
+
+                if batch_txs:
+                    self._batch_insert(batch_txs)
+
+                progress = batch_start + len(batch)
+                self._update_job_progress(job_id, str(batch[-1]), progress)
+
+                pct = min(100, progress * 100 // total)
+                if pct % 10 == 0:
+                    logger.info("Index sync %s: %d%% (%d/%d blocks)",
+                                account_id, pct, progress, total)
+
+    def _sync_full_scan(self, job_row: dict, account_id: str) -> None:
+        """Fallback: scan all blocks from neardata.xyz (slow but complete).
+
+        Used when the account_block_index hasn't been built yet.
+        """
+        wallet_id = job_row["wallet_id"]
+        user_id = job_row["user_id"]
+        job_id = job_row["id"]
+
         cursor = job_row.get("cursor")
         start_block = self._parse_block_cursor(cursor, wallet_id)
         progress_fetched = job_row.get("progress_fetched", 0)
 
-        # Get chain tip
         final_block = self.client.get_final_block_height()
         total_blocks = final_block - start_block
         if total_blocks > 0:
             self._set_progress_total(job_id, total_blocks)
 
-        logger.info("Scanning blocks %d → %d (%d blocks) for %s",
+        logger.info("Full scan: blocks %d → %d (%d blocks) for %s",
                      start_block, final_block, total_blocks, account_id)
 
         current = start_block
@@ -313,7 +450,6 @@ class NearFetcher:
             batch_end = min(current + self.BATCH_SIZE, final_block + 1)
             batch_txs = []
 
-            # Fetch blocks in parallel for throughput
             def _fetch_and_extract(height):
                 block = self.client.fetch_block(height)
                 if not block:
@@ -331,7 +467,7 @@ class NearFetcher:
                         for raw_tx in raw_txs:
                             parsed = parse_transaction(
                                 raw_tx, wallet_id=wallet_id,
-                                user_id=user_id, account_id=account_id
+                                user_id=user_id, account_id=account_id,
                             )
                             if parsed:
                                 batch_txs.append(parsed)
@@ -344,7 +480,6 @@ class NearFetcher:
             current = batch_end
             progress_fetched += self.BATCH_SIZE
 
-            # Save block height as cursor for resume
             self._update_job_progress(job_id, str(current), progress_fetched)
 
             if total_blocks > 0:
@@ -352,14 +487,6 @@ class NearFetcher:
                 if pct % 5 == 0:
                     logger.info("Scan progress for %s: %d%% (block %d)",
                                 account_id, pct, current)
-
-        self._complete_job(job_id)
-
-        passed, message = self.verify_sync(wallet_id, account_id)
-        if not passed:
-            logger.warning("Verification warning for %s: %s", account_id, message)
-        else:
-            logger.info("Verification passed for %s: %s", account_id, message)
 
     def _parse_block_cursor(self, cursor, wallet_id):
         """Parse cursor to block height. Falls back to earliest DB block or default."""
