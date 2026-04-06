@@ -280,7 +280,10 @@ class ACBEngine:
             daily_result = self._price_service.get_daily_price_cad(coin_id, date_str)
             if daily_result and daily_result[0] is not None:
                 from decimal import Decimal as _D
-                estimated_value = abs(units) * daily_result[0]
+                try:
+                    estimated_value = abs(units) * _D(str(daily_result[0]))
+                except Exception:
+                    continue
                 if estimated_value > self.DISPOSITION_PRECISION_THRESHOLD_CAD:
                     minute_requests.append((coin_id, unix_ts))
 
