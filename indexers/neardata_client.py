@@ -27,7 +27,7 @@ class NeardataClient:
     def __init__(self, base_url=None):
         self.base_url = base_url or NEARDATA_BASE
         adapter = requests.adapters.HTTPAdapter(
-            pool_connections=25, pool_maxsize=25,
+            pool_connections=150, pool_maxsize=150,
         )
         self.session = requests.Session()
         self.session.mount("https://", adapter)

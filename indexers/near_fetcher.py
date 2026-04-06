@@ -23,7 +23,7 @@ import requests
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from config import FASTNEAR_RPC
+from config import FASTNEAR_RPC, FASTNEAR_ARCHIVAL_RPC
 from indexers.neardata_client import NeardataClient
 
 logger = logging.getLogger(__name__)
@@ -260,9 +260,9 @@ class NearFetcher:
     """
 
     # Number of blocks to scan per batch before committing progress
-    BATCH_SIZE = 500
+    BATCH_SIZE = 5000
     # Concurrent HTTP requests for block fetching
-    WORKERS = 20
+    WORKERS = 100
 
     def __init__(self, db_pool):
         self.client = NeardataClient()
@@ -389,9 +389,84 @@ class NearFetcher:
         finally:
             self.db_pool.putconn(conn)
 
+        # Try to find the account's creation block via archival RPC binary search.
+        # This avoids scanning millions of irrelevant blocks for accounts created
+        # well after genesis.
+        account_id = self._get_account_id(wallet_id)
+        if account_id:
+            creation_block = self._find_account_creation_block(account_id)
+            if creation_block:
+                logger.info("Found account %s creation at block %d (skipping earlier blocks)",
+                            account_id, creation_block)
+                return creation_block
+
         # Default: NEAR mainnet genesis was ~9.8M but most activity starts later.
         # Use 45M (~mid 2021) as sensible default for new wallets.
         return int(os.environ.get("NEAR_SCAN_START_BLOCK", "45000000"))
+
+    def _find_account_creation_block(self, account_id: str) -> Optional[int]:
+        """Binary search for the block where an account was created.
+
+        Uses FastNear archival RPC to check if the account existed at a given
+        block. Narrows down to within ~1000 blocks of creation, which is close
+        enough — we'll catch the actual first tx in the block scan.
+
+        Returns the approximate creation block, or None on failure.
+        """
+        try:
+            # First verify account exists at tip
+            resp = requests.post(FASTNEAR_RPC, json={
+                "jsonrpc": "2.0", "id": "1",
+                "method": "query",
+                "params": {"request_type": "view_account", "account_id": account_id, "finality": "final"},
+            }, timeout=10)
+            data = resp.json()
+            if "error" in data or "error" in data.get("result", {}):
+                return None
+
+            final_block = self.client.get_final_block_height()
+
+            # Binary search: find lowest block where account exists
+            low = 9_820_210  # NEAR mainnet genesis
+            high = final_block
+            # Precision: within 1000 blocks (~17 minutes of NEAR time)
+            while high - low > 1000:
+                mid = (low + high) // 2
+                if self._account_exists_at_block(account_id, mid):
+                    high = mid
+                else:
+                    low = mid
+
+            # Back up a small buffer to ensure we don't miss the creation tx
+            return max(9_820_210, low - 100)
+
+        except Exception as exc:
+            logger.warning("Failed to find creation block for %s: %s", account_id, exc)
+            return None
+
+    def _account_exists_at_block(self, account_id: str, block_height: int) -> bool:
+        """Check if an account existed at a specific block height via archival RPC."""
+        try:
+            resp = requests.post(FASTNEAR_ARCHIVAL_RPC, json={
+                "jsonrpc": "2.0", "id": "1",
+                "method": "query",
+                "params": {
+                    "request_type": "view_account",
+                    "account_id": account_id,
+                    "block_id": block_height,
+                },
+            }, timeout=15)
+            data = resp.json()
+            # If the account doesn't exist yet, the RPC returns an error
+            if "error" in data:
+                return False
+            result = data.get("result", {})
+            if "error" in result:
+                return False
+            # Account exists if we got a valid result with an amount field
+            return "amount" in result
+        except Exception:
+            return False
 
     def verify_sync(self, wallet_id: int, account_id: str) -> Tuple[bool, str]:
         """
