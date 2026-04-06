@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { CheckCircle, Loader2, RefreshCw } from 'lucide-react';
+import { CheckCircle, Loader2, RefreshCw, ChevronDown } from 'lucide-react';
 import { apiClient, ApiError } from '@/lib/api';
+import { ProgressDetailPanel } from './progress-detail-panel';
 
 interface WalletStatusResponse {
   stage: string;
@@ -42,8 +43,19 @@ interface SyncStatusProps {
   onComplete?: () => void;
 }
 
+interface JobDetail {
+  id: number;
+  job_type: string;
+  status: string;
+  progress_fetched: number | null;
+  progress_total: number | null;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
 interface ActiveJobsResponse {
-  jobs: Array<{ status: string; pipeline_stage: string; pipeline_pct: number }>;
+  jobs: JobDetail[];
   pipeline_stage: string;
   pipeline_pct: number;
   estimated_minutes: number | null;
@@ -52,6 +64,8 @@ interface ActiveJobsResponse {
 export function SyncStatus({ walletId, compact = false, onComplete }: SyncStatusProps) {
   const [status, setStatus] = useState<WalletStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeJobsData, setActiveJobsData] = useState<ActiveJobsResponse | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevDoneRef = useRef<boolean>(false);
 
@@ -79,8 +93,10 @@ export function SyncStatus({ walletId, compact = false, onComplete }: SyncStatus
             pct: data.pipeline_pct || 0,
             detail: timeStr ? `${jobCount} — ${timeStr}` : jobCount,
           });
+          setActiveJobsData(data);
         } else {
           setStatus({ stage: 'done', pct: 100, detail: '' });
+          setActiveJobsData(null);
         }
       }
     } catch (err) {
@@ -129,6 +145,7 @@ export function SyncStatus({ walletId, compact = false, onComplete }: SyncStatus
       // Fire onComplete only once on first transition to done state
       if (!prevDoneRef.current) {
         prevDoneRef.current = true;
+        setDetailOpen(false);
         handleDoneTransition();
       }
     } else {
@@ -172,10 +189,27 @@ export function SyncStatus({ walletId, compact = false, onComplete }: SyncStatus
       );
     }
     return (
-      <div className="flex items-center gap-2 text-blue-400 text-sm">
-        <RefreshCw className="w-4 h-4 animate-spin" />
-        <span className="text-xs">{status.stage} {status.pct}%</span>
-        {status.detail && <span className="text-xs text-gray-500 hidden sm:inline">— {status.detail}</span>}
+      <div className="relative">
+        <button
+          onClick={() => setDetailOpen(!detailOpen)}
+          className="flex items-center gap-2 text-blue-400 text-sm cursor-pointer hover:bg-gray-800/50 rounded-md px-2 py-1 -mx-2 -my-1 transition-colors"
+        >
+          <RefreshCw className="w-4 h-4 animate-spin" />
+          <span className="text-xs">{status.stage} {status.pct}%</span>
+          {status.detail && <span className="text-xs text-gray-500 hidden sm:inline">— {status.detail}</span>}
+          <ChevronDown
+            className={`w-3 h-3 ml-1 transition-transform ${detailOpen ? 'rotate-180' : ''}`}
+          />
+        </button>
+        {detailOpen && activeJobsData && (
+          <ProgressDetailPanel
+            jobs={activeJobsData.jobs}
+            pipelineStage={activeJobsData.pipeline_stage}
+            pipelinePct={activeJobsData.pipeline_pct}
+            estimatedMinutes={activeJobsData.estimated_minutes}
+            onClose={() => setDetailOpen(false)}
+          />
+        )}
       </div>
     );
   }
