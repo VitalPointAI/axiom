@@ -130,6 +130,7 @@ None currently.
 |---|-------------|------|--------|-----------|
 | 1 | Fix username display showing user ID instead of name | 2026-03-16 | 56f32aa | [1-fix-username-display-showing-user-id-ins](./quick/1-fix-username-display-showing-user-id-ins/) |
 | 2 | Fix exchange file upload 404 in onboarding wizard | 2026-03-16 | 2a6c3d6 | [2-fix-exchange-file-upload-404-in-onboardi](./quick/2-fix-exchange-file-upload-404-in-onboardi/) |
+| 260406-kyj | Fix ACB and indexing performance - optimize to complete in under 2 minutes | 2026-04-06 | 9ef0ad9 | [260406-kyj-fix-acb-and-indexing-performance-optimiz](./quick/260406-kyj-fix-acb-and-indexing-performance-optimiz/) |
 
 ## Recent Activity
 
@@ -385,4 +386,4 @@ None currently.
 
 - 2026-03-16: **quick-2 complete** - Fixed onboarding wizard step 3 file upload: changed fetch URL from non-existent /api/upload-file to ${API_URL}/api/exchanges/import; added API_URL import from @/lib/api for cross-origin support in dev/prod.
 
-*Last activity: 2026-03-16 - Completed quick task 2: Fix exchange file upload 404 in onboarding wizard.*
+*Last activity: 2026-04-06 - Completed quick task 260406-kyj: Fix ACB and indexing performance - optimize to complete in under 2 minutes.*
