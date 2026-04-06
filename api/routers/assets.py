@@ -317,6 +317,10 @@ async def get_assets(
         if token_symbol in acb_symbols:
             continue
 
+        # Skip unresolved EVM contract addresses (0x...) — show only named tokens
+        if token_symbol.startswith("0X") and len(token_symbol) > 10:
+            continue
+
         is_spam = token_symbol in spam_tokens
         if is_spam and not includeSpam:
             continue
@@ -327,10 +331,8 @@ async def get_assets(
         coin_id = symbol_to_coin.get(token_symbol, token_symbol.lower())
         price_usd = prices.get(coin_id, 0.0)
 
-        # Only include icon_url if it's a real URL (not inline SVG data URI)
-        clean_icon = None
-        if icon_url and icon_url.startswith("http"):
-            clean_icon = icon_url
+        # Include icon_url if it's a URL or data URI (SVG/PNG)
+        clean_icon = icon_url if icon_url else None
 
         all_chains.add("near")
         all_asset_names.add(token_symbol)
