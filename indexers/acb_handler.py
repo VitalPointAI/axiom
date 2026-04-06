@@ -13,6 +13,7 @@ Delegates to ACBEngine.calculate_for_user() which:
 """
 
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,36 @@ class ACBHandler:
     def __init__(self, pool, price_service):
         self.pool = pool
         self.price_service = price_service
+
+    def _make_heartbeat(self, job_id: int):
+        """Return a heartbeat function that touches updated_at every 30s.
+
+        Called during long-running operations (price pre-warming) to prevent
+        the stale job recovery from resetting the job while it's still active.
+        """
+        last_beat = [time.monotonic()]
+
+        def heartbeat() -> None:
+            now = time.monotonic()
+            if now - last_beat[0] < 30:
+                return
+            conn = self.pool.getconn()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE indexing_jobs SET updated_at = NOW() WHERE id = %s",
+                    (job_id,),
+                )
+                conn.commit()
+                cur.close()
+            except Exception as exc:
+                conn.rollback()
+                logger.debug("Heartbeat failed for job_id=%s: %s", job_id, exc)
+            finally:
+                self.pool.putconn(conn)
+            last_beat[0] = now
+
+        return heartbeat
 
     def _make_progress_callback(self, job_id: int):
         """Return a callback that updates progress_fetched on the job row.
@@ -95,7 +126,8 @@ class ACBHandler:
 
         engine = ACBEngine(self.pool, self.price_service)
         progress_cb = self._make_progress_callback(job_id) if job_id is not None else None
-        stats = engine.calculate_for_user(user_id, progress_callback=progress_cb)
+        heartbeat = self._make_heartbeat(job_id) if job_id is not None else None
+        stats = engine.calculate_for_user(user_id, progress_callback=progress_cb, heartbeat=heartbeat)
 
         logger.info(
             "ACB complete for user_id=%s: %d snapshots, %d gains, %d income, "

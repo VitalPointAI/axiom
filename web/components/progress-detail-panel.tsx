@@ -218,10 +218,13 @@ export function ProgressDetailPanel({
         </div>
       </div>
 
-      {/* Active jobs list */}
+      {/* Active jobs list — running first, then queued, then others */}
       {jobs.length > 0 && (
         <div className="max-h-48 overflow-y-auto space-y-0 border border-gray-700 rounded-md">
-          {jobs.map((job) => {
+          {[...jobs].sort((a, b) => {
+            const order: Record<string, number> = { running: 0, retrying: 1, queued: 2, failed: 3, completed: 4 };
+            return (order[a.status] ?? 5) - (order[b.status] ?? 5);
+          }).map((job) => {
             const hasProgress = job.progress_fetched !== null && job.progress_total !== null;
             const progressPct =
               hasProgress && job.progress_total! > 0

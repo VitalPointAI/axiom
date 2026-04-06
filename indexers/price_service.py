@@ -498,7 +498,8 @@ class PriceService:
                 resp = requests.get(url, params=params, headers=headers, timeout=30)
 
                 if resp.status_code == 429:
-                    wait = 60 * (attempt + 1)
+                    # Short backoff — don't block the entire pipeline
+                    wait = min(15 * (attempt + 1), 30)
                     logger.warning("Rate limited on bulk fetch, waiting %ds", wait)
                     time.sleep(wait)
                     continue
@@ -534,7 +535,7 @@ class PriceService:
                 logger.warning("Bulk fetch attempt %d failed for %s: %s",
                                attempt + 1, coin_id, exc)
                 if attempt < 2:
-                    time.sleep(5)
+                    time.sleep(3)
                     continue
                 return 0
 
@@ -654,7 +655,7 @@ class PriceService:
                     try:
                         resp = requests.get(url, params=params, headers=headers, timeout=15)
                         if resp.status_code == 429:
-                            wait = 30 * (attempt + 1)
+                            wait = min(10 * (attempt + 1), 30)
                             logger.warning("Rate limited on bulk_fetch_minute_prices, waiting %ds", wait)
                             time.sleep(wait)
                             continue
@@ -669,7 +670,7 @@ class PriceService:
                         logger.warning("bulk_fetch_minute_prices attempt %d failed for %s: %s",
                                        attempt + 1, coin_id, exc)
                         if attempt < 2:
-                            time.sleep(5)
+                            time.sleep(3)
 
                 if not prices_data:
                     continue
@@ -859,8 +860,8 @@ class PriceService:
                 resp = requests.get(url, params=params, headers=headers, timeout=15)
 
                 if resp.status_code == 429:
-                    # Rate limited — back off and retry
-                    wait = 30 * (attempt + 1)
+                    # Rate limited — short backoff, don't block the pipeline
+                    wait = min(10 * (attempt + 1), 30)
                     time.sleep(wait)
                     continue
 
@@ -881,7 +882,7 @@ class PriceService:
 
             except requests.RequestException:
                 if attempt < 2:
-                    time.sleep(5)
+                    time.sleep(3)
                     continue
                 return None
 
@@ -1060,7 +1061,8 @@ class PriceService:
                 resp = requests.get(url, params=params, headers=headers, timeout=15)
 
                 if resp.status_code == 429:
-                    wait = 30 * (attempt + 1)
+                    # Short backoff — don't block the pipeline for minutes
+                    wait = min(10 * (attempt + 1), 30)
                     time.sleep(wait)
                     continue
 
@@ -1089,7 +1091,7 @@ class PriceService:
 
             except requests.RequestException:
                 if attempt < 2:
-                    time.sleep(5)
+                    time.sleep(3)
                     continue
                 return (None, False)
 

@@ -161,7 +161,7 @@ class ACBEngine:
     # price precision. Below this, daily prices are used.
     DISPOSITION_PRECISION_THRESHOLD_CAD = Decimal("500")
 
-    def _pre_warm_price_cache(self, rows) -> dict:
+    def _pre_warm_price_cache(self, rows, heartbeat=None) -> dict:
         """Pre-warm the price cache with bulk daily prices.
 
         Analyzes all transaction rows to find unique (coin_id, date_range) pairs,
@@ -213,6 +213,8 @@ class ACBEngine:
             self._price_service.bulk_fetch_daily_prices(
                 coin_id, start_date, end_date, "usd"
             )
+            if heartbeat:
+                heartbeat()
 
         # Bulk pre-warm BoC CAD rates for the full date range (single API call)
         all_dates = set()
@@ -222,10 +224,12 @@ class ACBEngine:
             sorted_all = sorted(all_dates)
             logger.info("Pre-warming BoC CAD rates: %s → %s (bulk)", sorted_all[0], sorted_all[-1])
             self._price_service.bulk_fetch_boc_cad_rates(sorted_all[0], sorted_all[-1])
+            if heartbeat:
+                heartbeat()
 
         return {k: v for k, v in token_dates.items()}
 
-    def _pre_warm_minute_prices(self, rows) -> None:
+    def _pre_warm_minute_prices(self, rows, heartbeat=None) -> None:
         """Pre-warm minute-level price cache for large dispositions.
 
         After daily prices are pre-warmed by _pre_warm_price_cache(), this
@@ -292,9 +296,13 @@ class ACBEngine:
                 "Pre-warming minute-level prices for %d large dispositions",
                 len(minute_requests),
             )
+            if heartbeat:
+                heartbeat()
             self._price_service.bulk_fetch_minute_prices(minute_requests)
+            if heartbeat:
+                heartbeat()
 
-    def calculate_for_user(self, user_id: int, progress_callback=None) -> dict:
+    def calculate_for_user(self, user_id: int, progress_callback=None, heartbeat=None) -> dict:
         """Calculate ACB for a user — incremental when possible, full replay when needed.
 
         Incremental mode (fast path, <30s):
@@ -320,10 +328,10 @@ class ACBEngine:
 
             if full_replay:
                 logger.info("ACB full replay for user_id=%s (hwm=%s)", user_id, high_water_mark)
-                return self._full_replay(conn, user_id, progress_callback=progress_callback)
+                return self._full_replay(conn, user_id, progress_callback=progress_callback, heartbeat=heartbeat)
             else:
                 logger.info("ACB incremental for user_id=%s (hwm=%s)", user_id, high_water_mark)
-                return self._incremental(conn, user_id, high_water_mark, progress_callback=progress_callback)
+                return self._incremental(conn, user_id, high_water_mark, progress_callback=progress_callback, heartbeat=heartbeat)
         finally:
             self._pool.putconn(conn)
 
@@ -429,7 +437,7 @@ class ACBEngine:
         finally:
             cur.close()
 
-    def _incremental(self, conn, user_id: int, high_water_mark: int, progress_callback=None) -> dict:
+    def _incremental(self, conn, user_id: int, high_water_mark: int, progress_callback=None, heartbeat=None) -> dict:
         """Process only new classifications since the high-water mark.
 
         Restores pool state from snapshots, processes new rows, persists results.
@@ -466,10 +474,10 @@ class ACBEngine:
         logger.info("ACB incremental: processing %d new classifications", len(rows))
 
         # Pre-warm prices only for the new rows
-        self._pre_warm_price_cache(rows)
+        self._pre_warm_price_cache(rows, heartbeat=heartbeat)
 
         # Pre-warm minute-level prices for large dispositions
-        self._pre_warm_minute_prices(rows)
+        self._pre_warm_minute_prices(rows, heartbeat=heartbeat)
 
         stats = {
             "snapshots_written": 0,
@@ -496,6 +504,8 @@ class ACBEngine:
             max_id = max(max_id, row.id)
             if progress_callback and idx % 50 == 0:
                 progress_callback(idx)
+            if heartbeat and idx % 10 == 0:
+                heartbeat()
 
         # Final progress callback
         if progress_callback:
@@ -509,7 +519,7 @@ class ACBEngine:
         stats["mode"] = "incremental"
         return stats
 
-    def _full_replay(self, conn, user_id: int, progress_callback=None) -> dict:
+    def _full_replay(self, conn, user_id: int, progress_callback=None, heartbeat=None) -> dict:
         """Full ACB replay — clears all snapshots and reprocesses everything.
 
         Triggered when:
@@ -534,10 +544,10 @@ class ACBEngine:
             rows = cur.fetchall()
 
         # Pre-warm price cache with bulk daily prices
-        self._pre_warm_price_cache(rows)
+        self._pre_warm_price_cache(rows, heartbeat=heartbeat)
 
         # Pre-warm minute-level prices for large dispositions
-        self._pre_warm_minute_prices(rows)
+        self._pre_warm_minute_prices(rows, heartbeat=heartbeat)
 
         pools: dict[str, ACBPool] = {}
         stats = {
@@ -565,6 +575,8 @@ class ACBEngine:
             max_id = max(max_id, row.id)
             if progress_callback and idx % 50 == 0:
                 progress_callback(idx)
+            if heartbeat and idx % 10 == 0:
+                heartbeat()
 
         # Final progress callback
         if progress_callback:
