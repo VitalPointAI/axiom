@@ -4,7 +4,23 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 import { NearConnector } from '@hot-labs/near-connect';
+import type { SignMessageParams } from '@hot-labs/near-connect/build/types/wallet';
 import { apiClient, API_URL, ApiError } from '@/lib/api';
+
+// The installed version's types lag behind the runtime API.
+// Extend the connector to include signInAndSignMessage + connect overload.
+interface SignInAndSignMessageEvent {
+  accounts: Array<{
+    accountId: string;
+    signedMessage?: { signature: string; publicKey: string };
+  }>;
+  source?: string;
+}
+
+type ExtendedNearConnector = NearConnector & {
+  on(event: 'wallet:signInAndSignMessage', cb: (payload: SignInAndSignMessageEvent) => void): void;
+  connect(opts: { signMessageParams: SignMessageParams }): Promise<unknown>;
+};
 
 type AuthView = 'signin' | 'signup' | 'signup-passkey' | 'signup-email' | 'recover' | 'recover-wallet' | 'recover-password';
 
@@ -161,7 +177,7 @@ function AuthContent() {
 
       const connector = new NearConnector({
         features: { signMessage: true },
-      });
+      }) as ExtendedNearConnector;
       connectorRef.current = connector;
 
       const walletPromise = new Promise<{ accountId: string; signature: string; publicKey: string }>((resolve, reject) => {
@@ -179,7 +195,7 @@ function AuthContent() {
         });
 
         connector.on('wallet:signIn', async (event) => {
-          if (event.source !== 'signInAndSignMessage') {
+          if ((event as SignInAndSignMessageEvent).source !== 'signInAndSignMessage') {
             reject(new Error('Wallet does not support message signing. Please use a wallet that supports signMessage.'));
           }
         });
