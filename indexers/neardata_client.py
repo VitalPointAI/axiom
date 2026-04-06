@@ -26,7 +26,12 @@ class NeardataClient:
 
     def __init__(self, base_url=None):
         self.base_url = base_url or NEARDATA_BASE
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=25, pool_maxsize=25,
+        )
         self.session = requests.Session()
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
         self.session.headers["User-Agent"] = "Axiom/1.0"
 
     def get_final_block_height(self) -> int:
