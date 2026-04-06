@@ -134,7 +134,12 @@ def _estimate_minutes(jobs: list) -> int | None:
         elif jtype in ("dedup_scan", "classify_transactions"):
             total_minutes += 2
         elif jtype == "calculate_acb":
-            total_minutes += 15  # First run with uncached prices can be very slow
+            # Estimate based on classification count if available (set by ACBHandler).
+            # With bulk pre-warmed prices: ~100 classifications/sec conservative estimate.
+            if total > 0:
+                total_minutes += max(1, int(total / 100 / 60))
+            else:
+                total_minutes += 2  # Reduced from 15 — bulk pre-warming makes it fast
         elif jtype in ("verify_balances", "generate_reports"):
             total_minutes += 2
         else:

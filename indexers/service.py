@@ -581,6 +581,25 @@ class IndexerService:
                 cur.close()
                 return  # Already scheduled
 
+            # Also skip if this stage completed very recently (within 60s).
+            # Prevents race between ClassifierHandler's direct queue and this scheduler.
+            cur.execute(
+                """
+                SELECT COUNT(*) FROM indexing_jobs
+                WHERE user_id = %s AND job_type = %s
+                  AND status = 'completed'
+                  AND completed_at > NOW() - INTERVAL '60 seconds'
+                """,
+                (user_id, next_stage),
+            )
+            if cur.fetchone()[0] > 0:
+                cur.close()
+                logger.debug(
+                    "Skipping %s for user_id=%s — completed within last 60s",
+                    next_stage, user_id,
+                )
+                return  # Just completed — don't re-queue
+
             # Get any wallet_id for this user (needed for job row)
             cur.execute(
                 "SELECT id FROM wallets WHERE user_id = %s LIMIT 1",

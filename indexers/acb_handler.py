@@ -31,6 +31,33 @@ class ACBHandler:
         self.pool = pool
         self.price_service = price_service
 
+    def _make_progress_callback(self, job_id: int):
+        """Return a callback that updates progress_fetched on the job row.
+
+        Only writes to DB every 50 rows to avoid excessive write load.
+        """
+        last_reported = [0]  # mutable list for closure
+
+        def callback(processed: int) -> None:
+            if processed - last_reported[0] >= 50 or processed == 0:
+                conn = self.pool.getconn()
+                try:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "UPDATE indexing_jobs SET progress_fetched = %s, updated_at = NOW() WHERE id = %s",
+                        (processed, job_id),
+                    )
+                    conn.commit()
+                    cur.close()
+                except Exception as exc:
+                    conn.rollback()
+                    logger.debug("Failed to update progress for job_id=%s: %s", job_id, exc)
+                finally:
+                    self.pool.putconn(conn)
+                last_reported[0] = processed
+
+        return callback
+
     def run_calculate_acb(self, job: dict) -> None:
         """Run ACB calculation for a user.
 
@@ -42,10 +69,33 @@ class ACBHandler:
         from engine.acb import ACBEngine
 
         user_id = job["user_id"]
+        job_id = job.get("id")
         logger.info("Starting ACB calculation for user_id=%s", user_id)
 
+        # Report total classification count as progress_total so the UI can show %
+        if job_id is not None:
+            conn = self.pool.getconn()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT COUNT(*) FROM transaction_classifications WHERE user_id = %s",
+                    (user_id,),
+                )
+                total = cur.fetchone()[0]
+                cur.execute(
+                    "UPDATE indexing_jobs SET progress_total = %s WHERE id = %s",
+                    (total, job_id),
+                )
+                conn.commit()
+                cur.close()
+            except Exception as exc:
+                logger.debug("Failed to set progress_total for job_id=%s: %s", job_id, exc)
+            finally:
+                self.pool.putconn(conn)
+
         engine = ACBEngine(self.pool, self.price_service)
-        stats = engine.calculate_for_user(user_id)
+        progress_cb = self._make_progress_callback(job_id) if job_id is not None else None
+        stats = engine.calculate_for_user(user_id, progress_callback=progress_cb)
 
         logger.info(
             "ACB complete for user_id=%s: %d snapshots, %d gains, %d income, "
