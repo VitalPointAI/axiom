@@ -224,12 +224,16 @@ async def get_assets(
         if balance > 0.000001:
             wallet_token_balances.setdefault(token, {})[wid] = balance
 
-    # Build asset list from ACB snapshots
+    # Build asset list from ACB snapshots + wallet balances.
+    # ACB snapshots are authoritative when available; for tokens only in
+    # wallet_token_balances (ACB hasn't run yet), use transaction-derived balances.
     assets = []
     all_chains = set()
     all_asset_names = set()
+    acb_symbols = set()
 
     for token_symbol, units_after, acb_per_unit, total_cost in acb_rows:
+        acb_symbols.add(token_symbol)
         balance = float(units_after)
         if balance <= 0:
             continue
@@ -296,6 +300,77 @@ async def get_assets(
             "chain": token_chain,
             "chain_name": CHAIN_NAMES.get(token_chain, token_chain.upper()),
             "balance": balance,
+            "price_usd": price_usd,
+            "value_usd": value_usd,
+            "is_spam": is_spam,
+            "wallets": sorted(wallet_list, key=lambda w: -w["balance"]),
+        })
+
+    # Add tokens from wallet balances that don't have ACB snapshots yet
+    for token_symbol, wallet_bals in wallet_token_balances.items():
+        if token_symbol in acb_symbols:
+            continue  # Already handled above
+
+        total_balance = sum(wallet_bals.values())
+        if total_balance <= 0.000001:
+            continue
+
+        is_spam = token_symbol in spam_tokens
+        if is_spam and not includeSpam:
+            continue
+
+        coin_id = symbol_to_coin.get(token_symbol, token_symbol.lower())
+        price_usd = prices.get(coin_id, 0.0)
+        value_usd = total_balance * price_usd
+
+        if hideSmall and value_usd < 1.0 and price_usd > 0:
+            continue
+
+        token_chain = "near"
+        for wid in wallet_bals:
+            w = wallets_by_id.get(wid)
+            if w:
+                token_chain = w["chain"]
+                break
+
+        if chain and token_chain != chain.lower():
+            continue
+        if asset and token_symbol != asset.upper():
+            continue
+
+        wallet_list = []
+        for wid, w_balance in wallet_bals.items():
+            w = wallets_by_id.get(wid)
+            if not w:
+                continue
+            if wallet and wallet.lower() not in w["address"].lower():
+                continue
+            wallet_list.append({
+                "address": w["address"],
+                "label": w["label"],
+                "balance": w_balance,
+                "value_usd": w_balance * price_usd,
+            })
+
+        if wallet and not wallet_list:
+            continue
+
+        if not wallet_list:
+            wallet_list = [{
+                "address": "aggregated",
+                "label": "All wallets",
+                "balance": total_balance,
+                "value_usd": value_usd,
+            }]
+
+        all_chains.add(token_chain)
+        all_asset_names.add(token_symbol)
+
+        assets.append({
+            "asset": token_symbol,
+            "chain": token_chain,
+            "chain_name": CHAIN_NAMES.get(token_chain, token_chain.upper()),
+            "balance": total_balance,
             "price_usd": price_usd,
             "value_usd": value_usd,
             "is_spam": is_spam,
