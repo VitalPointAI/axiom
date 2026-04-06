@@ -1,9 +1,10 @@
 """Admin API endpoints for cost dashboard and indexing status.
 
 Endpoints:
-  GET /api/admin/cost-summary    — Monthly cost aggregation per chain/provider
-  GET /api/admin/indexing-status — Per-chain sync health
-  GET /api/admin/budget-alerts   — Chains exceeding monthly budget
+  GET /api/admin/cost-summary           — Monthly cost aggregation per chain/provider
+  GET /api/admin/indexing-status        — Per-chain sync health
+  GET /api/admin/budget-alerts          — Chains exceeding monthly budget
+  GET /api/admin/account-indexer-status — Account block index health + progress
 
 All endpoints require admin authentication via require_admin dependency.
 
@@ -12,6 +13,7 @@ Data sources:
   - chain_sync_config table: enabled chains and budget limits
   - indexing_jobs table: last job status per chain
   - api_cost_log table: last API call timestamp per chain
+  - account_indexer_state / account_block_index tables (migration 018)
 """
 
 import logging
@@ -222,3 +224,123 @@ async def get_budget_alerts(
         }
         for row in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/account-indexer-status
+# ---------------------------------------------------------------------------
+
+
+@router.get("/account-indexer-status")
+async def get_account_indexer_status(
+    user=Depends(require_admin),
+    pool=Depends(get_pool_dep),
+):
+    """Return account block index health and progress.
+
+    Shows: last processed block, chain tip distance, total index entries,
+    unique accounts, staleness, and estimated progress percentage.
+
+    Used by the admin dashboard to monitor the sidecar indexer.
+
+    Returns 'not_initialized' status if migration 018 hasn't been applied yet.
+    """
+
+    def _query(conn):
+        cur = conn.cursor()
+        try:
+            # Check if table exists
+            cur.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_name = 'account_indexer_state'
+                )
+                """
+            )
+            if not cur.fetchone()[0]:
+                return None
+
+            # Get indexer state
+            cur.execute(
+                "SELECT last_processed_block, updated_at FROM account_indexer_state WHERE id = 1"
+            )
+            state = cur.fetchone()
+            if not state:
+                return None
+
+            last_block, updated_at = state
+
+            # Get index stats
+            cur.execute("SELECT COUNT(*) FROM account_block_index")
+            total_entries = cur.fetchone()[0]
+
+            cur.execute("SELECT COUNT(DISTINCT account_id) FROM account_block_index")
+            unique_accounts = cur.fetchone()[0]
+
+            return {
+                "last_processed_block": last_block,
+                "updated_at": updated_at,
+                "total_entries": total_entries,
+                "unique_accounts": unique_accounts,
+            }
+        except Exception as exc:
+            logger.debug("account-indexer-status query error: %s", exc)
+            return None
+        finally:
+            cur.close()
+
+    conn = pool.getconn()
+    try:
+        result = await run_in_threadpool(_query, conn)
+    finally:
+        pool.putconn(conn)
+
+    if result is None:
+        return {
+            "status": "not_initialized",
+            "message": "Account indexer tables not found. Run migration 018.",
+        }
+
+    last_block = result["last_processed_block"]
+    updated_at = result["updated_at"]
+
+    # Calculate staleness
+    if updated_at:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        stale_seconds = (now - updated_at).total_seconds()
+    else:
+        stale_seconds = None
+
+    # Estimate progress (NEAR mainnet genesis = 9,820,210, current tip ~180M+)
+    genesis = 9_820_210
+    # Rough estimate — actual tip comes from neardata, but we don't want to
+    # call an external API from this endpoint. Use a reasonable estimate.
+    estimated_tip = 185_000_000
+    if last_block > genesis:
+        progress_pct = min(99.9, ((last_block - genesis) / (estimated_tip - genesis)) * 100)
+    else:
+        progress_pct = 0.0
+
+    # Determine health status
+    if last_block < genesis + 1_000_000:
+        status = "building"
+    elif stale_seconds is not None and stale_seconds > 300:
+        status = "stale"
+    elif stale_seconds is not None and stale_seconds > 60:
+        status = "lagging"
+    else:
+        status = "healthy"
+
+    return {
+        "status": status,
+        "last_processed_block": last_block,
+        "progress_pct": round(progress_pct, 1),
+        "total_entries": result["total_entries"],
+        "unique_accounts": result["unique_accounts"],
+        "updated_at": str(updated_at) if updated_at else None,
+        "stale_seconds": int(stale_seconds) if stale_seconds is not None else None,
+    }

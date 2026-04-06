@@ -4,9 +4,9 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { 
-  Settings, DollarSign, Users, Database, RefreshCw, 
-  Loader2, Check, Globe, Clock
+import {
+  Settings, DollarSign, Users, Database, RefreshCw,
+  Loader2, Check, Globe, Clock, HardDrive, AlertTriangle
 } from 'lucide-react';
 
 interface UserPreferences {
@@ -26,6 +26,17 @@ interface SyncSettings {
   sync_enabled: boolean;
   last_sync: string | null;
   indexer_api: string;
+}
+
+interface AccountIndexerStatus {
+  status: string;
+  last_processed_block: number;
+  progress_pct: number;
+  total_entries: number;
+  unique_accounts: number;
+  updated_at: string | null;
+  stale_seconds: number | null;
+  message?: string;
 }
 
 const SUPPORTED_CURRENCIES = [
@@ -60,9 +71,13 @@ export default function AdminPage() {
   const [saved, setSaved] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [indexerStatus, setIndexerStatus] = useState<AccountIndexerStatus | null>(null);
 
   useEffect(() => {
     loadData();
+    // Poll account indexer status every 30s
+    const interval = setInterval(loadIndexerStatus, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const loadData = async () => {
@@ -88,10 +103,25 @@ export default function AdminPage() {
         const data = await syncRes.json();
         setSyncSettings(data);
       }
+
+      // Load account indexer status
+      await loadIndexerStatus();
     } catch (error) {
       console.error('Failed to load data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadIndexerStatus = async () => {
+    try {
+      const res = await fetch('/api/admin/account-indexer-status');
+      if (res.ok) {
+        const data = await res.json();
+        setIndexerStatus(data);
+      }
+    } catch {
+      // Silently fail — endpoint may not exist yet
     }
   };
 
@@ -215,6 +245,114 @@ export default function AdminPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* Account Block Index Status */}
+      {indexerStatus && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <HardDrive className="h-5 w-5" />
+              NEAR Account Index
+              {indexerStatus.status === 'healthy' && (
+                <span className="ml-auto flex items-center gap-1 text-sm font-normal text-green-400">
+                  <span className="w-2 h-2 rounded-full bg-green-400" />
+                  Healthy
+                </span>
+              )}
+              {indexerStatus.status === 'building' && (
+                <span className="ml-auto flex items-center gap-1 text-sm font-normal text-blue-400">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Building Index...
+                </span>
+              )}
+              {indexerStatus.status === 'stale' && (
+                <span className="ml-auto flex items-center gap-1 text-sm font-normal text-red-400">
+                  <AlertTriangle className="w-3 h-3" />
+                  Stale — indexer may be down
+                </span>
+              )}
+              {indexerStatus.status === 'lagging' && (
+                <span className="ml-auto flex items-center gap-1 text-sm font-normal text-yellow-400">
+                  <AlertTriangle className="w-3 h-3" />
+                  Lagging
+                </span>
+              )}
+              {indexerStatus.status === 'not_initialized' && (
+                <span className="ml-auto flex items-center gap-1 text-sm font-normal text-gray-400">
+                  Not initialized
+                </span>
+              )}
+            </CardTitle>
+            <CardDescription>
+              Maps NEAR accounts to block heights for instant wallet sync.
+              {indexerStatus.status === 'building' && ' Initial backfill in progress — new wallets use fallback scanning until complete.'}
+            </CardDescription>
+          </CardHeader>
+          {indexerStatus.status !== 'not_initialized' && (
+            <CardContent className="space-y-4">
+              {/* Progress bar */}
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Block {indexerStatus.last_processed_block?.toLocaleString()}</span>
+                  <span>{indexerStatus.progress_pct}%</span>
+                </div>
+                <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-1000 rounded-full ${
+                      indexerStatus.status === 'healthy' ? 'bg-green-500' :
+                      indexerStatus.status === 'stale' ? 'bg-red-500' :
+                      'bg-blue-500'
+                    }`}
+                    style={{ width: `${indexerStatus.progress_pct}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Stats grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-muted/50 rounded-lg p-3">
+                  <div className="text-lg font-bold">{indexerStatus.total_entries?.toLocaleString()}</div>
+                  <div className="text-xs text-muted-foreground">Index Entries</div>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3">
+                  <div className="text-lg font-bold">{indexerStatus.unique_accounts?.toLocaleString()}</div>
+                  <div className="text-xs text-muted-foreground">Accounts Indexed</div>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3">
+                  <div className="text-lg font-bold">
+                    {indexerStatus.stale_seconds !== null
+                      ? indexerStatus.stale_seconds < 60
+                        ? `${indexerStatus.stale_seconds}s`
+                        : indexerStatus.stale_seconds < 3600
+                          ? `${Math.round(indexerStatus.stale_seconds / 60)}m`
+                          : `${Math.round(indexerStatus.stale_seconds / 3600)}h`
+                      : '—'}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Last Update</div>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3">
+                  <div className="text-lg font-bold">
+                    {indexerStatus.status === 'healthy' ? 'Live' :
+                     indexerStatus.status === 'building' ? 'Backfilling' :
+                     indexerStatus.status === 'stale' ? 'Down' : 'Catching Up'}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Mode</div>
+                </div>
+              </div>
+
+              {indexerStatus.status === 'stale' && (
+                <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-400">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>
+                    Account indexer hasn&apos;t updated in {Math.round((indexerStatus.stale_seconds || 0) / 60)} minutes.
+                    Check if the account-indexer container is running.
+                  </span>
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
       )}
 
       {/* Sync Settings */}

@@ -210,6 +210,12 @@ services:
     networks:
       - axiom-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-m", "indexers.account_indexer_health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
     labels:
       app.service: account-indexer
     logging:
