@@ -105,9 +105,28 @@ async def get_assets(
                     "label": label or "",
                 }
 
-            # Per-wallet balance breakdown via transaction replay
-            # Uses token_metadata table for dynamic symbol resolution
-            # if available; falls back to UPPER(token_id) for unmapped tokens.
+            # Per-wallet native balance from transaction replay (NEAR/ETH)
+            cur.execute(
+                """
+                SELECT t.wallet_id,
+                       CASE
+                           WHEN LOWER(t.chain) = 'near' THEN 'NEAR'
+                           WHEN LOWER(t.chain) IN ('ethereum','polygon','optimism','cronos') THEN 'ETH'
+                           ELSE 'UNKNOWN'
+                       END AS token,
+                       LOWER(t.chain) AS chain,
+                       SUM(CASE WHEN t.direction = 'in' THEN t.amount ELSE 0 END) AS total_in,
+                       SUM(CASE WHEN t.direction = 'out' THEN t.amount ELSE 0 END) AS total_out,
+                       SUM(CASE WHEN t.direction = 'out' THEN COALESCE(t.fee, 0) ELSE 0 END) AS total_fees
+                FROM transactions t
+                WHERE t.user_id = %s AND t.token_id IS NULL
+                GROUP BY t.wallet_id, token, LOWER(t.chain)
+                """,
+                (user_id,),
+            )
+            wallet_balance_rows = cur.fetchall()
+
+            # Distinct FT tokens the user has interacted with
             cur.execute(
                 "SELECT EXISTS(SELECT 1 FROM information_schema.tables "
                 "WHERE table_name = 'token_metadata')"
@@ -117,46 +136,25 @@ async def get_assets(
             if has_token_metadata:
                 cur.execute(
                     """
-                    SELECT t.wallet_id,
-                           CASE
-                               WHEN t.token_id IS NOT NULL THEN
-                                   COALESCE(tm.symbol, UPPER(t.token_id))
-                               WHEN LOWER(t.chain) = 'near' THEN 'NEAR'
-                               WHEN LOWER(t.chain) IN ('ethereum','polygon','optimism','cronos') THEN 'ETH'
-                               ELSE 'UNKNOWN'
-                           END AS token,
-                           LOWER(t.chain) AS chain,
-                           SUM(CASE WHEN t.direction = 'in' THEN t.amount ELSE 0 END) AS total_in,
-                           SUM(CASE WHEN t.direction = 'out' THEN t.amount ELSE 0 END) AS total_out,
-                           SUM(CASE WHEN t.direction = 'out' THEN COALESCE(t.fee, 0) ELSE 0 END) AS total_fees
+                    SELECT DISTINCT
+                        COALESCE(tm.symbol, UPPER(t.token_id)) AS token,
+                        t.token_id
                     FROM transactions t
                     LEFT JOIN token_metadata tm ON LOWER(t.token_id) = tm.contract_id
-                    WHERE t.user_id = %s
-                    GROUP BY t.wallet_id, token, LOWER(t.chain)
+                    WHERE t.user_id = %s AND t.token_id IS NOT NULL
                     """,
                     (user_id,),
                 )
             else:
                 cur.execute(
                     """
-                    SELECT t.wallet_id,
-                           CASE
-                               WHEN t.token_id IS NOT NULL THEN UPPER(t.token_id)
-                               WHEN LOWER(t.chain) = 'near' THEN 'NEAR'
-                               WHEN LOWER(t.chain) IN ('ethereum','polygon','optimism','cronos') THEN 'ETH'
-                               ELSE 'UNKNOWN'
-                           END AS token,
-                           LOWER(t.chain) AS chain,
-                           SUM(CASE WHEN t.direction = 'in' THEN t.amount ELSE 0 END) AS total_in,
-                           SUM(CASE WHEN t.direction = 'out' THEN t.amount ELSE 0 END) AS total_out,
-                           SUM(CASE WHEN t.direction = 'out' THEN COALESCE(t.fee, 0) ELSE 0 END) AS total_fees
+                    SELECT DISTINCT UPPER(t.token_id) AS token, t.token_id
                     FROM transactions t
-                    WHERE t.user_id = %s
-                    GROUP BY t.wallet_id, token, LOWER(t.chain)
+                    WHERE t.user_id = %s AND t.token_id IS NOT NULL
                     """,
                     (user_id,),
                 )
-            wallet_balance_rows = cur.fetchall()
+            ft_token_rows = cur.fetchall()
 
             # Available snapshot dates
             cur.execute(
@@ -183,14 +181,14 @@ async def get_assets(
             )
             spam_tokens = {r[0] for r in cur.fetchall()}
 
-            return acb_rows, prices, wallets_by_id, wallet_balance_rows, snapshot_dates, spam_tokens
+            return acb_rows, prices, wallets_by_id, wallet_balance_rows, snapshot_dates, spam_tokens, ft_token_rows
         finally:
             cur.close()
 
     conn = pool.getconn()
     try:
         (acb_rows, prices, wallets_by_id, wallet_balance_rows,
-         snapshot_dates, spam_tokens) = await run_in_threadpool(_query, conn)
+         snapshot_dates, spam_tokens, ft_token_rows) = await run_in_threadpool(_query, conn)
     finally:
         pool.putconn(conn)
 
@@ -306,75 +304,35 @@ async def get_assets(
             "wallets": sorted(wallet_list, key=lambda w: -w["balance"]),
         })
 
-    # Add tokens from wallet balances that don't have ACB snapshots yet
-    for token_symbol, wallet_bals in wallet_token_balances.items():
+    # Add FT tokens the user has interacted with (balance unknown until
+    # on-chain query or ACB run, shown as 0 balance with token name visible)
+    for token_symbol, token_id in ft_token_rows:
         if token_symbol in acb_symbols:
-            continue  # Already handled above
-
-        total_balance = sum(wallet_bals.values())
-        if total_balance <= 0.000001:
             continue
 
         is_spam = token_symbol in spam_tokens
         if is_spam and not includeSpam:
             continue
 
-        coin_id = symbol_to_coin.get(token_symbol, token_symbol.lower())
-        price_usd = prices.get(coin_id, 0.0)
-        value_usd = total_balance * price_usd
-
-        if hideSmall and value_usd < 1.0 and price_usd > 0:
-            continue
-
-        token_chain = "near"
-        for wid in wallet_bals:
-            w = wallets_by_id.get(wid)
-            if w:
-                token_chain = w["chain"]
-                break
-
-        if chain and token_chain != chain.lower():
-            continue
         if asset and token_symbol != asset.upper():
             continue
 
-        wallet_list = []
-        for wid, w_balance in wallet_bals.items():
-            w = wallets_by_id.get(wid)
-            if not w:
-                continue
-            if wallet and wallet.lower() not in w["address"].lower():
-                continue
-            wallet_list.append({
-                "address": w["address"],
-                "label": w["label"],
-                "balance": w_balance,
-                "value_usd": w_balance * price_usd,
-            })
+        coin_id = symbol_to_coin.get(token_symbol, token_symbol.lower())
+        price_usd = prices.get(coin_id, 0.0)
 
-        if wallet and not wallet_list:
-            continue
-
-        if not wallet_list:
-            wallet_list = [{
-                "address": "aggregated",
-                "label": "All wallets",
-                "balance": total_balance,
-                "value_usd": value_usd,
-            }]
-
-        all_chains.add(token_chain)
+        all_chains.add("near")
         all_asset_names.add(token_symbol)
 
         assets.append({
             "asset": token_symbol,
-            "chain": token_chain,
-            "chain_name": CHAIN_NAMES.get(token_chain, token_chain.upper()),
-            "balance": total_balance,
+            "chain": "near",
+            "chain_name": "NEAR",
+            "balance": 0,
             "price_usd": price_usd,
-            "value_usd": value_usd,
+            "value_usd": 0,
             "is_spam": is_spam,
-            "wallets": sorted(wallet_list, key=lambda w: -w["balance"]),
+            "wallets": [],
+            "pending_balance": True,
         })
 
     # Sort by value descending
