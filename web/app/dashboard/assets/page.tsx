@@ -22,6 +22,9 @@ interface Asset {
   value_usd: number;
   contract?: string;
   is_spam?: boolean;
+  pending_balance?: boolean;
+  token_name?: string;
+  icon_url?: string;
   wallets: WalletHolding[];
 }
 
@@ -279,12 +282,15 @@ export default function AssetsPage() {
                     </div>
 
                     <div className="flex items-center gap-3 min-w-[140px]" onClick={() => toggleExpand(assetKey)}>
-                      <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-xl">
-                        {asset.is_spam ? <AlertTriangle className="w-5 h-5 text-orange-500" /> : (ASSET_ICONS[asset.asset] || '🪙')}
+                      <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-xl overflow-hidden">
+                        {asset.is_spam ? <AlertTriangle className="w-5 h-5 text-orange-500" /> :
+                          asset.icon_url ? <img src={asset.icon_url} alt={asset.asset} className="w-10 h-10 rounded-full" /> :
+                          (ASSET_ICONS[asset.asset] || '🪙')}
                       </div>
                       <div>
                         <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                           {asset.asset}
+                          {asset.pending_balance && <span className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 px-1.5 py-0.5 rounded">Syncing</span>}
                           {asset.is_spam && <span className="text-xs bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300 px-1.5 py-0.5 rounded">SPAM</span>}
                         </div>
                         <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium ${CHAIN_COLORS[asset.chain] || 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'}`}>

@@ -138,7 +138,9 @@ async def get_assets(
                     """
                     SELECT DISTINCT
                         COALESCE(tm.symbol, UPPER(t.token_id)) AS token,
-                        t.token_id
+                        t.token_id,
+                        tm.name,
+                        tm.icon_url
                     FROM transactions t
                     LEFT JOIN token_metadata tm ON LOWER(t.token_id) = tm.contract_id
                     WHERE t.user_id = %s AND t.token_id IS NOT NULL
@@ -148,7 +150,8 @@ async def get_assets(
             else:
                 cur.execute(
                     """
-                    SELECT DISTINCT UPPER(t.token_id) AS token, t.token_id
+                    SELECT DISTINCT UPPER(t.token_id) AS token, t.token_id,
+                           NULL AS name, NULL AS icon_url
                     FROM transactions t
                     WHERE t.user_id = %s AND t.token_id IS NOT NULL
                     """,
@@ -306,7 +309,11 @@ async def get_assets(
 
     # Add FT tokens the user has interacted with (balance unknown until
     # on-chain query or ACB run, shown as 0 balance with token name visible)
-    for token_symbol, token_id in ft_token_rows:
+    for row in ft_token_rows:
+        token_symbol, token_id = row[0], row[1]
+        token_name = row[2] if len(row) > 2 else None
+        icon_url = row[3] if len(row) > 3 else None
+
         if token_symbol in acb_symbols:
             continue
 
@@ -319,6 +326,11 @@ async def get_assets(
 
         coin_id = symbol_to_coin.get(token_symbol, token_symbol.lower())
         price_usd = prices.get(coin_id, 0.0)
+
+        # Only include icon_url if it's a real URL (not inline SVG data URI)
+        clean_icon = None
+        if icon_url and icon_url.startswith("http"):
+            clean_icon = icon_url
 
         all_chains.add("near")
         all_asset_names.add(token_symbol)
@@ -333,6 +345,9 @@ async def get_assets(
             "is_spam": is_spam,
             "wallets": [],
             "pending_balance": True,
+            "token_name": token_name,
+            "icon_url": clean_icon,
+            "contract": token_id,
         })
 
     # Sort by value descending
