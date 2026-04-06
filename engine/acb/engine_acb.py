@@ -225,7 +225,73 @@ class ACBEngine:
 
         return {k: v for k, v in token_dates.items()}
 
-    def calculate_for_user(self, user_id: int) -> dict:
+    def _pre_warm_minute_prices(self, rows) -> None:
+        """Pre-warm minute-level price cache for large dispositions.
+
+        After daily prices are pre-warmed by _pre_warm_price_cache(), this
+        method identifies disposition transactions likely above the precision
+        threshold and batch-fetches their minute-level prices in one pass.
+
+        Uses the already-warmed daily price as a proxy to decide if a
+        transaction is "large" (units * daily_price > threshold).
+        """
+        from datetime import datetime as dt
+
+        minute_requests: list[tuple[str, int]] = []
+
+        for row in rows:
+            # Only process dispositions and fees that might be large
+            if row.category not in ("sell", "capital_gain", "capital_loss", "trade", "fee"):
+                continue
+
+            if row.parent_classification_id is not None:
+                continue  # Skip child legs
+
+            chain = row.chain or "near"
+            from engine.acb.symbols import resolve_token_symbol, normalize_timestamp, to_human_units
+            symbol = resolve_token_symbol(row.token_id, chain, asset=row.asset)
+            coin_id = _symbol_to_coin_id(symbol)
+            if coin_id is None:
+                continue
+
+            raw_ts = row.t_block_timestamp
+            if raw_ts is None and row.et_timestamp is not None:
+                try:
+                    unix_ts = int(row.et_timestamp.timestamp())
+                except Exception:
+                    continue
+            else:
+                unix_ts = normalize_timestamp(raw_ts or 0, chain)
+
+            if unix_ts <= 0:
+                continue
+
+            # Determine units
+            if row.exchange_transaction_id is not None and row.quantity is not None:
+                from decimal import Decimal as _D
+                units = _D(str(row.quantity))
+            elif row.amount is not None:
+                units = to_human_units(int(row.amount), chain)
+            else:
+                continue
+
+            # Use daily price to estimate if this is a large transaction
+            date_str = dt.utcfromtimestamp(unix_ts).strftime("%Y-%m-%d")
+            daily_result = self._price_service.get_daily_price_cad(coin_id, date_str)
+            if daily_result and daily_result[0] is not None:
+                from decimal import Decimal as _D
+                estimated_value = abs(units) * daily_result[0]
+                if estimated_value > self.DISPOSITION_PRECISION_THRESHOLD_CAD:
+                    minute_requests.append((coin_id, unix_ts))
+
+        if minute_requests:
+            logger.info(
+                "Pre-warming minute-level prices for %d large dispositions",
+                len(minute_requests),
+            )
+            self._price_service.bulk_fetch_minute_prices(minute_requests)
+
+    def calculate_for_user(self, user_id: int, progress_callback=None) -> dict:
         """Calculate ACB for a user — incremental when possible, full replay when needed.
 
         Incremental mode (fast path, <30s):
@@ -251,10 +317,10 @@ class ACBEngine:
 
             if full_replay:
                 logger.info("ACB full replay for user_id=%s (hwm=%s)", user_id, high_water_mark)
-                return self._full_replay(conn, user_id)
+                return self._full_replay(conn, user_id, progress_callback=progress_callback)
             else:
                 logger.info("ACB incremental for user_id=%s (hwm=%s)", user_id, high_water_mark)
-                return self._incremental(conn, user_id, high_water_mark)
+                return self._incremental(conn, user_id, high_water_mark, progress_callback=progress_callback)
         finally:
             self._pool.putconn(conn)
 
@@ -360,7 +426,7 @@ class ACBEngine:
         finally:
             cur.close()
 
-    def _incremental(self, conn, user_id: int, high_water_mark: int) -> dict:
+    def _incremental(self, conn, user_id: int, high_water_mark: int, progress_callback=None) -> dict:
         """Process only new classifications since the high-water mark.
 
         Restores pool state from snapshots, processes new rows, persists results.
@@ -399,6 +465,9 @@ class ACBEngine:
         # Pre-warm prices only for the new rows
         self._pre_warm_price_cache(rows)
 
+        # Pre-warm minute-level prices for large dispositions
+        self._pre_warm_minute_prices(rows)
+
         stats = {
             "snapshots_written": 0,
             "gains_recorded": 0,
@@ -414,7 +483,7 @@ class ACBEngine:
                 child_map[pid].append(r)
 
         max_id = high_water_mark
-        for row in rows:
+        for idx, row in enumerate(rows):
             if row.parent_classification_id is not None:
                 continue
             self._process_row(
@@ -422,6 +491,12 @@ class ACBEngine:
                 conn=conn, gains=gains, user_id=user_id, stats=stats,
             )
             max_id = max(max_id, row.id)
+            if progress_callback and idx % 50 == 0:
+                progress_callback(idx)
+
+        # Final progress callback
+        if progress_callback:
+            progress_callback(len(rows))
 
         # Update high-water mark
         self._update_high_water_mark(conn, user_id, max_id)
@@ -431,7 +506,7 @@ class ACBEngine:
         stats["mode"] = "incremental"
         return stats
 
-    def _full_replay(self, conn, user_id: int) -> dict:
+    def _full_replay(self, conn, user_id: int, progress_callback=None) -> dict:
         """Full ACB replay — clears all snapshots and reprocesses everything.
 
         Triggered when:
@@ -458,6 +533,9 @@ class ACBEngine:
         # Pre-warm price cache with bulk daily prices
         self._pre_warm_price_cache(rows)
 
+        # Pre-warm minute-level prices for large dispositions
+        self._pre_warm_minute_prices(rows)
+
         pools: dict[str, ACBPool] = {}
         stats = {
             "snapshots_written": 0,
@@ -474,7 +552,7 @@ class ACBEngine:
                 child_map[pid].append(r)
 
         max_id = 0
-        for row in rows:
+        for idx, row in enumerate(rows):
             if row.parent_classification_id is not None:
                 continue
             self._process_row(
@@ -482,6 +560,12 @@ class ACBEngine:
                 conn=conn, gains=gains, user_id=user_id, stats=stats,
             )
             max_id = max(max_id, row.id)
+            if progress_callback and idx % 50 == 0:
+                progress_callback(idx)
+
+        # Final progress callback
+        if progress_callback:
+            progress_callback(len(rows))
 
         from engine.superficial import SuperficialLossDetector
         detector = SuperficialLossDetector(conn)

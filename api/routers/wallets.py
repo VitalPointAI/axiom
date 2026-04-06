@@ -22,10 +22,13 @@ Stage progress bar mapping (from RESEARCH.md):
   verify_balances running  => "Verifying"   85-100%
 """
 
+import logging
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
+
+logger = logging.getLogger(__name__)
 
 from api.dependencies import get_effective_user, get_pool_dep
 from api.rate_limit import limiter
@@ -220,9 +223,13 @@ async def create_wallet(
 
             wallet_id = row[0]
 
-            # Flag ACB for full replay (new wallet may have older transactions)
+            # Flag ACB for full replay only if user already has ACB data.
+            # For the first wallet, incremental mode works fine since there's no prior state.
+            # Subsequent wallets may have older transactions that change chronological order,
+            # so a full replay is required to recompute correct ACB.
             cur.execute(
-                "UPDATE users SET acb_full_replay_required = TRUE WHERE id = %s",
+                """UPDATE users SET acb_full_replay_required = TRUE
+                   WHERE id = %s AND acb_high_water_mark IS NOT NULL""",
                 (user_id,),
             )
 
@@ -539,8 +546,23 @@ async def resync_wallet(
 
             chain = (row[2] or "near").lower()
             jobs = _jobs_for_chain(chain)
+
+            # Check for existing active jobs to avoid duplicates
+            cur.execute(
+                """SELECT job_type FROM indexing_jobs
+                   WHERE wallet_id = %s AND status IN ('queued', 'running', 'retrying')""",
+                (wallet_id,),
+            )
+            existing_types = {r[0] for r in cur.fetchall()}
+
             queued = []
             for job_type, priority in jobs:
+                if job_type in existing_types:
+                    logger.debug(
+                        "Skipping duplicate resync job %s for wallet_id=%s (already active)",
+                        job_type, wallet_id,
+                    )
+                    continue
                 cur.execute(
                     """
                     INSERT INTO indexing_jobs (wallet_id, user_id, job_type, chain, status, priority)

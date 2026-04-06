@@ -540,6 +540,162 @@ class PriceService:
 
         return 0
 
+    def bulk_fetch_minute_prices(
+        self, requests_list: list[tuple[str, int]], currency: str = "usd"
+    ) -> dict[tuple[str, int], tuple[Optional[Decimal], bool]]:
+        """Pre-warm minute-level cache for multiple (coin_id, unix_ts) pairs.
+
+        Groups requests into efficient API calls. Returns dict of
+        (coin_id, ts_minute) -> (price, is_estimated).
+
+        Algorithm:
+          1. Skip any (coin_id, ts_minute) already in price_cache_minute
+          2. Group remaining requests by coin_id
+          3. Within each coin_id, cluster timestamps that are within 2 hours of each other
+          4. For each cluster, make ONE market_chart/range call covering min_ts-3600 to max_ts+3600
+          5. Parse all returned price points, cache the closest match for each requested ts
+        """
+        global _last_coingecko_call
+
+        currency = currency.lower()
+        result: dict[tuple[str, int], tuple[Optional[Decimal], bool]] = {}
+
+        if not requests_list:
+            return result
+
+        # Round all timestamps to nearest minute
+        normalized: list[tuple[str, int]] = [
+            (coin_id, (unix_ts // 60) * 60)
+            for coin_id, unix_ts in requests_list
+        ]
+
+        # Check which are already cached (batch SELECT per coin_id)
+        by_coin: dict[str, list[int]] = {}
+        for coin_id, ts_minute in normalized:
+            by_coin.setdefault(coin_id, []).append(ts_minute)
+
+        already_cached: set[tuple[str, int]] = set()
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            for coin_id, ts_list in by_coin.items():
+                if coin_id in STABLECOIN_MAP:
+                    # Stablecoins are always cached as (1.0, False)
+                    for ts in ts_list:
+                        already_cached.add((coin_id, ts))
+                        result[(coin_id, ts)] = (STABLECOIN_MAP[coin_id], False)
+                    continue
+                cur.execute(
+                    """
+                    SELECT unix_ts, price, is_estimated
+                    FROM price_cache_minute
+                    WHERE coin_id = %s AND currency = %s AND unix_ts = ANY(%s)
+                    """,
+                    (coin_id, currency, ts_list),
+                )
+                for row in cur.fetchall():
+                    ts_val, price, is_est = row
+                    already_cached.add((coin_id, ts_val))
+                    result[(coin_id, ts_val)] = (Decimal(str(price)), bool(is_est))
+            cur.close()
+        finally:
+            self._put_conn(conn)
+
+        # Build list of missing requests
+        missing_by_coin: dict[str, list[int]] = {}
+        for coin_id, ts_minute in normalized:
+            if (coin_id, ts_minute) not in already_cached:
+                missing_by_coin.setdefault(coin_id, []).append(ts_minute)
+
+        if not missing_by_coin:
+            logger.debug("bulk_fetch_minute_prices: all %d requests already cached", len(normalized))
+            return result
+
+        # For each coin_id, cluster timestamps within 2 hours of each other
+        for coin_id, ts_list in missing_by_coin.items():
+            sorted_ts = sorted(set(ts_list))
+            clusters: list[list[int]] = []
+            current_cluster: list[int] = [sorted_ts[0]]
+
+            for ts in sorted_ts[1:]:
+                if ts - current_cluster[-1] <= 7200:  # within 2 hours
+                    current_cluster.append(ts)
+                else:
+                    clusters.append(current_cluster)
+                    current_cluster = [ts]
+            clusters.append(current_cluster)
+
+            logger.info(
+                "bulk_fetch_minute_prices: %s — %d missing ts in %d cluster(s)",
+                coin_id, len(sorted_ts), len(clusters),
+            )
+
+            for cluster in clusters:
+                min_ts = cluster[0]
+                max_ts = cluster[-1]
+                from_ts = min_ts - 3600
+                to_ts = max_ts + 3600
+
+                # Rate limiting
+                elapsed = time.time() - _last_coingecko_call
+                if elapsed < _COINGECKO_DELAY:
+                    time.sleep(_COINGECKO_DELAY - elapsed)
+                _last_coingecko_call = time.time()
+
+                base = self._cg_base
+                url = f"{base}/coins/{coin_id}/market_chart/range"
+                params = {"vs_currency": currency, "from": from_ts, "to": to_ts}
+                headers = {}
+                if self.coingecko_api_key and self._cg_header:
+                    headers[self._cg_header] = self.coingecko_api_key
+
+                prices_data: list[tuple[int, float]] = []
+                for attempt in range(3):
+                    try:
+                        resp = requests.get(url, params=params, headers=headers, timeout=15)
+                        if resp.status_code == 429:
+                            wait = 30 * (attempt + 1)
+                            logger.warning("Rate limited on bulk_fetch_minute_prices, waiting %ds", wait)
+                            time.sleep(wait)
+                            continue
+                        if resp.status_code == 404:
+                            logger.warning("Coin %s not found on CoinGecko", coin_id)
+                            break
+                        resp.raise_for_status()
+                        data = resp.json()
+                        prices_data = data.get("prices", [])
+                        break
+                    except requests.RequestException as exc:
+                        logger.warning("bulk_fetch_minute_prices attempt %d failed for %s: %s",
+                                       attempt + 1, coin_id, exc)
+                        if attempt < 2:
+                            time.sleep(5)
+
+                if not prices_data:
+                    continue
+
+                # For each requested ts in this cluster, find the closest price point
+                for req_ts in cluster:
+                    target_ms = req_ts * 1000
+                    best_ts_ms, best_price = min(
+                        prices_data, key=lambda p: abs(p[0] - target_ms)
+                    )
+                    gap_seconds = abs(best_ts_ms / 1000 - req_ts)
+                    is_estimated = gap_seconds > _ESTIMATION_GAP_SECONDS
+                    price_decimal = Decimal(str(best_price))
+
+                    # Cache result
+                    self._cache_minute_price(
+                        coin_id, req_ts, currency, price_decimal, is_estimated, "coingecko_bulk"
+                    )
+                    result[(coin_id, req_ts)] = (price_decimal, is_estimated)
+
+        logger.info(
+            "bulk_fetch_minute_prices: pre-warmed %d minute prices",
+            len(result) - len(already_cached),
+        )
+        return result
+
     def get_daily_price_cad(
         self, coin_id: str, date_str: str
     ) -> tuple[Optional[Decimal], bool]:
