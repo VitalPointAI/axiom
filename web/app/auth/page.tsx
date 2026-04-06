@@ -4,7 +4,6 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 import { NearConnector } from '@hot-labs/near-connect';
-import type { SignMessageParams } from '@hot-labs/near-connect/build/types/wallet';
 import { apiClient, API_URL, ApiError } from '@/lib/api';
 
 // The installed version's types lag behind the runtime API.
@@ -15,6 +14,12 @@ interface SignInAndSignMessageEvent {
     signedMessage?: { signature: string; publicKey: string };
   }>;
   source?: string;
+}
+
+interface SignMessageParams {
+  message: string;
+  recipient: string;
+  nonce: Uint8Array;
 }
 
 type ExtendedNearConnector = NearConnector & {
