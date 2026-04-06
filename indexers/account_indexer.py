@@ -111,31 +111,19 @@ class AccountIndexer:
     # Block parsing — extract all account IDs from a block
     # ------------------------------------------------------------------
 
-    # High-volume system/contract accounts that appear in nearly every block
-    # but will never be user wallets. Skipping them cuts index size ~60-70%.
-    _SKIP_ACCOUNTS = frozenset({
-        "system",
-        "relay.aurora",
-        "aurora",
-        "wrap.near",
-        "token.sweat",
-        "tge-lockup.sweat",
-        "oracle.sweat",
-    })
-
-    @classmethod
-    def _should_index(cls, account_id: str) -> bool:
+    @staticmethod
+    def _should_index(account_id: str) -> bool:
         """Return True if this account should be indexed.
 
-        Filters out system accounts, single-char accounts, and high-volume
-        contract accounts that will never be user wallets. This reduces
-        index size by ~60-70% without losing any user-relevant data.
+        Only skips 'system' — the NEAR protocol account that sends gas
+        refund receipts. Gas fees are captured from transaction outcomes,
+        not from system refund receipts, so this is safe to skip.
+
+        Everything else is indexed: user wallets, contracts, tokens, etc.
         """
-        if not account_id or len(account_id) <= 2:
+        if not account_id:
             return False
-        if account_id in cls._SKIP_ACCOUNTS:
-            return False
-        return True
+        return account_id != "system"
 
     @classmethod
     def extract_accounts_from_block(cls, block: dict) -> set[str]:
