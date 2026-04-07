@@ -21,7 +21,6 @@ import os
 import signal
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
@@ -37,13 +36,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Tuning parameters
-BACKFILL_BATCH_SIZE = 500    # Blocks per batch during backfill
-BACKFILL_WORKERS = 20        # Concurrent HTTP requests (conservative for neardata.xyz)
+# neardata.xyz rate limit: 180 blocks/minute = 3 blocks/sec.
+# We use sequential fetching with a small delay to stay under the limit.
+BACKFILL_BATCH_SIZE = 180    # Blocks per batch (~1 minute of fetching at rate limit)
 LIVE_POLL_INTERVAL = 1.0     # Seconds between checks for new blocks
 INSERT_BATCH_SIZE = 5000     # Account-block pairs to insert per DB write
+FETCH_DELAY = 0.35           # Seconds between block fetches (~2.8/sec, under 3/sec limit)
 
-# NEAR mainnet genesis
+# NEAR mainnet effective start — genesis is 9,820,210 but blocks before ~10M
+# are extremely sparse (most return null from neardata.xyz). Real user activity
+# starts around block 35M+ (mid-2021). Using 9,820,210 wastes hours on nulls.
 GENESIS_BLOCK = 9_820_210
+# Start from where real transaction activity begins
+EFFECTIVE_START_BLOCK = 35_000_000
 
 
 class AccountIndexer:
@@ -211,7 +216,7 @@ class AccountIndexer:
     def run(self) -> None:
         """Main loop: backfill historical blocks, then follow the tip."""
         last_processed = self.get_last_processed_block()
-        start_block = max(last_processed + 1, GENESIS_BLOCK)
+        start_block = max(last_processed + 1, EFFECTIVE_START_BLOCK)
 
         # Retry getting chain tip — neardata.xyz may rate-limit on startup
         final_block = None
@@ -300,57 +305,34 @@ class AccountIndexer:
             logger.info("Backfill complete at block %d.", target_block)
 
     def _process_block_range(self, start: int, end: int) -> tuple[list[tuple[str, int]], int]:
-        """Fetch and parse a range of blocks in parallel.
+        """Fetch and parse a range of blocks sequentially with rate limiting.
+
+        neardata.xyz has a rate limit of 180 blocks/minute. We fetch one at a
+        time with a small delay to stay under the limit.
 
         Returns:
             (pairs, safe_cursor) — account-block pairs AND the highest block
             height where all blocks up to it were successfully processed.
-            This prevents gaps: if block 1005 fails but 1006 succeeds, safe_cursor
-            stays at 1004 so we retry 1005 next time.
+            This prevents gaps on resume.
         """
         all_pairs: list[tuple[str, int]] = []
-        succeeded: set[int] = set()
-        failed: set[int] = set()
-
-        def _fetch_and_extract(height: int) -> tuple[int, list[tuple[str, int]]]:
-            block = self.client.fetch_block(height)
-            if block is None:
-                # None means empty/null block (valid on NEAR — some heights are skipped)
-                return (height, [])
-            accounts = self.extract_accounts_from_block(block)
-            return (height, [(acct, height) for acct in accounts])
-
-        with ThreadPoolExecutor(max_workers=BACKFILL_WORKERS) as executor:
-            futures = {
-                executor.submit(_fetch_and_extract, h): h
-                for h in range(start, end)
-            }
-            for future in as_completed(futures):
-                height = futures[future]
-                try:
-                    _, pairs = future.result()
-                    all_pairs.extend(pairs)
-                    succeeded.add(height)
-                except Exception as exc:
-                    failed.add(height)
-                    logger.warning("Block %d failed: %s", height, exc)
-
-        # Find the safe cursor: highest contiguous block from start
         safe_cursor = start - 1
-        for h in range(start, end):
-            if h in succeeded:
-                safe_cursor = h
-            elif h in failed:
-                break  # Stop at first gap — we'll retry from here next batch
-            else:
-                # Shouldn't happen but be safe
-                break
 
-        if failed:
-            logger.warning(
-                "Batch %d-%d: %d succeeded, %d failed. Safe cursor: %d (will retry from %d)",
-                start, end - 1, len(succeeded), len(failed), safe_cursor, safe_cursor + 1,
-            )
+        for height in range(start, end):
+            if not self.running:
+                break
+            try:
+                block = self.client.fetch_block(height)
+                if block is not None:
+                    accounts = self.extract_accounts_from_block(block)
+                    all_pairs.extend((acct, height) for acct in accounts)
+                safe_cursor = height
+            except Exception as exc:
+                logger.warning("Block %d failed: %s — stopping batch at safe cursor %d",
+                               height, exc, safe_cursor)
+                break  # Stop at first failure — resume from here next batch
+
+            time.sleep(FETCH_DELAY)
 
         return all_pairs, safe_cursor
 

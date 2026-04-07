@@ -259,10 +259,15 @@ class NearFetcher:
     crash-safe resume.
     """
 
-    # Number of blocks to scan per batch before committing progress
-    BATCH_SIZE = 1000
-    # Concurrent HTTP requests for block fetching
-    WORKERS = 30
+    # Number of blocks to scan per batch before committing progress.
+    # neardata.xyz rate limit: 180 blocks/minute. When using the account
+    # index (fast path), we only fetch blocks with known activity so the
+    # rate limit is rarely an issue. For full scan fallback, this limits
+    # throughput to ~3 blocks/sec.
+    BATCH_SIZE = 180
+    # Concurrent HTTP requests for block fetching — kept low to share
+    # rate limit headroom with the account-indexer sidecar.
+    WORKERS = 10
 
     def __init__(self, db_pool):
         self.client = NeardataClient()
