@@ -37,8 +37,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Tuning parameters
-BACKFILL_BATCH_SIZE = 5000   # Blocks per batch during backfill
-BACKFILL_WORKERS = 100       # Concurrent HTTP requests during backfill
+BACKFILL_BATCH_SIZE = 1000   # Blocks per batch during backfill
+BACKFILL_WORKERS = 30        # Concurrent HTTP requests (neardata.xyz rate limit safe)
 LIVE_POLL_INTERVAL = 1.0     # Seconds between checks for new blocks
 INSERT_BATCH_SIZE = 5000     # Account-block pairs to insert per DB write
 
@@ -236,51 +236,76 @@ class AccountIndexer:
         batch_start_time = time.monotonic()
         blocks_since_log = 0
 
+        consecutive_failures = 0
+
         while current <= target_block and self.running:
             batch_end = min(current + BACKFILL_BATCH_SIZE, target_block + 1)
-            pairs = self._process_block_range(current, batch_end)
+            pairs, safe_cursor = self._process_block_range(current, batch_end)
 
             if pairs:
-                # Insert in chunks to avoid huge single transactions
                 for i in range(0, len(pairs), INSERT_BATCH_SIZE):
                     chunk = pairs[i:i + INSERT_BATCH_SIZE]
                     self.insert_account_blocks(chunk)
 
-            self.set_last_processed_block(batch_end - 1)
+            if safe_cursor < current:
+                # Entire batch failed — back off before retrying
+                consecutive_failures += 1
+                wait = min(30 * consecutive_failures, 300)
+                logger.warning(
+                    "Entire batch %d-%d failed. Backing off %ds (attempt %d)",
+                    current, batch_end - 1, wait, consecutive_failures,
+                )
+                time.sleep(wait)
+                continue  # Retry same range
 
-            blocks_processed = batch_end - current
+            consecutive_failures = 0
+            # Only advance cursor to the safe point (no gaps)
+            self.set_last_processed_block(safe_cursor)
+
+            blocks_processed = safe_cursor - current + 1
             blocks_since_log += blocks_processed
             elapsed = time.monotonic() - batch_start_time
 
             # Log progress every ~30 seconds
             if elapsed > 30:
                 rate = blocks_since_log / elapsed
-                done = current - start_block
+                done = safe_cursor - start_block
                 pct = (done / total) * 100 if total > 0 else 100
-                eta_hours = ((target_block - current) / rate / 3600) if rate > 0 else 0
+                eta_hours = ((target_block - safe_cursor) / rate / 3600) if rate > 0 else 0
                 logger.info(
                     "Backfill: %.1f%% — block %d/%d — %.0f blocks/sec — "
                     "%d account-block pairs — ETA %.1fh",
-                    pct, current, target_block, rate, len(pairs), eta_hours,
+                    pct, safe_cursor, target_block, rate, len(pairs), eta_hours,
                 )
                 batch_start_time = time.monotonic()
                 blocks_since_log = 0
 
-            current = batch_end
+            # Advance to safe_cursor + 1 (not batch_end — avoids gaps)
+            current = safe_cursor + 1
 
         if self.running:
             logger.info("Backfill complete at block %d.", target_block)
 
-    def _process_block_range(self, start: int, end: int) -> list[tuple[str, int]]:
-        """Fetch and parse a range of blocks in parallel. Returns (account_id, block_height) pairs."""
-        all_pairs: list[tuple[str, int]] = []
+    def _process_block_range(self, start: int, end: int) -> tuple[list[tuple[str, int]], int]:
+        """Fetch and parse a range of blocks in parallel.
 
-        def _fetch_and_extract(height: int) -> list[tuple[str, int]]:
+        Returns:
+            (pairs, safe_cursor) — account-block pairs AND the highest block
+            height where all blocks up to it were successfully processed.
+            This prevents gaps: if block 1005 fails but 1006 succeeds, safe_cursor
+            stays at 1004 so we retry 1005 next time.
+        """
+        all_pairs: list[tuple[str, int]] = []
+        succeeded: set[int] = set()
+        failed: set[int] = set()
+
+        def _fetch_and_extract(height: int) -> tuple[int, list[tuple[str, int]]]:
             block = self.client.fetch_block(height)
-            if not block:
-                return []
+            if block is None:
+                # None means empty/null block (valid on NEAR — some heights are skipped)
+                return (height, [])
             accounts = self.extract_accounts_from_block(block)
-            return [(acct, height) for acct in accounts]
+            return (height, [(acct, height) for acct in accounts])
 
         with ThreadPoolExecutor(max_workers=BACKFILL_WORKERS) as executor:
             futures = {
@@ -288,14 +313,33 @@ class AccountIndexer:
                 for h in range(start, end)
             }
             for future in as_completed(futures):
+                height = futures[future]
                 try:
-                    pairs = future.result()
+                    _, pairs = future.result()
                     all_pairs.extend(pairs)
+                    succeeded.add(height)
                 except Exception as exc:
-                    height = futures[future]
-                    logger.debug("Block %d error: %s", height, exc)
+                    failed.add(height)
+                    logger.warning("Block %d failed: %s", height, exc)
 
-        return all_pairs
+        # Find the safe cursor: highest contiguous block from start
+        safe_cursor = start - 1
+        for h in range(start, end):
+            if h in succeeded:
+                safe_cursor = h
+            elif h in failed:
+                break  # Stop at first gap — we'll retry from here next batch
+            else:
+                # Shouldn't happen but be safe
+                break
+
+        if failed:
+            logger.warning(
+                "Batch %d-%d: %d succeeded, %d failed. Safe cursor: %d (will retry from %d)",
+                start, end - 1, len(succeeded), len(failed), safe_cursor, safe_cursor + 1,
+            )
+
+        return all_pairs, safe_cursor
 
     def _live_follow(self) -> None:
         """Follow the chain tip, processing new blocks as they appear."""

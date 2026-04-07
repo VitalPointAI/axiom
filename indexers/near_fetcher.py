@@ -260,9 +260,9 @@ class NearFetcher:
     """
 
     # Number of blocks to scan per batch before committing progress
-    BATCH_SIZE = 5000
+    BATCH_SIZE = 1000
     # Concurrent HTTP requests for block fetching
-    WORKERS = 100
+    WORKERS = 30
 
     def __init__(self, db_pool):
         self.client = NeardataClient()
