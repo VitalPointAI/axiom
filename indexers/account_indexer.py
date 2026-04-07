@@ -42,9 +42,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Archive fetching parameters
-# Each .tgz archive contains 10 blocks. 8 parallel workers with no rate
-# limit issues on archive nodes = ~1500 blocks/sec.
-ARCHIVE_WORKERS = 8
+# Each .tgz archive contains 10 blocks. With API key authentication,
+# there is no rate limit — 16 workers achieves ~2300 blocks/sec.
+ARCHIVE_WORKERS = 16
 ARCHIVE_BLOCKS_PER_FILE = 10
 # Flush to DB every N archives (N * 10 blocks)
 FLUSH_EVERY_ARCHIVES = 100   # = 1000 blocks per flush
@@ -61,10 +61,16 @@ GENESIS_BLOCK = 9_820_210
 MAINNET_ARCHIVE_BOUNDARIES = [122_000_000, 142_000_000]
 
 
+# API key for authenticated access (removes rate limit)
+FASTNEAR_API_KEY = os.environ.get("FASTNEAR_API_KEY", "")
+
+
 def _archive_url(block_height: int) -> str:
     """Build the archive .tgz URL for a given block height.
 
     Block height must be aligned to ARCHIVE_BLOCKS_PER_FILE (10).
+    Uses ?apiKey= param for authentication (survives redirects between
+    archive nodes, unlike Authorization headers).
     """
     padded = f"{block_height:012d}"
     suffix = f"{padded[:6]}/{padded[6:9]}/{padded}.tgz"
@@ -76,7 +82,10 @@ def _archive_url(block_height: int) -> str:
             node_idx = i
             break
 
-    return f"https://a{node_idx}.mainnet.neardata.xyz/raw/{suffix}"
+    url = f"https://a{node_idx}.mainnet.neardata.xyz/raw/{suffix}"
+    if FASTNEAR_API_KEY:
+        url += f"?apiKey={FASTNEAR_API_KEY}"
+    return url
 
 
 def _align_to_archive(block_height: int) -> int:
@@ -97,8 +106,8 @@ class AccountIndexer:
         # HTTP session for archive fetching (separate from NeardataClient)
         self.session = requests.Session()
         adapter = requests.adapters.HTTPAdapter(
-            pool_connections=ARCHIVE_WORKERS + 2,
-            pool_maxsize=ARCHIVE_WORKERS + 2,
+            pool_connections=ARCHIVE_WORKERS + 4,
+            pool_maxsize=ARCHIVE_WORKERS + 4,
         )
         self.session.mount("https://", adapter)
         self.session.headers["User-Agent"] = "Axiom/1.0 AccountIndexer"
