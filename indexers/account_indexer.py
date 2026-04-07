@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 BACKFILL_BATCH_SIZE = 180    # Blocks per batch (~1 minute of fetching at rate limit)
 LIVE_POLL_INTERVAL = 1.0     # Seconds between checks for new blocks
 INSERT_BATCH_SIZE = 5000     # Account-block pairs to insert per DB write
-FETCH_DELAY = 0.5            # Seconds between block fetches (~2/sec, safely under 3/sec limit)
+FETCH_DELAY = 0.34           # Seconds between block fetches (~2.9/sec, just under 3/sec limit)
 
 # NEAR mainnet genesis block
 GENESIS_BLOCK = 9_820_210
