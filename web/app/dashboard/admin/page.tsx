@@ -219,8 +219,8 @@ export default function AdminPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Admin Settings</h1>
-        <p className="text-muted-foreground">Manage your Axiom preferences and data</p>
+        <h1 className="text-3xl font-bold text-white">Admin Settings</h1>
+        <p className="text-gray-400">Manage your Axiom preferences and data</p>
       </div>
 
       {/* Stats Overview */}
@@ -279,7 +279,7 @@ export default function AdminPage() {
       {indexerStatus && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-white">
               <HardDrive className="h-5 w-5" />
               NEAR Account Index
               {indexerStatus.status === 'healthy' && (
@@ -387,7 +387,7 @@ export default function AdminPage() {
       {containers && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-white">
               <Server className="h-5 w-5" />
               System Health
             </CardTitle>
@@ -500,7 +500,7 @@ export default function AdminPage() {
       {/* Sync Settings */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-white">
             <Clock className="h-5 w-5" />
             Transaction Sync Settings
           </CardTitle>
@@ -582,7 +582,7 @@ export default function AdminPage() {
       {/* Display Currency */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-white">
             <Globe className="h-5 w-5" />
             Display Currency
           </CardTitle>
