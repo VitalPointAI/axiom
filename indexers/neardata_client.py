@@ -64,7 +64,12 @@ class NeardataClient:
                     if not text or text.strip() == "null":
                         return None
                     return json.loads(text)
-                if resp.status_code == 429 or resp.status_code >= 500:
+                if resp.status_code == 429:
+                    # Rate limited — short fixed delay instead of exponential backoff.
+                    # The caller controls pacing; we just need to wait briefly.
+                    time.sleep(min(2 * (attempt + 1), 10))
+                    continue
+                if resp.status_code >= 500:
                     self._backoff(attempt)
                     continue
                 return None

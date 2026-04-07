@@ -41,14 +41,10 @@ logger = logging.getLogger(__name__)
 BACKFILL_BATCH_SIZE = 180    # Blocks per batch (~1 minute of fetching at rate limit)
 LIVE_POLL_INTERVAL = 1.0     # Seconds between checks for new blocks
 INSERT_BATCH_SIZE = 5000     # Account-block pairs to insert per DB write
-FETCH_DELAY = 0.35           # Seconds between block fetches (~2.8/sec, under 3/sec limit)
+FETCH_DELAY = 0.5            # Seconds between block fetches (~2/sec, safely under 3/sec limit)
 
-# NEAR mainnet effective start — genesis is 9,820,210 but blocks before ~10M
-# are extremely sparse (most return null from neardata.xyz). Real user activity
-# starts around block 35M+ (mid-2021). Using 9,820,210 wastes hours on nulls.
+# NEAR mainnet genesis block
 GENESIS_BLOCK = 9_820_210
-# Start from where real transaction activity begins
-EFFECTIVE_START_BLOCK = 35_000_000
 
 
 class AccountIndexer:
@@ -216,7 +212,7 @@ class AccountIndexer:
     def run(self) -> None:
         """Main loop: backfill historical blocks, then follow the tip."""
         last_processed = self.get_last_processed_block()
-        start_block = max(last_processed + 1, EFFECTIVE_START_BLOCK)
+        start_block = max(last_processed + 1, GENESIS_BLOCK)
 
         # Retry getting chain tip — neardata.xyz may rate-limit on startup
         final_block = None
