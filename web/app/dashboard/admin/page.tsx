@@ -110,26 +110,14 @@ export default function AdminPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Load preferences
-      const prefsRes = await fetch('/api/user/preferences');
-      if (prefsRes.ok) {
-        const data = await prefsRes.json();
-        setPreferences(data.preferences || { displayCurrency: 'USD' });
-      }
-
-      // Load stats
-      const statsRes = await fetch('/api/admin/stats');
-      if (statsRes.ok) {
-        const data = await statsRes.json();
-        setStats(data);
-      }
-
-      // Load sync settings
-      const syncRes = await fetch('/api/admin/sync');
-      if (syncRes.ok) {
-        const data = await syncRes.json();
-        setSyncSettings(data);
-      }
+      // Load preferences (may not exist yet)
+      try {
+        const prefsRes = await fetch('/api/preferences');
+        if (prefsRes.ok) {
+          const data = await prefsRes.json();
+          setPreferences(data.preferences || { displayCurrency: 'USD' });
+        }
+      } catch { /* endpoint may not exist */ }
 
       // Load account indexer status + container health
       await loadIndexerStatus();
@@ -409,45 +397,45 @@ export default function AdminPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Host resources */}
-            {(containers.host.disk.total || containers.host.memory.total) && (
+            {(containers.host?.disk?.total || containers.host?.memory?.total) && (
               <div className="grid grid-cols-2 gap-3">
-                {containers.host.disk.total && (
+                {containers.host?.disk?.total && (
                   <div className="bg-muted/50 rounded-lg p-3">
                     <div className="flex items-center gap-2 mb-1">
                       <HardDrive className="h-4 w-4 text-muted-foreground" />
                       <span className="text-xs text-muted-foreground">Disk</span>
                     </div>
                     <div className="text-sm font-medium">
-                      {containers.host.disk.used} / {containers.host.disk.total}
+                      {containers.host?.disk?.used} / {containers.host?.disk?.total}
                     </div>
                     <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden mt-1">
                       <div
                         className={`h-full rounded-full transition-all ${
-                          parseInt(containers.host.disk.use_pct || '0') > 85
+                          parseInt(containers.host?.disk?.use_pct || '0') > 85
                             ? 'bg-red-500'
-                            : parseInt(containers.host.disk.use_pct || '0') > 70
+                            : parseInt(containers.host?.disk?.use_pct || '0') > 70
                             ? 'bg-yellow-500'
                             : 'bg-green-500'
                         }`}
-                        style={{ width: containers.host.disk.use_pct || '0%' }}
+                        style={{ width: containers.host?.disk?.use_pct || '0%' }}
                       />
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5">
-                      {containers.host.disk.available} free
+                      {containers.host?.disk?.available} free
                     </div>
                   </div>
                 )}
-                {containers.host.memory.total && (
+                {containers.host?.memory?.total && (
                   <div className="bg-muted/50 rounded-lg p-3">
                     <div className="flex items-center gap-2 mb-1">
                       <MemoryStick className="h-4 w-4 text-muted-foreground" />
                       <span className="text-xs text-muted-foreground">Memory</span>
                     </div>
                     <div className="text-sm font-medium">
-                      {containers.host.memory.used} / {containers.host.memory.total}
+                      {containers.host?.memory?.used} / {containers.host?.memory?.total}
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">
-                      {containers.host.memory.available} available
+                      {containers.host?.memory?.available} available
                     </div>
                   </div>
                 )}

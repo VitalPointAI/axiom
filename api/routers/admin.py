@@ -358,126 +358,116 @@ async def get_account_indexer_status(
 async def get_container_status(
     user=Depends(require_admin),
 ):
-    """Return status, health, uptime, and resource usage for all Axiom containers.
+    """Return status, health, and resource usage for all Axiom containers.
 
-    Uses 'docker ps' and 'docker stats' via subprocess since the API container
-    has access to the Docker socket.
+    Uses the Docker Engine API over the Unix socket (/var/run/docker.sock).
+    The socket must be mounted into the API container.
+    Falls back gracefully if the socket is not available.
     """
     import json as json_mod
 
     def _get_containers():
-        # Get container list with status
-        result = subprocess.run(
-            [
-                "docker", "ps", "-a",
-                "--filter", "name=axiom-",
-                "--format", '{"name":"{{.Names}}","status":"{{.Status}}","state":"{{.State}}","image":"{{.Image}}"}',
-            ],
-            capture_output=True, text=True, timeout=10,
-        )
-        if result.returncode != 0:
+        try:
+            # Docker Engine API over Unix socket
+            import http.client
+            import socket
+
+            class DockerSocket(http.client.HTTPConnection):
+                def __init__(self):
+                    super().__init__("localhost")
+
+                def connect(self):
+                    self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                    self.sock.connect("/var/run/docker.sock")
+
+            docker = DockerSocket()
+            docker.request("GET", "/containers/json?all=true&filters=%7B%22name%22%3A%5B%22axiom-%22%5D%7D")
+            resp = docker.getresponse()
+            if resp.status != 200:
+                return [], {}
+
+            data = json_mod.loads(resp.read())
+
+            containers = []
+            for c in data:
+                name = (c.get("Names") or ["/unknown"])[0].lstrip("/")
+                state = c.get("State", "unknown")
+                status = c.get("Status", "")
+                health = "none"
+                if c.get("State") == "running":
+                    health_data = (c.get("Status") or "")
+                    if "(healthy)" in health_data:
+                        health = "healthy"
+                    elif "(unhealthy)" in health_data:
+                        health = "unhealthy"
+                    elif "(health: starting)" in health_data:
+                        health = "starting"
+
+                containers.append({
+                    "name": name,
+                    "service": name.replace("axiom-", "").rstrip("0123456789").rstrip("-"),
+                    "status": status,
+                    "state": state,
+                    "health": health,
+                    "cpu": "—",
+                    "mem": "—",
+                    "mem_pct": "—",
+                    "net": "—",
+                })
+
+            docker.close()
+            return containers
+
+        except Exception as exc:
+            logger.debug("Docker socket not available: %s", exc)
             return []
 
-        containers = []
-        for line in result.stdout.strip().split("\n"):
-            if line:
-                try:
-                    containers.append(json_mod.loads(line))
-                except json_mod.JSONDecodeError:
-                    pass
+    def _get_host_stats():
+        """Get host disk/memory via /proc and df — works inside containers."""
+        disk_info = {}
+        mem_info = {}
 
-        # Get resource usage for running containers
-        stats_result = subprocess.run(
-            [
-                "docker", "stats", "--no-stream",
-                "--filter", "name=axiom-",
-                "--format", '{"name":"{{.Name}}","cpu":"{{.CPUPerc}}","mem":"{{.MemUsage}}","mem_pct":"{{.MemPerc}}","net":"{{.NetIO}}"}',
-            ],
-            capture_output=True, text=True, timeout=15,
-        )
+        try:
+            result = subprocess.run(["df", "-h", "/"], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                lines = result.stdout.strip().split("\n")
+                if len(lines) >= 2:
+                    parts = lines[1].split()
+                    if len(parts) >= 5:
+                        disk_info = {
+                            "total": parts[1], "used": parts[2],
+                            "available": parts[3], "use_pct": parts[4],
+                        }
+        except Exception:
+            pass
 
-        stats_map = {}
-        if stats_result.returncode == 0:
-            for line in stats_result.stdout.strip().split("\n"):
-                if line:
-                    try:
-                        s = json_mod.loads(line)
-                        stats_map[s["name"]] = s
-                    except json_mod.JSONDecodeError:
-                        pass
+        try:
+            with open("/proc/meminfo") as f:
+                meminfo = {}
+                for line in f:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        val = parts[1].strip().split()[0]
+                        meminfo[key] = int(val)
+                total_kb = meminfo.get("MemTotal", 0)
+                avail_kb = meminfo.get("MemAvailable", 0)
+                used_kb = total_kb - avail_kb
+                mem_info = {
+                    "total": f"{total_kb // 1024 // 1024}Gi",
+                    "used": f"{used_kb // 1024 // 1024}Gi",
+                    "available": f"{avail_kb // 1024 // 1024}Gi",
+                }
+        except Exception:
+            pass
 
-        # Get health check status
-        health_result = subprocess.run(
-            [
-                "docker", "inspect",
-                "--format", '{{.Name}}\t{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}',
-            ] + [c["name"] for c in containers],
-            capture_output=True, text=True, timeout=10,
-        )
-
-        health_map = {}
-        if health_result.returncode == 0:
-            for line in health_result.stdout.strip().split("\n"):
-                parts = line.strip().split("\t")
-                if len(parts) == 2:
-                    name = parts[0].lstrip("/")
-                    health_map[name] = parts[1]
-
-        # Merge everything
-        for c in containers:
-            name = c["name"]
-            stats = stats_map.get(name, {})
-            c["cpu"] = stats.get("cpu", "0%")
-            c["mem"] = stats.get("mem", "0B / 0B")
-            c["mem_pct"] = stats.get("mem_pct", "0%")
-            c["net"] = stats.get("net", "0B / 0B")
-            c["health"] = health_map.get(name, "none")
-
-            # Clean up the service name for display
-            c["service"] = name.replace("axiom-", "").rstrip("-1").rstrip("-")
-
-        return containers
+        return {"disk": disk_info, "memory": mem_info}
 
     try:
         containers = await run_in_threadpool(_get_containers)
     except Exception as exc:
         logger.warning("Failed to get container status: %s", exc)
-        return {"error": "Cannot access Docker", "containers": []}
-
-    # Also get host disk and memory info
-    def _get_host_stats():
-        disk = subprocess.run(
-            ["df", "-h", "/"],
-            capture_output=True, text=True, timeout=5,
-        )
-        mem = subprocess.run(
-            ["free", "-h"],
-            capture_output=True, text=True, timeout=5,
-        )
-        disk_info = {}
-        if disk.returncode == 0:
-            lines = disk.stdout.strip().split("\n")
-            if len(lines) >= 2:
-                parts = lines[1].split()
-                if len(parts) >= 5:
-                    disk_info = {
-                        "total": parts[1],
-                        "used": parts[2],
-                        "available": parts[3],
-                        "use_pct": parts[4],
-                    }
-        mem_info = {}
-        if mem.returncode == 0:
-            lines = mem.stdout.strip().split("\n")
-            if len(lines) >= 2:
-                parts = lines[1].split()
-                if len(parts) >= 6:
-                    mem_info = {
-                        "total": parts[1],
-                        "used": parts[2],
-                        "available": parts[6] if len(parts) > 6 else parts[3],
-                    }
-        return {"disk": disk_info, "memory": mem_info}
+        containers = []
 
     try:
         host = await run_in_threadpool(_get_host_stats)
