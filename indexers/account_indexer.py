@@ -37,8 +37,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Tuning parameters
-BACKFILL_BATCH_SIZE = 1000   # Blocks per batch during backfill
-BACKFILL_WORKERS = 30        # Concurrent HTTP requests (neardata.xyz rate limit safe)
+BACKFILL_BATCH_SIZE = 500    # Blocks per batch during backfill
+BACKFILL_WORKERS = 20        # Concurrent HTTP requests (conservative for neardata.xyz)
 LIVE_POLL_INTERVAL = 1.0     # Seconds between checks for new blocks
 INSERT_BATCH_SIZE = 5000     # Account-block pairs to insert per DB write
 
@@ -213,7 +213,20 @@ class AccountIndexer:
         last_processed = self.get_last_processed_block()
         start_block = max(last_processed + 1, GENESIS_BLOCK)
 
-        final_block = self.client.get_final_block_height()
+        # Retry getting chain tip — neardata.xyz may rate-limit on startup
+        final_block = None
+        for attempt in range(10):
+            try:
+                final_block = self.client.get_final_block_height()
+                break
+            except Exception as exc:
+                wait = min(10 * (attempt + 1), 60)
+                logger.warning("Failed to get chain tip (attempt %d): %s. Retrying in %ds.",
+                               attempt + 1, exc, wait)
+                time.sleep(wait)
+        if final_block is None:
+            raise RuntimeError("Cannot reach neardata.xyz after 10 attempts. Check network.")
+
         remaining = final_block - start_block
 
         if remaining > BACKFILL_BATCH_SIZE:
