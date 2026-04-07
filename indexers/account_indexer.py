@@ -244,93 +244,72 @@ class AccountIndexer:
         self._live_follow()
 
     def _backfill(self, start_block: int, target_block: int) -> None:
-        """Process historical blocks in parallel batches."""
+        """Process historical blocks one at a time with rate limiting.
+
+        Fetches each block, extracts accounts, inserts pairs, and updates
+        the cursor after every block. This means:
+        - Progress is visible immediately (no waiting for batch completion)
+        - Crash at any point loses at most 1 block of work
+        - 429 rate limits are handled with short retries, not long backoffs
+
+        Pairs are buffered and flushed to DB every BACKFILL_BATCH_SIZE blocks
+        to balance DB write efficiency with progress visibility.
+        """
         current = start_block
         total = target_block - start_block
-        batch_start_time = time.monotonic()
-        blocks_since_log = 0
-
-        consecutive_failures = 0
+        log_time = time.monotonic()
+        log_blocks = 0
+        pair_buffer: list[tuple[str, int]] = []
 
         while current <= target_block and self.running:
-            batch_end = min(current + BACKFILL_BATCH_SIZE, target_block + 1)
-            pairs, safe_cursor = self._process_block_range(current, batch_end)
+            try:
+                block = self.client.fetch_block(current)
+                if block is not None:
+                    accounts = self.extract_accounts_from_block(block)
+                    pair_buffer.extend((acct, current) for acct in accounts)
+            except Exception as exc:
+                # Transient failure — wait and retry same block
+                logger.warning("Block %d failed: %s. Retrying in 5s.", current, exc)
+                time.sleep(5)
+                continue
 
-            if pairs:
-                for i in range(0, len(pairs), INSERT_BATCH_SIZE):
-                    chunk = pairs[i:i + INSERT_BATCH_SIZE]
-                    self.insert_account_blocks(chunk)
+            log_blocks += 1
 
-            if safe_cursor < current:
-                # Entire batch failed — back off before retrying
-                consecutive_failures += 1
-                wait = min(30 * consecutive_failures, 300)
-                logger.warning(
-                    "Entire batch %d-%d failed. Backing off %ds (attempt %d)",
-                    current, batch_end - 1, wait, consecutive_failures,
-                )
-                time.sleep(wait)
-                continue  # Retry same range
-
-            consecutive_failures = 0
-            # Only advance cursor to the safe point (no gaps)
-            self.set_last_processed_block(safe_cursor)
-
-            blocks_processed = safe_cursor - current + 1
-            blocks_since_log += blocks_processed
-            elapsed = time.monotonic() - batch_start_time
+            # Flush buffer and update cursor periodically
+            if log_blocks % BACKFILL_BATCH_SIZE == 0 or current == target_block:
+                if pair_buffer:
+                    for i in range(0, len(pair_buffer), INSERT_BATCH_SIZE):
+                        chunk = pair_buffer[i:i + INSERT_BATCH_SIZE]
+                        self.insert_account_blocks(chunk)
+                    pair_buffer = []
+                self.set_last_processed_block(current)
 
             # Log progress every ~30 seconds
+            elapsed = time.monotonic() - log_time
             if elapsed > 30:
-                rate = blocks_since_log / elapsed
-                done = safe_cursor - start_block
+                rate = log_blocks / elapsed
+                done = current - start_block
                 pct = (done / total) * 100 if total > 0 else 100
-                eta_hours = ((target_block - safe_cursor) / rate / 3600) if rate > 0 else 0
+                eta_hours = ((target_block - current) / rate / 3600) if rate > 0 else 0
                 logger.info(
-                    "Backfill: %.1f%% — block %d/%d — %.0f blocks/sec — "
-                    "%d account-block pairs — ETA %.1fh",
-                    pct, safe_cursor, target_block, rate, len(pairs), eta_hours,
+                    "Backfill: %.1f%% — block %d/%d — %.0f blocks/sec — ETA %.1fh",
+                    pct, current, target_block, rate, eta_hours,
                 )
-                batch_start_time = time.monotonic()
-                blocks_since_log = 0
+                log_time = time.monotonic()
+                log_blocks = 0
 
-            # Advance to safe_cursor + 1 (not batch_end — avoids gaps)
-            current = safe_cursor + 1
+            current += 1
+            time.sleep(FETCH_DELAY)
+
+        # Flush any remaining pairs
+        if pair_buffer:
+            for i in range(0, len(pair_buffer), INSERT_BATCH_SIZE):
+                chunk = pair_buffer[i:i + INSERT_BATCH_SIZE]
+                self.insert_account_blocks(chunk)
+            self.set_last_processed_block(current - 1)
 
         if self.running:
             logger.info("Backfill complete at block %d.", target_block)
-
-    def _process_block_range(self, start: int, end: int) -> tuple[list[tuple[str, int]], int]:
-        """Fetch and parse a range of blocks sequentially with rate limiting.
-
-        neardata.xyz has a rate limit of 180 blocks/minute. We fetch one at a
-        time with a small delay to stay under the limit.
-
-        Returns:
-            (pairs, safe_cursor) — account-block pairs AND the highest block
-            height where all blocks up to it were successfully processed.
-            This prevents gaps on resume.
-        """
-        all_pairs: list[tuple[str, int]] = []
-        safe_cursor = start - 1
-
-        for height in range(start, end):
-            if not self.running:
-                break
-            try:
-                block = self.client.fetch_block(height)
-                if block is not None:
-                    accounts = self.extract_accounts_from_block(block)
-                    all_pairs.extend((acct, height) for acct in accounts)
-                safe_cursor = height
-            except Exception as exc:
-                logger.warning("Block %d failed: %s — stopping batch at safe cursor %d",
-                               height, exc, safe_cursor)
-                break  # Stop at first failure — resume from here next batch
-
-            time.sleep(FETCH_DELAY)
-
-        return all_pairs, safe_cursor
 
     def _live_follow(self) -> None:
         """Follow the chain tip, processing new blocks as they appear."""
