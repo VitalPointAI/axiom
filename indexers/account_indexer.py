@@ -147,42 +147,6 @@ class AccountIndexer:
         finally:
             self.pool.putconn(conn)
 
-    def _get_genesis_backfill_done(self) -> bool:
-        """Check if genesis (sparse) backfill has been completed."""
-        conn = self.pool.getconn()
-        try:
-            cur = conn.cursor()
-            # Use a simple convention: if last_processed_block > 30M, pass 1 is done.
-            # But we also need to know if pass 2 (genesis) is done.
-            # Store it as a negative sentinel: -1 means genesis done.
-            cur.execute(
-                "SELECT last_processed_block FROM account_indexer_state WHERE id = 2"
-            )
-            row = cur.fetchone()
-            cur.close()
-            return row is not None and row[0] == -1
-        except Exception:
-            return False
-        finally:
-            self.pool.putconn(conn)
-
-    def _set_genesis_backfill_done(self) -> None:
-        """Mark genesis backfill as complete."""
-        conn = self.pool.getconn()
-        try:
-            cur = conn.cursor()
-            cur.execute(
-                "INSERT INTO account_indexer_state (id, last_processed_block) VALUES (2, -1) "
-                "ON CONFLICT (id) DO UPDATE SET last_processed_block = -1, updated_at = NOW()"
-            )
-            conn.commit()
-            cur.close()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            self.pool.putconn(conn)
-
     def reset(self) -> None:
         """Reset the index — truncate and restart from genesis."""
         conn = self.pool.getconn()
@@ -190,10 +154,9 @@ class AccountIndexer:
             cur = conn.cursor()
             cur.execute("TRUNCATE account_block_index")
             cur.execute("UPDATE account_indexer_state SET last_processed_block = 0, updated_at = NOW() WHERE id = 1")
-            cur.execute("DELETE FROM account_indexer_state WHERE id = 2")
             conn.commit()
             cur.close()
-            logger.info("Account index reset. Will rebuild from dense blocks first, then genesis.")
+            logger.info("Account index reset. Will rebuild from genesis.")
         except Exception:
             conn.rollback()
             raise
@@ -343,50 +306,14 @@ class AccountIndexer:
             raise RuntimeError("Cannot reach neardata.xyz after 10 attempts. Check network.")
 
         remaining = final_block - start_block
-        DENSE_START = 30_000_000
 
         if remaining > ARCHIVE_BLOCKS_PER_FILE * 10:
-            if start_block < DENSE_START:
-                # Two-pass strategy: dense blocks first, sparse genesis after.
-                # This gets 90%+ of useful account data indexed in ~30 hours
-                # instead of spending days on sparse early blocks first.
-
-                # Check if we already completed pass 1 (genesis_backfill_done flag)
-                genesis_done = self._get_genesis_backfill_done()
-
-                if not genesis_done:
-                    # Pass 1: Dense blocks (30M → tip) — fast, ~1500 blocks/sec
-                    dense_remaining = final_block - DENSE_START
-                    logger.info(
-                        "Pass 1 — Dense blocks: %d → %d (%d blocks, ~%.1f hours at ~1500 blocks/sec)",
-                        DENSE_START, final_block, dense_remaining, dense_remaining / 1500 / 3600,
-                    )
-                    self._backfill(DENSE_START, final_block)
-
-                    # Pass 2: Sparse genesis (9.8M → 30M) — slow, ~30 blocks/sec
-                    sparse_remaining = DENSE_START - GENESIS_BLOCK
-                    logger.info(
-                        "Pass 2 — Sparse genesis: %d → %d (%d blocks, ~%.1f hours at ~30 blocks/sec)",
-                        GENESIS_BLOCK, DENSE_START - 1, sparse_remaining, sparse_remaining / 30 / 3600,
-                    )
-                    self._backfill(GENESIS_BLOCK, DENSE_START - 1)
-                    self._set_genesis_backfill_done()
-                    # Update cursor to chain tip so live mode works
-                    self.set_last_processed_block(final_block)
-                else:
-                    # Both passes done previously — just catch up from cursor
-                    logger.info(
-                        "Catching up: %d → %d (%d blocks)",
-                        start_block, final_block, remaining,
-                    )
-                    self._backfill(start_block, final_block)
-            else:
-                eta_hours = remaining / 1500 / 3600
-                logger.info(
-                    "Backfill mode: %d → %d (%d blocks, ~%.1f hours at ~1500 blocks/sec)",
-                    start_block, final_block, remaining, eta_hours,
-                )
-                self._backfill(start_block, final_block)
+            eta_hours = remaining / 2000 / 3600  # ~2000 blocks/sec with API key
+            logger.info(
+                "Backfill: %d → %d (%d blocks, ~%.1f hours at ~2000 blocks/sec)",
+                start_block, final_block, remaining, eta_hours,
+            )
+            self._backfill(start_block, final_block)
         else:
             logger.info("Index is near tip (block %d, tip %d). Entering live mode.",
                         last_processed, final_block)
