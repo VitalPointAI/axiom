@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import {
   Settings, DollarSign, Users, Database, RefreshCw,
-  Loader2, Check, Globe, Clock, HardDrive, AlertTriangle
+  Loader2, Check, Globe, Clock, HardDrive, AlertTriangle,
+  Server, Cpu, MemoryStick, Wifi
 } from 'lucide-react';
 
 interface UserPreferences {
@@ -26,6 +27,28 @@ interface SyncSettings {
   sync_enabled: boolean;
   last_sync: string | null;
   indexer_api: string;
+}
+
+interface ContainerInfo {
+  name: string;
+  service: string;
+  status: string;
+  state: string;
+  health: string;
+  cpu: string;
+  mem: string;
+  mem_pct: string;
+  net: string;
+}
+
+interface HostStats {
+  disk: { total?: string; used?: string; available?: string; use_pct?: string };
+  memory: { total?: string; used?: string; available?: string };
+}
+
+interface ContainersResponse {
+  containers: ContainerInfo[];
+  host: HostStats;
 }
 
 interface AccountIndexerStatus {
@@ -72,11 +95,15 @@ export default function AdminPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [indexerStatus, setIndexerStatus] = useState<AccountIndexerStatus | null>(null);
+  const [containers, setContainers] = useState<ContainersResponse | null>(null);
 
   useEffect(() => {
     loadData();
-    // Poll account indexer status every 30s
-    const interval = setInterval(loadIndexerStatus, 30000);
+    // Poll account indexer + containers every 30s
+    const interval = setInterval(() => {
+      loadIndexerStatus();
+      loadContainers();
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -104,8 +131,9 @@ export default function AdminPage() {
         setSyncSettings(data);
       }
 
-      // Load account indexer status
+      // Load account indexer status + container health
       await loadIndexerStatus();
+      await loadContainers();
     } catch (error) {
       console.error('Failed to load data:', error);
     } finally {
@@ -122,6 +150,18 @@ export default function AdminPage() {
       }
     } catch {
       // Silently fail — endpoint may not exist yet
+    }
+  };
+
+  const loadContainers = async () => {
+    try {
+      const res = await fetch('/api/admin/containers');
+      if (res.ok) {
+        const data = await res.json();
+        setContainers(data);
+      }
+    } catch {
+      // Silently fail
     }
   };
 
@@ -352,6 +392,120 @@ export default function AdminPage() {
               )}
             </CardContent>
           )}
+        </Card>
+      )}
+
+      {/* System Health — Containers + Host Resources */}
+      {containers && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Server className="h-5 w-5" />
+              System Health
+            </CardTitle>
+            <CardDescription>
+              Docker containers and server resources
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Host resources */}
+            {(containers.host.disk.total || containers.host.memory.total) && (
+              <div className="grid grid-cols-2 gap-3">
+                {containers.host.disk.total && (
+                  <div className="bg-muted/50 rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <HardDrive className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">Disk</span>
+                    </div>
+                    <div className="text-sm font-medium">
+                      {containers.host.disk.used} / {containers.host.disk.total}
+                    </div>
+                    <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden mt-1">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          parseInt(containers.host.disk.use_pct || '0') > 85
+                            ? 'bg-red-500'
+                            : parseInt(containers.host.disk.use_pct || '0') > 70
+                            ? 'bg-yellow-500'
+                            : 'bg-green-500'
+                        }`}
+                        style={{ width: containers.host.disk.use_pct || '0%' }}
+                      />
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      {containers.host.disk.available} free
+                    </div>
+                  </div>
+                )}
+                {containers.host.memory.total && (
+                  <div className="bg-muted/50 rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <MemoryStick className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">Memory</span>
+                    </div>
+                    <div className="text-sm font-medium">
+                      {containers.host.memory.used} / {containers.host.memory.total}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {containers.host.memory.available} available
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Container list */}
+            <div className="border border-gray-700 rounded-md overflow-hidden">
+              <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-muted/30 text-xs text-muted-foreground font-medium">
+                <div className="col-span-3">Service</div>
+                <div className="col-span-2">Status</div>
+                <div className="col-span-2">Health</div>
+                <div className="col-span-1">CPU</div>
+                <div className="col-span-2">Memory</div>
+                <div className="col-span-2">Network</div>
+              </div>
+              {containers.containers.map((c) => (
+                <div
+                  key={c.name}
+                  className="grid grid-cols-12 gap-2 px-3 py-2 border-t border-gray-800 text-xs items-center"
+                >
+                  <div className="col-span-3 font-medium text-gray-200 truncate">
+                    {c.service}
+                  </div>
+                  <div className="col-span-2">
+                    <span className={`inline-flex items-center gap-1 ${
+                      c.state === 'running' ? 'text-green-400' :
+                      c.state === 'exited' ? 'text-gray-500' : 'text-red-400'
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${
+                        c.state === 'running' ? 'bg-green-400' :
+                        c.state === 'exited' ? 'bg-gray-500' : 'bg-red-400'
+                      }`} />
+                      {c.status.split(' ').slice(0, 2).join(' ')}
+                    </span>
+                  </div>
+                  <div className="col-span-2">
+                    <span className={`${
+                      c.health === 'healthy' ? 'text-green-400' :
+                      c.health === 'unhealthy' ? 'text-red-400' :
+                      c.health === 'starting' ? 'text-yellow-400' :
+                      'text-gray-500'
+                    }`}>
+                      {c.health === 'none' ? '—' : c.health}
+                    </span>
+                  </div>
+                  <div className="col-span-1 text-gray-400">{c.cpu}</div>
+                  <div className="col-span-2 text-gray-400 truncate" title={c.mem}>
+                    {c.mem.split(' / ')[0]}
+                    <span className="text-gray-600 ml-1">({c.mem_pct})</span>
+                  </div>
+                  <div className="col-span-2 text-gray-400 truncate" title={c.net}>
+                    {c.net}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
         </Card>
       )}
 
