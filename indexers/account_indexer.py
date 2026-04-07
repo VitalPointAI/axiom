@@ -1,9 +1,9 @@
 """
 Account Block Index Builder — sidecar service for fast wallet lookups.
 
-Walks every NEAR block via neardata.xyz, extracts all account IDs that
-appear as signer, receiver, or predecessor, and stores the mapping
-(account_id, block_height) in PostgreSQL.
+Walks every NEAR block via neardata.xyz archive .tgz files (10 blocks per
+request), extracts all account IDs that appear as signer, receiver, or
+predecessor, and stores the mapping (account_id, block_height) in PostgreSQL.
 
 Once built, NearFetcher can query this index to find exactly which blocks
 contain transactions for a wallet — turning a multi-hour full scan into
@@ -16,11 +16,17 @@ Usage:
 """
 
 import argparse
+import io
+import json
 import logging
 import os
 import signal
 import sys
+import tarfile
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import requests
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
@@ -35,16 +41,47 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Tuning parameters
-# neardata.xyz rate limit: 180 blocks/minute = 3 blocks/sec.
-# We use sequential fetching with a small delay to stay under the limit.
-BACKFILL_BATCH_SIZE = 180    # Blocks per batch (~1 minute of fetching at rate limit)
-LIVE_POLL_INTERVAL = 1.0     # Seconds between checks for new blocks
-INSERT_BATCH_SIZE = 5000     # Account-block pairs to insert per DB write
-FETCH_DELAY = 0.34           # Seconds between block fetches (~2.9/sec, just under 3/sec limit)
+# Archive fetching parameters
+# Each .tgz archive contains 10 blocks. 8 parallel workers with no rate
+# limit issues on archive nodes = ~1500 blocks/sec.
+ARCHIVE_WORKERS = 8
+ARCHIVE_BLOCKS_PER_FILE = 10
+# Flush to DB every N archives (N * 10 blocks)
+FLUSH_EVERY_ARCHIVES = 100   # = 1000 blocks per flush
+INSERT_BATCH_SIZE = 10000
+LIVE_POLL_INTERVAL = 1.0
 
 # NEAR mainnet genesis block
 GENESIS_BLOCK = 9_820_210
+
+# Archive node routing (from fastnear-neardata-fetcher source)
+# Blocks < 122M  → a0.mainnet.neardata.xyz
+# Blocks 122M-142M → a1.mainnet.neardata.xyz
+# Blocks >= 142M → a2.mainnet.neardata.xyz
+MAINNET_ARCHIVE_BOUNDARIES = [122_000_000, 142_000_000]
+
+
+def _archive_url(block_height: int) -> str:
+    """Build the archive .tgz URL for a given block height.
+
+    Block height must be aligned to ARCHIVE_BLOCKS_PER_FILE (10).
+    """
+    padded = f"{block_height:012d}"
+    suffix = f"{padded[:6]}/{padded[6:9]}/{padded}.tgz"
+
+    # Route to the correct archive node
+    node_idx = len(MAINNET_ARCHIVE_BOUNDARIES)
+    for i, boundary in enumerate(MAINNET_ARCHIVE_BOUNDARIES):
+        if block_height < boundary:
+            node_idx = i
+            break
+
+    return f"https://a{node_idx}.mainnet.neardata.xyz/raw/{suffix}"
+
+
+def _align_to_archive(block_height: int) -> int:
+    """Round down to nearest archive boundary (multiple of 10)."""
+    return (block_height // ARCHIVE_BLOCKS_PER_FILE) * ARCHIVE_BLOCKS_PER_FILE
 
 
 class AccountIndexer:
@@ -56,6 +93,15 @@ class AccountIndexer:
         self.running = True
         signal.signal(signal.SIGTERM, self._shutdown)
         signal.signal(signal.SIGINT, self._shutdown)
+
+        # HTTP session for archive fetching (separate from NeardataClient)
+        self.session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=ARCHIVE_WORKERS + 2,
+            pool_maxsize=ARCHIVE_WORKERS + 2,
+        )
+        self.session.mount("https://", adapter)
+        self.session.headers["User-Agent"] = "Axiom/1.0 AccountIndexer"
 
     def _shutdown(self, signum, frame):
         logger.info("Shutdown signal received. Finishing current batch...")
@@ -114,29 +160,14 @@ class AccountIndexer:
 
     @staticmethod
     def _should_index(account_id: str) -> bool:
-        """Return True if this account should be indexed.
-
-        Only skips 'system' — the NEAR protocol account that sends gas
-        refund receipts. Gas fees are captured from transaction outcomes,
-        not from system refund receipts, so this is safe to skip.
-
-        Everything else is indexed: user wallets, contracts, tokens, etc.
-        """
+        """Only skips 'system' — gas refund receipts. Everything else indexed."""
         if not account_id:
             return False
         return account_id != "system"
 
     @classmethod
     def extract_accounts_from_block(cls, block: dict) -> set[str]:
-        """Extract all unique account IDs from a neardata block.
-
-        Looks at:
-          - Transaction signers and receivers
-          - Receipt predecessors and receivers
-
-        Filters out system and high-volume contract accounts to keep
-        the index size manageable (~20-80 GB instead of 200+ GB).
-        """
+        """Extract all unique account IDs from a neardata block."""
         accounts: set[str] = set()
         if not block:
             return accounts
@@ -173,6 +204,44 @@ class AccountIndexer:
         return accounts
 
     # ------------------------------------------------------------------
+    # Archive fetching
+    # ------------------------------------------------------------------
+
+    def fetch_archive(self, archive_block: int) -> list[tuple[dict, int]]:
+        """Fetch a .tgz archive and return list of (block_data, block_height).
+
+        Each archive contains up to 10 blocks. Missing blocks within the
+        range are simply absent from the archive (not an error).
+        """
+        url = _archive_url(archive_block)
+        for attempt in range(3):
+            try:
+                resp = self.session.get(url, timeout=30)
+                if resp.status_code == 200:
+                    tar = tarfile.open(fileobj=io.BytesIO(resp.content), mode="r:gz")
+                    blocks = []
+                    for member in tar.getmembers():
+                        f = tar.extractfile(member)
+                        if f:
+                            data = json.loads(f.read())
+                            height = data.get("block", {}).get("header", {}).get("height", 0)
+                            blocks.append((data, height))
+                    return blocks
+                if resp.status_code == 404:
+                    return []  # Archive doesn't exist (sparse range)
+                if resp.status_code == 429:
+                    time.sleep(min(5 * (attempt + 1), 15))
+                    continue
+                return []
+            except Exception as exc:
+                if attempt < 2:
+                    time.sleep(2)
+                    continue
+                logger.warning("Archive fetch failed for block %d: %s", archive_block, exc)
+                return []
+        return []
+
+    # ------------------------------------------------------------------
     # Batch insert
     # ------------------------------------------------------------------
 
@@ -184,7 +253,6 @@ class AccountIndexer:
         conn = self.pool.getconn()
         try:
             cur = conn.cursor()
-            # Use unnest for fast bulk insert with conflict skip
             accounts = [p[0] for p in pairs]
             heights = [p[1] for p in pairs]
             cur.execute(
@@ -214,7 +282,7 @@ class AccountIndexer:
         last_processed = self.get_last_processed_block()
         start_block = max(last_processed + 1, GENESIS_BLOCK)
 
-        # Retry getting chain tip — neardata.xyz may rate-limit on startup
+        # Retry getting chain tip
         final_block = None
         for attempt in range(10):
             try:
@@ -230,86 +298,125 @@ class AccountIndexer:
 
         remaining = final_block - start_block
 
-        if remaining > BACKFILL_BATCH_SIZE:
+        if remaining > ARCHIVE_BLOCKS_PER_FILE * 10:
+            eta_hours = remaining / 1500 / 3600  # ~1500 blocks/sec with 8 workers
             logger.info(
-                "Backfill mode: %d → %d (%d blocks, ~%.1f hours at ~3000 blocks/sec)",
-                start_block, final_block, remaining, remaining / 3000 / 3600,
+                "Backfill mode: %d → %d (%d blocks, ~%.1f hours at ~1500 blocks/sec)",
+                start_block, final_block, remaining, eta_hours,
             )
             self._backfill(start_block, final_block)
         else:
             logger.info("Index is near tip (block %d, tip %d). Entering live mode.",
                         last_processed, final_block)
 
-        # Live mode: follow the chain tip
         self._live_follow()
 
     def _backfill(self, start_block: int, target_block: int) -> None:
-        """Process historical blocks one at a time with rate limiting.
+        """Process historical blocks using parallel archive .tgz fetching.
 
-        Fetches each block, extracts accounts, inserts pairs, and updates
-        the cursor after every block. This means:
-        - Progress is visible immediately (no waiting for batch completion)
-        - Crash at any point loses at most 1 block of work
-        - 429 rate limits are handled with short retries, not long backoffs
+        Each archive contains 10 blocks. With 8 parallel workers, we process
+        ~80 blocks per round-trip, achieving ~1500 blocks/sec.
 
-        Pairs are buffered and flushed to DB every BACKFILL_BATCH_SIZE blocks
-        to balance DB write efficiency with progress visibility.
+        Archives are fetched in order. The cursor only advances to the highest
+        contiguous block that was successfully processed — no gaps possible.
         """
-        current = start_block
+        # Align start to archive boundary
+        current_archive = _align_to_archive(start_block)
+        target_archive = _align_to_archive(target_block)
         total = target_block - start_block
+
         log_time = time.monotonic()
         log_blocks = 0
         pair_buffer: list[tuple[str, int]] = []
+        archives_since_flush = 0
+        max_block_seen = start_block - 1
 
-        while current <= target_block and self.running:
-            try:
-                block = self.client.fetch_block(current)
-                if block is not None:
-                    accounts = self.extract_accounts_from_block(block)
-                    pair_buffer.extend((acct, current) for acct in accounts)
-            except Exception as exc:
-                # Transient failure — wait and retry same block
-                logger.warning("Block %d failed: %s. Retrying in 5s.", current, exc)
-                time.sleep(5)
-                continue
+        while current_archive <= target_archive and self.running:
+            # Build batch of archive heights to fetch in parallel
+            batch_archives = []
+            for i in range(ARCHIVE_WORKERS * 4):  # Queue up 4x workers worth
+                a = current_archive + i * ARCHIVE_BLOCKS_PER_FILE
+                if a > target_archive:
+                    break
+                batch_archives.append(a)
 
-            log_blocks += 1
+            if not batch_archives:
+                break
 
-            # Flush buffer and update cursor periodically
-            if log_blocks % BACKFILL_BATCH_SIZE == 0 or current == target_block:
-                if pair_buffer:
-                    for i in range(0, len(pair_buffer), INSERT_BATCH_SIZE):
-                        chunk = pair_buffer[i:i + INSERT_BATCH_SIZE]
-                        self.insert_account_blocks(chunk)
-                    pair_buffer = []
-                self.set_last_processed_block(current)
+            # Fetch archives in parallel
+            succeeded: dict[int, list[tuple[dict, int]]] = {}
+            failed: set[int] = set()
 
-            # Log progress every ~30 seconds
+            with ThreadPoolExecutor(max_workers=ARCHIVE_WORKERS) as executor:
+                futures = {
+                    executor.submit(self.fetch_archive, a): a
+                    for a in batch_archives
+                }
+                for future in as_completed(futures):
+                    archive_height = futures[future]
+                    try:
+                        blocks = future.result()
+                        succeeded[archive_height] = blocks
+                    except Exception:
+                        failed.add(archive_height)
+
+            # Process results IN ORDER to maintain gap-safe cursor
+            safe_archive = current_archive - ARCHIVE_BLOCKS_PER_FILE
+            for a in batch_archives:
+                if a in failed:
+                    logger.warning("Archive %d failed — stopping at safe point %d", a, safe_archive)
+                    break
+
+                blocks = succeeded.get(a, [])
+                for block_data, height in blocks:
+                    if height >= start_block:
+                        accounts = self.extract_accounts_from_block(block_data)
+                        pair_buffer.extend((acct, height) for acct in accounts)
+                        max_block_seen = max(max_block_seen, height)
+
+                safe_archive = a
+                archives_since_flush += 1
+                log_blocks += ARCHIVE_BLOCKS_PER_FILE
+
+                # Flush buffer periodically
+                if archives_since_flush >= FLUSH_EVERY_ARCHIVES:
+                    if pair_buffer:
+                        for i in range(0, len(pair_buffer), INSERT_BATCH_SIZE):
+                            chunk = pair_buffer[i:i + INSERT_BATCH_SIZE]
+                            self.insert_account_blocks(chunk)
+                        pair_buffer = []
+                    cursor_block = safe_archive + ARCHIVE_BLOCKS_PER_FILE - 1
+                    self.set_last_processed_block(cursor_block)
+                    archives_since_flush = 0
+
+            # Advance to next batch
+            current_archive = safe_archive + ARCHIVE_BLOCKS_PER_FILE
+
+            # Log progress
             elapsed = time.monotonic() - log_time
-            if elapsed > 30:
-                rate = log_blocks / elapsed
-                done = current - start_block
+            if elapsed > 15:
+                rate = log_blocks / elapsed if elapsed > 0 else 0
+                done = max_block_seen - start_block
                 pct = (done / total) * 100 if total > 0 else 100
-                eta_hours = ((target_block - current) / rate / 3600) if rate > 0 else 0
+                eta_hours = ((target_block - max_block_seen) / rate / 3600) if rate > 0 else 0
                 logger.info(
-                    "Backfill: %.1f%% — block %d/%d — %.0f blocks/sec — ETA %.1fh",
-                    pct, current, target_block, rate, eta_hours,
+                    "Backfill: %.1f%% — block %d/%d — %.0f blocks/sec — "
+                    "%d pairs buffered — ETA %.1fh",
+                    pct, max_block_seen, target_block, rate, len(pair_buffer), eta_hours,
                 )
                 log_time = time.monotonic()
                 log_blocks = 0
 
-            current += 1
-            time.sleep(FETCH_DELAY)
-
-        # Flush any remaining pairs
+        # Final flush
         if pair_buffer:
             for i in range(0, len(pair_buffer), INSERT_BATCH_SIZE):
                 chunk = pair_buffer[i:i + INSERT_BATCH_SIZE]
                 self.insert_account_blocks(chunk)
-            self.set_last_processed_block(current - 1)
+        if max_block_seen >= start_block:
+            self.set_last_processed_block(max_block_seen)
 
         if self.running:
-            logger.info("Backfill complete at block %d.", target_block)
+            logger.info("Backfill complete at block %d.", max_block_seen)
 
     def _live_follow(self) -> None:
         """Follow the chain tip, processing new blocks as they appear."""
@@ -328,14 +435,13 @@ class AccountIndexer:
                 time.sleep(LIVE_POLL_INTERVAL)
                 continue
 
-            # Process new blocks (small batches, single-threaded is fine for ~1 block/sec)
             gap = final_block - last_processed
             if gap > 100:
-                # Fell behind — use parallel mode to catch up
+                # Fell behind — use archive mode to catch up
                 logger.info("Catching up: %d blocks behind tip.", gap)
                 self._backfill(last_processed + 1, final_block)
             else:
-                # Normal live mode — process sequentially
+                # Near tip — fetch individual blocks (archives may not exist yet)
                 for height in range(last_processed + 1, final_block + 1):
                     if not self.running:
                         break
