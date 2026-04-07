@@ -197,6 +197,7 @@ services:
     command: ["python", "-m", "indexers.account_indexer"]
     environment:
       - DATABASE_URL=postgresql://neartax:${POSTGRES_PASSWORD}@postgres:5432/neartax
+      - FASTNEAR_API_KEY=${FASTNEAR_API_KEY}
     depends_on:
       postgres:
         condition: service_healthy
