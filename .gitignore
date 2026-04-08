@@ -63,3 +63,4 @@ postgres_data/
 output/
 .credentials/
 *.json.bak
+indexers/account-indexer-rs/target/

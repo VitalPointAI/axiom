@@ -385,12 +385,94 @@ class AccountIndexer:
         self._live_follow()
 
     def _backfill(self, start_block: int, target_block: int) -> None:
-        """Process historical blocks using multiprocessing.
+        """Process historical blocks using Rust binary + COPY bulk load.
 
-        Each worker process does its own HTTP fetch + gzip decompress +
-        JSON parse + account extraction — true parallelism, no GIL.
-        imap_unordered feeds results to the main process as they complete.
+        The Rust binary (account-indexer-rs) handles fetch + decompress +
+        parse + extract at ~3000 blocks/sec. It outputs TSV to stdout.
+        We pipe that into PostgreSQL via COPY FROM STDIN for maximum
+        insert throughput.
+
+        Falls back to Python multiprocessing if the Rust binary isn't found.
         """
+        import shutil
+
+        rust_binary = shutil.which("account-indexer-rs")
+        if not rust_binary:
+            # Check common locations
+            for path in ["/usr/local/bin/account-indexer-rs", "/app/account-indexer-rs",
+                         "/home/deploy/account-indexer-rs"]:
+                if os.path.isfile(path) and os.access(path, os.X_OK):
+                    rust_binary = path
+                    break
+
+        if rust_binary:
+            self._backfill_rust(rust_binary, start_block, target_block)
+        else:
+            logger.warning("Rust binary not found — falling back to Python multiprocessing (slow)")
+            self._backfill_python(start_block, target_block)
+
+    def _backfill_rust(self, binary: str, start_block: int, target_block: int) -> None:
+        """Run Rust indexer and pipe output into PostgreSQL via COPY."""
+        import subprocess
+
+        logger.info("Using Rust binary: %s", binary)
+
+        # Run Rust binary — it outputs TSV to stdout, progress to stderr
+        api_key = os.environ.get("FASTNEAR_API_KEY", "")
+        cmd = [
+            binary,
+            "--start", str(start_block),
+            "--end", str(target_block),
+            "--workers", "16",
+            "--progress-interval", "1000",
+        ]
+        if api_key:
+            cmd.extend(["--api-key", api_key])
+
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            bufsize=1024 * 1024,
+        )
+
+        # Pipe stdout directly into PostgreSQL COPY
+        conn = self.pool.getconn()
+        try:
+            cur = conn.cursor()
+            cur.copy_expert(
+                "COPY account_block_index (account_id, block_height) FROM STDIN",
+                proc.stdout,
+            )
+            conn.commit()
+            cur.close()
+        except Exception as exc:
+            conn.rollback()
+            logger.error("COPY failed: %s", exc)
+            proc.kill()
+            raise
+        finally:
+            self.pool.putconn(conn)
+
+        # Wait for process to finish
+        proc.stdout.close()
+        stderr_output = proc.stderr.read().decode()
+        proc.stderr.close()
+        proc.wait()
+
+        # Log the Rust binary's progress output
+        for line in stderr_output.strip().split("\n"):
+            if line:
+                logger.info("Rust: %s", line)
+
+        if proc.returncode != 0:
+            raise RuntimeError(f"Rust indexer exited with code {proc.returncode}")
+
+        # Update cursor to target block
+        self.set_last_processed_block(target_block)
+        logger.info("Backfill complete at block %d. Rebuilding indexes...", target_block)
+        self._rebuild_indexes()
+
+    def _backfill_python(self, start_block: int, target_block: int) -> None:
+        """Fallback: Python multiprocessing backfill (slower, ~30 blocks/sec)."""
         current_archive = _align_to_archive(start_block)
         target_archive = _align_to_archive(target_block)
         total = target_block - start_block
@@ -406,7 +488,6 @@ class AccountIndexer:
         pool = multiprocessing.Pool(processes=ARCHIVE_PROCESSES)
 
         try:
-            # imap_unordered yields results as workers finish — no idle time
             for pairs in pool.imap_unordered(_fetch_and_extract, archive_heights, chunksize=16):
                 if not self.running:
                     break
@@ -417,7 +498,6 @@ class AccountIndexer:
                 log_blocks += ARCHIVE_BLOCKS_PER_FILE
                 blocks_since_flush += ARCHIVE_BLOCKS_PER_FILE
 
-                # Flush buffer periodically
                 if blocks_since_flush >= FLUSH_EVERY_BLOCKS:
                     if pair_buffer:
                         max_block_seen = max(max_block_seen, max(h for _, h in pair_buffer))
@@ -428,7 +508,6 @@ class AccountIndexer:
                     self.set_last_processed_block(max_block_seen)
                     blocks_since_flush = 0
 
-                # Log progress
                 elapsed = time.monotonic() - log_time
                 if elapsed > 15:
                     rate = log_blocks / elapsed if elapsed > 0 else 0
@@ -447,7 +526,6 @@ class AccountIndexer:
             pool.terminate()
             pool.join()
 
-        # Final flush
         if pair_buffer:
             for i in range(0, len(pair_buffer), INSERT_BATCH_SIZE):
                 chunk = pair_buffer[i:i + INSERT_BATCH_SIZE]
