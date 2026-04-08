@@ -445,8 +445,14 @@ class AccountIndexer:
             if api_key:
                 cmd.extend(["--api-key", api_key])
 
+            # Write to temp file, then COPY from file (avoids pipe backpressure)
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.tsv', delete=False, dir='/tmp')
+            tmp_path = tmp.name
+            tmp.close()
+
             proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                cmd, stdout=open(tmp_path, 'w'), stderr=subprocess.PIPE,
                 bufsize=1024 * 1024,
             )
 
@@ -460,33 +466,37 @@ class AccountIndexer:
             stderr_thread = threading.Thread(target=_log_stderr, daemon=True)
             stderr_thread.start()
 
-            # COPY this chunk into PostgreSQL
-            conn = self.pool.getconn()
-            try:
-                cur = conn.cursor()
-                cur.copy_expert(
-                    "COPY account_block_index (account_id, block_height) FROM STDIN",
-                    proc.stdout,
-                )
-                conn.commit()
-                cur.close()
-            except Exception as exc:
-                conn.rollback()
-                logger.error("COPY failed at block %d: %s", current, exc)
-                proc.kill()
-                proc.wait()
-                raise
-            finally:
-                self.pool.putconn(conn)
-
-            proc.stdout.close()
             proc.wait()
             stderr_thread.join(timeout=5)
 
             if proc.returncode != 0:
                 logger.error("Rust indexer exited with code %d at block %d",
                              proc.returncode, current)
+                os.unlink(tmp_path)
                 break
+
+            # Bulk COPY from the temp file (no pipe backpressure)
+            file_size = os.path.getsize(tmp_path)
+            logger.info("Loading %s into PostgreSQL (%d MB)...",
+                        tmp_path, file_size // (1024 * 1024))
+
+            conn = self.pool.getconn()
+            try:
+                cur = conn.cursor()
+                with open(tmp_path, 'r') as f:
+                    cur.copy_expert(
+                        "COPY account_block_index (account_id, block_height) FROM STDIN",
+                        f,
+                    )
+                conn.commit()
+                cur.close()
+            except Exception as exc:
+                conn.rollback()
+                logger.error("COPY failed at block %d: %s", current, exc)
+                raise
+            finally:
+                self.pool.putconn(conn)
+                os.unlink(tmp_path)
 
             # Update cursor — visible in admin dashboard
             self.set_last_processed_block(chunk_end)
