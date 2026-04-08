@@ -420,7 +420,7 @@ class AccountIndexer:
 
                     # Submit more work to keep the pipeline full
                     if a <= target_archive:
-                        pending[executor.submit(self.fetch_archive, a)] = a
+                        pending[executor.submit(self.fetch_and_extract_archive, a)] = a
                         a += ARCHIVE_BLOCKS_PER_FILE
 
                 # Flush buffer periodically
