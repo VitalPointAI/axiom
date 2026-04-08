@@ -19,12 +19,12 @@ import argparse
 import io
 import json
 import logging
+import multiprocessing
 import os
 import signal
 import sys
 import tarfile
 import time
-from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
 import requests
 
@@ -42,13 +42,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Archive fetching parameters
-# Each .tgz archive contains 10 blocks. With API key authentication,
-# there is no rate limit — 16 workers achieves ~2300 blocks/sec.
-ARCHIVE_WORKERS = 16
+# Each .tgz archive contains 10 blocks. Using multiprocessing to bypass
+# Python's GIL — each process does its own HTTP + decompress + JSON parse.
+# 8 processes achieves ~650 blocks/sec (vs 30/sec with threading).
+ARCHIVE_PROCESSES = 8
 ARCHIVE_BLOCKS_PER_FILE = 10
-# Flush to DB every N archives (N * 10 blocks)
-FLUSH_EVERY_ARCHIVES = 200   # = 2000 blocks per flush
-INSERT_BATCH_SIZE = 50000    # Larger batches — no index overhead during backfill
+# Flush to DB every N blocks
+FLUSH_EVERY_BLOCKS = 2000
+INSERT_BATCH_SIZE = 50000
 LIVE_POLL_INTERVAL = 1.0
 
 # NEAR mainnet genesis block
@@ -63,6 +64,59 @@ MAINNET_ARCHIVE_BOUNDARIES = [122_000_000, 142_000_000]
 
 # API key for authenticated access (removes rate limit)
 FASTNEAR_API_KEY = os.environ.get("FASTNEAR_API_KEY", "")
+
+
+def _fetch_and_extract(archive_block: int) -> list[tuple[str, int]]:
+    """Fetch a .tgz archive, parse blocks, extract account pairs.
+
+    Module-level function so it can be used with multiprocessing.Pool
+    (instance methods can't be pickled). Each worker process gets its
+    own HTTP session, JSON parser, and GIL — true parallelism.
+    """
+    url = _archive_url(archive_block)
+    for attempt in range(3):
+        try:
+            resp = requests.get(url, timeout=30)
+            if resp.status_code == 200:
+                tar = tarfile.open(fileobj=io.BytesIO(resp.content), mode="r:gz")
+                pairs: list[tuple[str, int]] = []
+                for member in tar.getmembers():
+                    f = tar.extractfile(member)
+                    if f:
+                        data = json.loads(f.read())
+                        height = data.get("block", {}).get("header", {}).get("height", 0)
+                        for shard in data.get("shards", []):
+                            chunk = shard.get("chunk")
+                            if chunk:
+                                for tx in chunk.get("transactions", []):
+                                    td = tx.get("transaction", {})
+                                    si = td.get("signer_id", "")
+                                    ri = td.get("receiver_id", "")
+                                    if si and si != "system":
+                                        pairs.append((si.lower(), height))
+                                    if ri and ri != "system":
+                                        pairs.append((ri.lower(), height))
+                            for reo in shard.get("receipt_execution_outcomes", []):
+                                receipt = reo.get("receipt", {})
+                                pi = receipt.get("predecessor_id", "")
+                                ri = receipt.get("receiver_id", "")
+                                if pi and pi != "system":
+                                    pairs.append((pi.lower(), height))
+                                if ri and ri != "system":
+                                    pairs.append((ri.lower(), height))
+                return pairs
+            if resp.status_code == 404:
+                return []
+            if resp.status_code == 429:
+                time.sleep(min(5 * (attempt + 1), 15))
+                continue
+            return []
+        except Exception:
+            if attempt < 2:
+                time.sleep(2)
+                continue
+            return []
+    return []
 
 
 def _archive_url(block_height: int) -> str:
@@ -102,15 +156,6 @@ class AccountIndexer:
         self.running = True
         signal.signal(signal.SIGTERM, self._shutdown)
         signal.signal(signal.SIGINT, self._shutdown)
-
-        # HTTP session for archive fetching (separate from NeardataClient)
-        self.session = requests.Session()
-        adapter = requests.adapters.HTTPAdapter(
-            pool_connections=ARCHIVE_WORKERS + 4,
-            pool_maxsize=ARCHIVE_WORKERS + 4,
-        )
-        self.session.mount("https://", adapter)
-        self.session.headers["User-Agent"] = "Axiom/1.0 AccountIndexer"
 
     def _shutdown(self, signum, frame):
         logger.info("Shutdown signal received. Finishing current batch...")
@@ -216,41 +261,6 @@ class AccountIndexer:
     # Archive fetching
     # ------------------------------------------------------------------
 
-    def fetch_and_extract_archive(self, archive_block: int) -> list[tuple[str, int]]:
-        """Fetch a .tgz archive, parse blocks, and extract account pairs.
-
-        Does ALL work in the worker thread (fetch + decompress + JSON parse +
-        account extraction) so the main thread only collects results.
-        Returns list of (account_id, block_height) pairs.
-        """
-        url = _archive_url(archive_block)
-        for attempt in range(3):
-            try:
-                resp = self.session.get(url, timeout=30)
-                if resp.status_code == 200:
-                    tar = tarfile.open(fileobj=io.BytesIO(resp.content), mode="r:gz")
-                    pairs = []
-                    for member in tar.getmembers():
-                        f = tar.extractfile(member)
-                        if f:
-                            data = json.loads(f.read())
-                            height = data.get("block", {}).get("header", {}).get("height", 0)
-                            accounts = self.extract_accounts_from_block(data)
-                            pairs.extend((acct, height) for acct in accounts)
-                    return pairs
-                if resp.status_code == 404:
-                    return []
-                if resp.status_code == 429:
-                    time.sleep(min(5 * (attempt + 1), 15))
-                    continue
-                return []
-            except Exception as exc:
-                if attempt < 2:
-                    time.sleep(2)
-                    continue
-                logger.warning("Archive fetch failed for block %d: %s", archive_block, exc)
-                return []
-        return []
 
     # ------------------------------------------------------------------
     # Batch insert
@@ -375,15 +385,17 @@ class AccountIndexer:
         self._live_follow()
 
     def _backfill(self, start_block: int, target_block: int) -> None:
-        """Process historical blocks using parallel archive .tgz fetching.
+        """Process historical blocks using multiprocessing.
 
-        Uses a persistent thread pool that continuously fetches archives
-        while the main thread processes results as they complete. This
-        keeps all workers busy instead of the batch-then-wait pattern.
+        Each worker process does its own HTTP fetch + gzip decompress +
+        JSON parse + account extraction — true parallelism, no GIL.
+        imap_unordered feeds results to the main process as they complete.
         """
         current_archive = _align_to_archive(start_block)
         target_archive = _align_to_archive(target_block)
         total = target_block - start_block
+
+        archive_heights = range(current_archive, target_archive + 1, ARCHIVE_BLOCKS_PER_FILE)
 
         log_time = time.monotonic()
         log_blocks = 0
@@ -391,40 +403,24 @@ class AccountIndexer:
         max_block_seen = start_block - 1
         blocks_since_flush = 0
 
-        executor = ThreadPoolExecutor(max_workers=ARCHIVE_WORKERS)
+        pool = multiprocessing.Pool(processes=ARCHIVE_PROCESSES)
 
         try:
-            # Submit initial wave of work
-            pending: dict = {}
-            a = current_archive
-            while len(pending) < ARCHIVE_WORKERS * 4 and a <= target_archive:
-                pending[executor.submit(self.fetch_and_extract_archive, a)] = a
-                a += ARCHIVE_BLOCKS_PER_FILE
+            # imap_unordered yields results as workers finish — no idle time
+            for pairs in pool.imap_unordered(_fetch_and_extract, archive_heights, chunksize=4):
+                if not self.running:
+                    break
 
-            while pending and self.running:
-                # Block until at least one future completes
-                done_set, _ = wait(pending.keys(), return_when=FIRST_COMPLETED)
+                if pairs:
+                    pair_buffer.extend(pairs)
+                    highest = max(h for _, h in pairs)
+                    max_block_seen = max(max_block_seen, highest)
 
-                for future in done_set:
-                    archive_height = pending.pop(future)
-                    try:
-                        pairs = future.result()
-                        if pairs:
-                            pair_buffer.extend(pairs)
-                            highest = max(h for _, h in pairs)
-                            max_block_seen = max(max_block_seen, highest)
-                        log_blocks += ARCHIVE_BLOCKS_PER_FILE
-                        blocks_since_flush += ARCHIVE_BLOCKS_PER_FILE
-                    except Exception as exc:
-                        logger.warning("Archive %d failed: %s", archive_height, exc)
-
-                    # Submit more work to keep the pipeline full
-                    if a <= target_archive:
-                        pending[executor.submit(self.fetch_and_extract_archive, a)] = a
-                        a += ARCHIVE_BLOCKS_PER_FILE
+                log_blocks += ARCHIVE_BLOCKS_PER_FILE
+                blocks_since_flush += ARCHIVE_BLOCKS_PER_FILE
 
                 # Flush buffer periodically
-                if blocks_since_flush >= FLUSH_EVERY_ARCHIVES * ARCHIVE_BLOCKS_PER_FILE:
+                if blocks_since_flush >= FLUSH_EVERY_BLOCKS:
                     if pair_buffer:
                         for i in range(0, len(pair_buffer), INSERT_BATCH_SIZE):
                             chunk = pair_buffer[i:i + INSERT_BATCH_SIZE]
@@ -449,7 +445,8 @@ class AccountIndexer:
                     log_blocks = 0
 
         finally:
-            executor.shutdown(wait=False)
+            pool.terminate()
+            pool.join()
 
         # Final flush
         if pair_buffer:
