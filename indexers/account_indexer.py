@@ -429,10 +429,22 @@ class AccountIndexer:
         if api_key:
             cmd.extend(["--api-key", api_key])
 
+        import threading
+
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             bufsize=1024 * 1024,
         )
+
+        # Stream Rust stderr to Python logger in a background thread
+        def _log_stderr():
+            for line in proc.stderr:
+                line = line.decode().strip()
+                if line:
+                    logger.info("Rust: %s", line)
+
+        stderr_thread = threading.Thread(target=_log_stderr, daemon=True)
+        stderr_thread.start()
 
         # Pipe stdout directly into PostgreSQL COPY
         conn = self.pool.getconn()
@@ -452,16 +464,9 @@ class AccountIndexer:
         finally:
             self.pool.putconn(conn)
 
-        # Wait for process to finish
         proc.stdout.close()
-        stderr_output = proc.stderr.read().decode()
-        proc.stderr.close()
         proc.wait()
-
-        # Log the Rust binary's progress output
-        for line in stderr_output.strip().split("\n"):
-            if line:
-                logger.info("Rust: %s", line)
+        stderr_thread.join(timeout=5)
 
         if proc.returncode != 0:
             raise RuntimeError(f"Rust indexer exited with code {proc.returncode}")
