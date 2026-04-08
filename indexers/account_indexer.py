@@ -24,7 +24,7 @@ import signal
 import sys
 import tarfile
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -375,13 +375,10 @@ class AccountIndexer:
     def _backfill(self, start_block: int, target_block: int) -> None:
         """Process historical blocks using parallel archive .tgz fetching.
 
-        Each archive contains 10 blocks. With 8 parallel workers, we process
-        ~80 blocks per round-trip, achieving ~1500 blocks/sec.
-
-        Archives are fetched in order. The cursor only advances to the highest
-        contiguous block that was successfully processed — no gaps possible.
+        Uses a persistent thread pool that continuously fetches archives
+        while the main thread processes results as they complete. This
+        keeps all workers busy instead of the batch-then-wait pattern.
         """
-        # Align start to archive boundary
         current_archive = _align_to_archive(start_block)
         target_archive = _align_to_archive(target_block)
         total = target_block - start_block
@@ -389,84 +386,77 @@ class AccountIndexer:
         log_time = time.monotonic()
         log_blocks = 0
         pair_buffer: list[tuple[str, int]] = []
-        archives_since_flush = 0
         max_block_seen = start_block - 1
+        blocks_since_flush = 0
 
-        while current_archive <= target_archive and self.running:
-            # Build batch of archive heights to fetch in parallel
-            batch_archives = []
-            for i in range(ARCHIVE_WORKERS * 4):  # Queue up 4x workers worth
-                a = current_archive + i * ARCHIVE_BLOCKS_PER_FILE
-                if a > target_archive:
-                    break
-                batch_archives.append(a)
+        executor = ThreadPoolExecutor(max_workers=ARCHIVE_WORKERS)
 
-            if not batch_archives:
-                break
+        try:
+            # Submit initial wave of work
+            pending: dict = {}
+            a = current_archive
+            while len(pending) < ARCHIVE_WORKERS * 4 and a <= target_archive:
+                pending[executor.submit(self.fetch_archive, a)] = a
+                a += ARCHIVE_BLOCKS_PER_FILE
 
-            # Fetch archives in parallel
-            succeeded: dict[int, list[tuple[dict, int]]] = {}
-            failed: set[int] = set()
+            while pending and self.running:
+                # Wait for ANY future to complete
+                done_futures = []
+                for future in list(pending.keys()):
+                    if future.done():
+                        done_futures.append(future)
 
-            with ThreadPoolExecutor(max_workers=ARCHIVE_WORKERS) as executor:
-                futures = {
-                    executor.submit(self.fetch_archive, a): a
-                    for a in batch_archives
-                }
-                for future in as_completed(futures):
-                    archive_height = futures[future]
+                if not done_futures:
+                    # No futures ready — wait briefly
+                    time.sleep(0.01)
+                    continue
+
+                for future in done_futures:
+                    archive_height = pending.pop(future)
                     try:
                         blocks = future.result()
-                        succeeded[archive_height] = blocks
-                    except Exception:
-                        failed.add(archive_height)
+                        for block_data, height in blocks:
+                            if height >= start_block:
+                                accounts = self.extract_accounts_from_block(block_data)
+                                pair_buffer.extend((acct, height) for acct in accounts)
+                                max_block_seen = max(max_block_seen, height)
+                        log_blocks += ARCHIVE_BLOCKS_PER_FILE
+                        blocks_since_flush += ARCHIVE_BLOCKS_PER_FILE
+                    except Exception as exc:
+                        logger.warning("Archive %d failed: %s", archive_height, exc)
 
-            # Process results IN ORDER to maintain gap-safe cursor
-            safe_archive = current_archive - ARCHIVE_BLOCKS_PER_FILE
-            for a in batch_archives:
-                if a in failed:
-                    logger.warning("Archive %d failed — stopping at safe point %d", a, safe_archive)
-                    break
-
-                blocks = succeeded.get(a, [])
-                for block_data, height in blocks:
-                    if height >= start_block:
-                        accounts = self.extract_accounts_from_block(block_data)
-                        pair_buffer.extend((acct, height) for acct in accounts)
-                        max_block_seen = max(max_block_seen, height)
-
-                safe_archive = a
-                archives_since_flush += 1
-                log_blocks += ARCHIVE_BLOCKS_PER_FILE
+                    # Submit more work to keep the pipeline full
+                    if a <= target_archive:
+                        pending[executor.submit(self.fetch_archive, a)] = a
+                        a += ARCHIVE_BLOCKS_PER_FILE
 
                 # Flush buffer periodically
-                if archives_since_flush >= FLUSH_EVERY_ARCHIVES:
+                if blocks_since_flush >= FLUSH_EVERY_ARCHIVES * ARCHIVE_BLOCKS_PER_FILE:
                     if pair_buffer:
                         for i in range(0, len(pair_buffer), INSERT_BATCH_SIZE):
                             chunk = pair_buffer[i:i + INSERT_BATCH_SIZE]
                             self.insert_account_blocks(chunk)
                         pair_buffer = []
-                    cursor_block = safe_archive + ARCHIVE_BLOCKS_PER_FILE - 1
-                    self.set_last_processed_block(cursor_block)
-                    archives_since_flush = 0
+                    self.set_last_processed_block(max_block_seen)
+                    blocks_since_flush = 0
 
-            # Advance to next batch
-            current_archive = safe_archive + ARCHIVE_BLOCKS_PER_FILE
+                # Log progress
+                elapsed = time.monotonic() - log_time
+                if elapsed > 15:
+                    rate = log_blocks / elapsed if elapsed > 0 else 0
+                    done = max_block_seen - start_block
+                    pct = (done / total) * 100 if total > 0 else 100
+                    eta_hours = ((target_block - max_block_seen) / rate / 3600) if rate > 0 else 0
+                    logger.info(
+                        "Backfill: %.1f%% — block %d/%d — %.0f blocks/sec — "
+                        "%d pairs buffered — ETA %.1fh",
+                        pct, max_block_seen, target_block, rate, len(pair_buffer), eta_hours,
+                    )
+                    log_time = time.monotonic()
+                    log_blocks = 0
 
-            # Log progress
-            elapsed = time.monotonic() - log_time
-            if elapsed > 15:
-                rate = log_blocks / elapsed if elapsed > 0 else 0
-                done = max_block_seen - start_block
-                pct = (done / total) * 100 if total > 0 else 100
-                eta_hours = ((target_block - max_block_seen) / rate / 3600) if rate > 0 else 0
-                logger.info(
-                    "Backfill: %.1f%% — block %d/%d — %.0f blocks/sec — "
-                    "%d pairs buffered — ETA %.1fh",
-                    pct, max_block_seen, target_block, rate, len(pair_buffer), eta_hours,
-                )
-                log_time = time.monotonic()
-                log_blocks = 0
+        finally:
+            executor.shutdown(wait=False)
 
         # Final flush
         if pair_buffer:
