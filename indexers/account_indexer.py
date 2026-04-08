@@ -412,69 +412,91 @@ class AccountIndexer:
             self._backfill_python(start_block, target_block)
 
     def _backfill_rust(self, binary: str, start_block: int, target_block: int) -> None:
-        """Run Rust indexer and pipe output into PostgreSQL via COPY."""
+        """Run Rust indexer in chunks, COPY each chunk, update progress.
+
+        Splits the full range into chunks of 1M blocks. For each chunk:
+        1. Rust binary fetches archives and writes TSV to stdout
+        2. Python COPY's the TSV into PostgreSQL
+        3. Progress cursor is updated so the admin dashboard shows real progress
+
+        This means progress is visible every ~6 minutes (1M blocks at ~2700/sec)
+        and crash recovery only loses one chunk.
+        """
         import subprocess
-
-        logger.info("Using Rust binary: %s", binary)
-
-        # Run Rust binary — it outputs TSV to stdout, progress to stderr
-        api_key = os.environ.get("FASTNEAR_API_KEY", "")
-        cmd = [
-            binary,
-            "--start", str(start_block),
-            "--end", str(target_block),
-            "--workers", "16",
-            "--progress-interval", "1000",
-        ]
-        if api_key:
-            cmd.extend(["--api-key", api_key])
-
         import threading
 
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            bufsize=1024 * 1024,
-        )
+        api_key = os.environ.get("FASTNEAR_API_KEY", "")
+        chunk_size = 1_000_000  # 1M blocks per chunk
 
-        # Stream Rust stderr to Python logger in a background thread
-        def _log_stderr():
-            for line in proc.stderr:
-                line = line.decode().strip()
-                if line:
-                    logger.info("Rust: %s", line)
+        current = start_block
+        while current < target_block and self.running:
+            chunk_end = min(current + chunk_size, target_block)
 
-        stderr_thread = threading.Thread(target=_log_stderr, daemon=True)
-        stderr_thread.start()
+            logger.info("Rust chunk: %d → %d (%d blocks)",
+                        current, chunk_end, chunk_end - current)
 
-        # Pipe stdout directly into PostgreSQL COPY
-        conn = self.pool.getconn()
-        try:
-            cur = conn.cursor()
-            cur.copy_expert(
-                "COPY account_block_index (account_id, block_height) FROM STDIN",
-                proc.stdout,
+            cmd = [
+                binary,
+                "--start", str(current),
+                "--end", str(chunk_end),
+                "--workers", "16",
+                "--progress-interval", "1000",
+            ]
+            if api_key:
+                cmd.extend(["--api-key", api_key])
+
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                bufsize=1024 * 1024,
             )
-            conn.commit()
-            cur.close()
-        except Exception as exc:
-            conn.rollback()
-            logger.error("COPY failed: %s", exc)
-            proc.kill()
-            raise
-        finally:
-            self.pool.putconn(conn)
 
-        proc.stdout.close()
-        proc.wait()
-        stderr_thread.join(timeout=5)
+            # Stream Rust stderr to logger
+            def _log_stderr(p=proc):
+                for line in p.stderr:
+                    line = line.decode().strip()
+                    if line:
+                        logger.info("Rust: %s", line)
 
-        if proc.returncode != 0:
-            raise RuntimeError(f"Rust indexer exited with code {proc.returncode}")
+            stderr_thread = threading.Thread(target=_log_stderr, daemon=True)
+            stderr_thread.start()
 
-        # Update cursor to target block
-        self.set_last_processed_block(target_block)
-        logger.info("Backfill complete at block %d. Rebuilding indexes...", target_block)
-        self._rebuild_indexes()
+            # COPY this chunk into PostgreSQL
+            conn = self.pool.getconn()
+            try:
+                cur = conn.cursor()
+                cur.copy_expert(
+                    "COPY account_block_index (account_id, block_height) FROM STDIN",
+                    proc.stdout,
+                )
+                conn.commit()
+                cur.close()
+            except Exception as exc:
+                conn.rollback()
+                logger.error("COPY failed at block %d: %s", current, exc)
+                proc.kill()
+                proc.wait()
+                raise
+            finally:
+                self.pool.putconn(conn)
+
+            proc.stdout.close()
+            proc.wait()
+            stderr_thread.join(timeout=5)
+
+            if proc.returncode != 0:
+                logger.error("Rust indexer exited with code %d at block %d",
+                             proc.returncode, current)
+                break
+
+            # Update cursor — visible in admin dashboard
+            self.set_last_processed_block(chunk_end)
+            logger.info("Chunk complete: block %d → %d. Progress saved.", current, chunk_end)
+
+            current = chunk_end + 1
+
+        if self.running and current >= target_block:
+            logger.info("Backfill complete at block %d. Rebuilding indexes...", target_block)
+            self._rebuild_indexes()
 
     def _backfill_python(self, start_block: int, target_block: int) -> None:
         """Fallback: Python multiprocessing backfill (slower, ~30 blocks/sec)."""
