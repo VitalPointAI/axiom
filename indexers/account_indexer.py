@@ -24,7 +24,7 @@ import signal
 import sys
 import tarfile
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
 import requests
 
@@ -400,18 +400,10 @@ class AccountIndexer:
                 a += ARCHIVE_BLOCKS_PER_FILE
 
             while pending and self.running:
-                # Wait for ANY future to complete
-                done_futures = []
-                for future in list(pending.keys()):
-                    if future.done():
-                        done_futures.append(future)
+                # Block until at least one future completes
+                done_set, _ = wait(pending.keys(), return_when=FIRST_COMPLETED)
 
-                if not done_futures:
-                    # No futures ready — wait briefly
-                    time.sleep(0.01)
-                    continue
-
-                for future in done_futures:
+                for future in done_set:
                     archive_height = pending.pop(future)
                     try:
                         blocks = future.result()
