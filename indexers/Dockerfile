@@ -31,7 +31,7 @@ COPY historical_price_service.py ./historical_price_service.py
 COPY indexers/ ./indexers/
 
 # Copy Rust binary for fast account index backfill (pre-compiled for x86_64-linux)
-COPY indexers/account-indexer-rs/target/x86_64-unknown-linux-gnu/release/account-indexer-rs /usr/local/bin/account-indexer-rs
+COPY indexers/bin/account-indexer-rs /usr/local/bin/account-indexer-rs
 RUN chmod +x /usr/local/bin/account-indexer-rs
 
 # Ensure db package is importable
