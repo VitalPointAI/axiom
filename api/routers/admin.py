@@ -274,12 +274,18 @@ async def get_account_indexer_status(
 
             last_block, updated_at = state
 
-            # Get index stats
-            cur.execute("SELECT COUNT(*) FROM account_block_index")
-            total_entries = cur.fetchone()[0]
+            # Use pg_stat estimate — exact COUNT(*) times out on 40M+ rows with no index
+            cur.execute(
+                "SELECT reltuples::bigint FROM pg_class WHERE relname = 'account_block_index'"
+            )
+            row = cur.fetchone()
+            total_entries = row[0] if row and row[0] > 0 else 0
 
-            cur.execute("SELECT COUNT(DISTINCT account_id) FROM account_block_index")
-            unique_accounts = cur.fetchone()[0]
+            cur.execute(
+                "SELECT n_distinct FROM pg_stats WHERE tablename = 'account_block_index' AND attname = 'account_id'"
+            )
+            row = cur.fetchone()
+            unique_accounts = int(abs(row[0])) if row and row[0] else 0
 
             return {
                 "last_processed_block": last_block,

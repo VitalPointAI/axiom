@@ -47,8 +47,8 @@ logger = logging.getLogger(__name__)
 ARCHIVE_WORKERS = 16
 ARCHIVE_BLOCKS_PER_FILE = 10
 # Flush to DB every N archives (N * 10 blocks)
-FLUSH_EVERY_ARCHIVES = 100   # = 1000 blocks per flush
-INSERT_BATCH_SIZE = 10000
+FLUSH_EVERY_ARCHIVES = 200   # = 2000 blocks per flush
+INSERT_BATCH_SIZE = 50000    # Larger batches — no index overhead during backfill
 LIVE_POLL_INTERVAL = 1.0
 
 # NEAR mainnet genesis block
@@ -255,7 +255,11 @@ class AccountIndexer:
     # ------------------------------------------------------------------
 
     def insert_account_blocks(self, pairs: list[tuple[str, int]]) -> int:
-        """Batch insert (account_id, block_height) pairs. Returns count inserted."""
+        """Batch insert (account_id, block_height) pairs. Returns count inserted.
+
+        During backfill (no indexes), uses plain INSERT for maximum speed.
+        Duplicates are handled by dedup after index rebuild.
+        """
         if not pairs:
             return 0
 
@@ -268,7 +272,6 @@ class AccountIndexer:
                 """
                 INSERT INTO account_block_index (account_id, block_height)
                 SELECT unnest(%s::text[]), unnest(%s::bigint[])
-                ON CONFLICT DO NOTHING
                 """,
                 (accounts, heights),
             )
@@ -278,6 +281,55 @@ class AccountIndexer:
             return inserted
         except Exception:
             conn.rollback()
+            raise
+        finally:
+            self.pool.putconn(conn)
+
+    def _rebuild_indexes(self) -> None:
+        """Rebuild PK and indexes after bulk loading.
+
+        Deduplicates rows first (bulk insert may have created duplicates),
+        then adds the primary key constraint and lookup index.
+        """
+        conn = self.pool.getconn()
+        try:
+            cur = conn.cursor()
+
+            # Deduplicate — keep one row per (account_id, block_height)
+            logger.info("Deduplicating account_block_index...")
+            cur.execute("""
+                DELETE FROM account_block_index a
+                USING account_block_index b
+                WHERE a.ctid < b.ctid
+                  AND a.account_id = b.account_id
+                  AND a.block_height = b.block_height
+            """)
+            deduped = cur.rowcount
+            conn.commit()
+            logger.info("Removed %d duplicate rows.", deduped)
+
+            # Add primary key
+            logger.info("Adding primary key constraint...")
+            cur.execute("""
+                ALTER TABLE account_block_index
+                ADD CONSTRAINT account_block_index_pkey
+                PRIMARY KEY (account_id, block_height)
+            """)
+            conn.commit()
+
+            # Add lookup index
+            logger.info("Creating lookup index...")
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS ix_abi_account_block
+                ON account_block_index (account_id, block_height)
+            """)
+            conn.commit()
+            cur.close()
+
+            logger.info("Index rebuild complete.")
+        except Exception as exc:
+            conn.rollback()
+            logger.error("Index rebuild failed: %s", exc)
             raise
         finally:
             self.pool.putconn(conn)
@@ -425,7 +477,8 @@ class AccountIndexer:
             self.set_last_processed_block(max_block_seen)
 
         if self.running:
-            logger.info("Backfill complete at block %d.", max_block_seen)
+            logger.info("Backfill complete at block %d. Rebuilding indexes...", max_block_seen)
+            self._rebuild_indexes()
 
     def _live_follow(self) -> None:
         """Follow the chain tip, processing new blocks as they appear."""
