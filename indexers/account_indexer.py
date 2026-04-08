@@ -216,11 +216,12 @@ class AccountIndexer:
     # Archive fetching
     # ------------------------------------------------------------------
 
-    def fetch_archive(self, archive_block: int) -> list[tuple[dict, int]]:
-        """Fetch a .tgz archive and return list of (block_data, block_height).
+    def fetch_and_extract_archive(self, archive_block: int) -> list[tuple[str, int]]:
+        """Fetch a .tgz archive, parse blocks, and extract account pairs.
 
-        Each archive contains up to 10 blocks. Missing blocks within the
-        range are simply absent from the archive (not an error).
+        Does ALL work in the worker thread (fetch + decompress + JSON parse +
+        account extraction) so the main thread only collects results.
+        Returns list of (account_id, block_height) pairs.
         """
         url = _archive_url(archive_block)
         for attempt in range(3):
@@ -228,16 +229,17 @@ class AccountIndexer:
                 resp = self.session.get(url, timeout=30)
                 if resp.status_code == 200:
                     tar = tarfile.open(fileobj=io.BytesIO(resp.content), mode="r:gz")
-                    blocks = []
+                    pairs = []
                     for member in tar.getmembers():
                         f = tar.extractfile(member)
                         if f:
                             data = json.loads(f.read())
                             height = data.get("block", {}).get("header", {}).get("height", 0)
-                            blocks.append((data, height))
-                    return blocks
+                            accounts = self.extract_accounts_from_block(data)
+                            pairs.extend((acct, height) for acct in accounts)
+                    return pairs
                 if resp.status_code == 404:
-                    return []  # Archive doesn't exist (sparse range)
+                    return []
                 if resp.status_code == 429:
                     time.sleep(min(5 * (attempt + 1), 15))
                     continue
@@ -396,7 +398,7 @@ class AccountIndexer:
             pending: dict = {}
             a = current_archive
             while len(pending) < ARCHIVE_WORKERS * 4 and a <= target_archive:
-                pending[executor.submit(self.fetch_archive, a)] = a
+                pending[executor.submit(self.fetch_and_extract_archive, a)] = a
                 a += ARCHIVE_BLOCKS_PER_FILE
 
             while pending and self.running:
@@ -406,12 +408,11 @@ class AccountIndexer:
                 for future in done_set:
                     archive_height = pending.pop(future)
                     try:
-                        blocks = future.result()
-                        for block_data, height in blocks:
-                            if height >= start_block:
-                                accounts = self.extract_accounts_from_block(block_data)
-                                pair_buffer.extend((acct, height) for acct in accounts)
-                                max_block_seen = max(max_block_seen, height)
+                        pairs = future.result()
+                        if pairs:
+                            pair_buffer.extend(pairs)
+                            highest = max(h for _, h in pairs)
+                            max_block_seen = max(max_block_seen, highest)
                         log_blocks += ARCHIVE_BLOCKS_PER_FILE
                         blocks_since_flush += ARCHIVE_BLOCKS_PER_FILE
                     except Exception as exc:
