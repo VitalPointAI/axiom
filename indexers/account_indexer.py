@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 ARCHIVE_PROCESSES = 8
 ARCHIVE_BLOCKS_PER_FILE = 10
 # Flush to DB every N blocks
-FLUSH_EVERY_BLOCKS = 2000
+FLUSH_EVERY_BLOCKS = 5000
 INSERT_BATCH_SIZE = 50000
 LIVE_POLL_INTERVAL = 1.0
 
@@ -407,14 +407,12 @@ class AccountIndexer:
 
         try:
             # imap_unordered yields results as workers finish — no idle time
-            for pairs in pool.imap_unordered(_fetch_and_extract, archive_heights, chunksize=4):
+            for pairs in pool.imap_unordered(_fetch_and_extract, archive_heights, chunksize=16):
                 if not self.running:
                     break
 
                 if pairs:
                     pair_buffer.extend(pairs)
-                    highest = max(h for _, h in pairs)
-                    max_block_seen = max(max_block_seen, highest)
 
                 log_blocks += ARCHIVE_BLOCKS_PER_FILE
                 blocks_since_flush += ARCHIVE_BLOCKS_PER_FILE
@@ -422,6 +420,7 @@ class AccountIndexer:
                 # Flush buffer periodically
                 if blocks_since_flush >= FLUSH_EVERY_BLOCKS:
                     if pair_buffer:
+                        max_block_seen = max(max_block_seen, max(h for _, h in pair_buffer))
                         for i in range(0, len(pair_buffer), INSERT_BATCH_SIZE):
                             chunk = pair_buffer[i:i + INSERT_BATCH_SIZE]
                             self.insert_account_blocks(chunk)
