@@ -21,7 +21,7 @@ source "$PROJECT_DIR/.env" 2>/dev/null || true
 export FASTNEAR_API_KEY
 
 BINARY="/home/deploy/account-indexer-rs-v2"
-PG_PASS=$(grep POSTGRES_PASSWORD "$PROJECT_DIR/.env" | cut -d= -f2)
+PG_PASS=$(grep '^POSTGRES_PASSWORD=' "$PROJECT_DIR/.env" | cut -d= -f2)
 PG_CMD="PGPASSWORD=$PG_PASS psql -h 127.0.0.1 -p 5433 -U neartax -q"
 
 GENESIS=9820210
