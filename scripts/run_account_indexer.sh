@@ -39,8 +39,20 @@ else
     fi
 fi
 
-# Get chain tip
-END=$(curl -s "https://mainnet.neardata.xyz/v0/last_block/final" | python3 -c "import sys,json; print(json.load(sys.stdin)['block']['header']['height'])")
+# Get chain tip (use API key to avoid 429)
+for i in 1 2 3 4 5; do
+    END=$(curl -s "https://mainnet.neardata.xyz/v0/last_block/final?apiKey=$FASTNEAR_API_KEY" | python3 -c "import sys,json; print(json.load(sys.stdin)['block']['header']['height'])" 2>/dev/null)
+    if [ -n "$END" ] && [ "$END" -gt 0 ] 2>/dev/null; then
+        break
+    fi
+    echo "Retry getting chain tip ($i/5)..."
+    sleep 5
+done
+
+if [ -z "$END" ] || [ "$END" -le 0 ] 2>/dev/null; then
+    echo "ERROR: Cannot get chain tip from neardata.xyz"
+    exit 1
+fi
 
 echo "================================================================"
 echo "  Account Block Index Backfill"
@@ -64,10 +76,10 @@ while [ "$CURRENT" -lt "$END" ]; do
     echo "--- Chunk: $CURRENT → $CHUNK_END ---"
     CHUNK_START_TIME=$(date +%s)
 
-    # Run Rust binary → temp file
+    # Run Rust binary → temp file (stdout=data, stderr=progress)
     TMPFILE=$(mktemp /tmp/abi_chunk_XXXXXX.tsv)
     $BINARY --start "$CURRENT" --end "$CHUNK_END" --workers "$WORKERS" \
-        --progress-interval 2000 > "$TMPFILE" 2>&1 || {
+        --progress-interval 2000 > "$TMPFILE" || {
         echo "ERROR: Rust binary failed at block $CURRENT"
         rm -f "$TMPFILE"
         exit 1
