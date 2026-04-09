@@ -31,20 +31,16 @@ struct Args {
     progress_interval: u64,
 }
 
-fn archive_url(block_height: u64, api_key: &str) -> String {
+fn archive_url(block_height: u64) -> String {
     let padded = format!("{:012}", block_height);
     let node_idx = ARCHIVE_BOUNDARIES
         .iter()
         .position(|&b| block_height < b)
         .unwrap_or(ARCHIVE_BOUNDARIES.len());
-    let mut url = format!(
+    format!(
         "https://a{}.mainnet.neardata.xyz/raw/{}/{}/{}.tgz",
         node_idx, &padded[..6], &padded[6..9], padded
-    );
-    if !api_key.is_empty() {
-        url.push_str(&format!("?apiKey={}", api_key));
-    }
-    url
+    )
 }
 
 fn align_down(block: u64) -> u64 {
@@ -56,10 +52,14 @@ fn fetch_and_extract(
     client: &reqwest::blocking::Client,
     api_key: &str,
 ) -> Vec<(String, u64)> {
-    let url = archive_url(archive_block, api_key);
+    let url = archive_url(archive_block);
 
     for attempt in 0..3 {
-        let resp = match client.get(&url).send() {
+        let mut req = client.get(&url);
+        if !api_key.is_empty() {
+            req = req.header("Authorization", format!("Bearer {}", api_key));
+        }
+        let resp = match req.send() {
             Ok(r) => r,
             Err(_) => {
                 if attempt < 2 { std::thread::sleep(std::time::Duration::from_secs(2)); }
