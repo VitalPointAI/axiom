@@ -39,18 +39,14 @@ else
     fi
 fi
 
-# Get chain tip (use API key to avoid 429)
-for i in 1 2 3 4 5; do
-    END=$(curl -s "https://mainnet.neardata.xyz/v0/last_block/final?apiKey=$FASTNEAR_API_KEY" | python3 -c "import sys,json; print(json.load(sys.stdin)['block']['header']['height'])" 2>/dev/null)
-    if [ -n "$END" ] && [ "$END" -gt 0 ] 2>/dev/null; then
-        break
-    fi
-    echo "Retry getting chain tip ($i/5)..."
-    sleep 5
-done
+# Get chain tip from FastNear RPC (authenticated)
+END=$(curl -s -X POST "https://rpc.mainnet.fastnear.com/$FASTNEAR_API_KEY" \
+    -H 'Content-Type: application/json' \
+    -d '{"jsonrpc":"2.0","id":"1","method":"status","params":[]}' \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['sync_info']['latest_block_height'])" 2>/dev/null)
 
 if [ -z "$END" ] || [ "$END" -le 0 ] 2>/dev/null; then
-    echo "ERROR: Cannot get chain tip from neardata.xyz"
+    echo "ERROR: Cannot get chain tip from rpc.mainnet.fastnear.com"
     exit 1
 fi
 
