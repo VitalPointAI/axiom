@@ -39,9 +39,10 @@ else
     fi
 fi
 
-# Get chain tip from FastNear RPC (authenticated)
-END=$(curl -s -X POST "https://rpc.mainnet.fastnear.com/$FASTNEAR_API_KEY" \
+# Get chain tip from FastNear RPC (authenticated via Bearer token)
+END=$(curl -s -X POST "https://rpc.mainnet.fastnear.com" \
     -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer $FASTNEAR_API_KEY" \
     -d '{"jsonrpc":"2.0","id":"1","method":"status","params":[]}' \
     | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['sync_info']['latest_block_height'])" 2>/dev/null)
 
