@@ -19,6 +19,7 @@ Data sources:
 """
 
 import logging
+import os
 import subprocess
 from typing import Optional
 
@@ -324,12 +325,29 @@ async def get_account_indexer_status(
     else:
         stale_seconds = None
 
-    # Estimate progress
+    # Get actual chain tip (cached 60s to avoid hammering RPC)
+    import time as _time
     genesis = 9_820_210
-    estimated_tip = 193_000_000  # ~current NEAR tip
+    now_mono = _time.monotonic()
+    if not hasattr(get_account_indexer_status, "_tip_cache") or \
+       now_mono - get_account_indexer_status._tip_cache[1] > 60:
+        tip = None
+        try:
+            import requests as _requests
+            resp = _requests.post(
+                "https://rpc.mainnet.fastnear.com",
+                json={"jsonrpc": "2.0", "id": "1", "method": "status", "params": []},
+                headers={"Authorization": f"Bearer {os.environ.get('FASTNEAR_API_KEY', '')}"},
+                timeout=5,
+            )
+            tip = resp.json()["result"]["sync_info"]["latest_block_height"]
+        except Exception:
+            tip = 193_000_000  # fallback
+        get_account_indexer_status._tip_cache = (tip, now_mono)
+    chain_tip = get_account_indexer_status._tip_cache[0]
 
     if last_block > genesis:
-        progress_pct = min(99.9, ((last_block - genesis) / (estimated_tip - genesis)) * 100)
+        progress_pct = min(99.9, ((last_block - genesis) / (chain_tip - genesis)) * 100)
     else:
         progress_pct = 0.0
 
