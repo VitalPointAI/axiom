@@ -18,7 +18,13 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Load env
 source "$PROJECT_DIR/.env" 2>/dev/null || true
+source "$HOME/.fastnear_key" 2>/dev/null || true
 export FASTNEAR_API_KEY
+
+if [ -z "$FASTNEAR_API_KEY" ]; then
+    echo "ERROR: FASTNEAR_API_KEY is not set. Check .env or ~/.fastnear_key"
+    exit 1
+fi
 
 BINARY="/home/deploy/account-indexer-rs-v2"
 PG_PASS=$(grep '^POSTGRES_PASSWORD=' "$PROJECT_DIR/.env" | cut -d= -f2)
