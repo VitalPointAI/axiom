@@ -25,7 +25,7 @@ PG_PASS=$(grep '^POSTGRES_PASSWORD=' "$PROJECT_DIR/.env" | cut -d= -f2)
 PG_CMD="PGPASSWORD=$PG_PASS psql -h 127.0.0.1 -p 5433 -U neartax -q"
 
 GENESIS=9820210
-CHUNK_SIZE=1000000  # 1M blocks per chunk
+CHUNK_SIZE=10000  # 10K blocks per chunk — Rust binary runs fastest at this size
 WORKERS=16
 
 # Get start block from argument or DB
