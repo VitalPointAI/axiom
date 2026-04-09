@@ -45,6 +45,8 @@ interface AccountIndexerStatus {
   updated_at: string | null;
   stale_seconds: number | null;
   message?: string;
+  backfill_info?: string | null;
+  backfill_speed?: string | null;
 }
 
 const SUPPORTED_CURRENCIES = [
@@ -256,13 +258,22 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {indexerStatus.status === 'stale' && (
+              {indexerStatus.status === 'stale' && !indexerStatus.backfill_info && (
                 <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-400">
                   <AlertTriangle className="w-4 h-4 shrink-0" />
                   <span>
                     Account indexer hasn&apos;t updated in {Math.round((indexerStatus.stale_seconds || 0) / 60)} minutes.
                     Check if the account-indexer container is running.
                   </span>
+                </div>
+              )}
+
+              {indexerStatus.backfill_info && (
+                <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg text-sm text-blue-400">
+                  <div className="font-medium">{indexerStatus.backfill_info}</div>
+                  {indexerStatus.backfill_speed && (
+                    <div className="text-xs text-blue-300 mt-1 font-mono">{indexerStatus.backfill_speed}</div>
+                  )}
                 </div>
               )}
             </CardContent>

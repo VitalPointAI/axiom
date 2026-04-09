@@ -324,18 +324,51 @@ async def get_account_indexer_status(
     else:
         stale_seconds = None
 
-    # Estimate progress (NEAR mainnet genesis = 9,820,210, current tip ~180M+)
+    # Estimate progress
     genesis = 9_820_210
-    # Rough estimate — actual tip comes from neardata, but we don't want to
-    # call an external API from this endpoint. Use a reasonable estimate.
-    estimated_tip = 185_000_000
+    estimated_tip = 193_000_000  # ~current NEAR tip
+
     if last_block > genesis:
         progress_pct = min(99.9, ((last_block - genesis) / (estimated_tip - genesis)) * 100)
     else:
         progress_pct = 0.0
 
+    # Check for active backfill processes (host-based Rust binary)
+    backfill_info = None
+    try:
+        result_proc = subprocess.run(
+            ["pgrep", "-af", "account-indexer-rs"],
+            capture_output=True, text=True, timeout=5,
+        )
+        active_processes = [
+            line for line in result_proc.stdout.strip().split("\n")
+            if line and "account-indexer-rs" in line and "pgrep" not in line
+        ]
+        if active_processes:
+            backfill_info = f"{len(active_processes)} backfill process(es) running"
+    except Exception:
+        pass
+
+    # Also try to read last line of backfill logs for live speed info
+    backfill_speed = None
+    for logpath in ["/home/deploy/axiom/logs/backfill-main.log",
+                    "/home/deploy/axiom/logs/account-indexer-backfill.log"]:
+        try:
+            result_tail = subprocess.run(
+                ["tail", "-1", logpath],
+                capture_output=True, text=True, timeout=3,
+            )
+            line = result_tail.stdout.strip()
+            if "blocks/sec" in line:
+                backfill_speed = line
+                break
+        except Exception:
+            pass
+
     # Determine health status
-    if last_block < genesis + 1_000_000:
+    if backfill_info:
+        status = "building"
+    elif last_block < genesis + 1_000_000:
         status = "building"
     elif stale_seconds is not None and stale_seconds > 300:
         status = "stale"
@@ -352,6 +385,8 @@ async def get_account_indexer_status(
         "unique_accounts": result["unique_accounts"],
         "updated_at": str(updated_at) if updated_at else None,
         "stale_seconds": int(stale_seconds) if stale_seconds is not None else None,
+        "backfill_info": backfill_info,
+        "backfill_speed": backfill_speed,
     }
 
 
