@@ -15,8 +15,6 @@
 | 10 | Remaining Concerns | Large module refactors, performance, robustness | RC-01 through RC-14 | 2 days |
 | 11 | Robustness & Missing Features | Audit log, invariants, export validation, offline mode | ROB-01 through ROB-10 | 2 days |
 | 12 | 3/3 | Complete    | 2026-03-16 | 2 days |
-| 13 | Reliable Indexing | Streaming indexing via neardata.xyz, cost tracking, SSE | IDX-01 through IDX-10 | 2 days |
-| 14 | Marketing Frontend | Public-facing marketing site with privacy/automation messaging | MKT-01 through MKT-12 | 3 days |
 
 
 
@@ -408,67 +406,6 @@ Plans:
 - `tests/test_gap_reindex.py` — Gap re-index tests
 - `tests/test_admin_api.py` — Admin API tests
 - `tests/test_streaming_api.py` — SSE streaming API tests
-
----
-
-### Phase 14: Marketing Frontend
-
-**Goal:** Build a public-facing marketing website that positions Axiom as the privacy-first, automation-first Canadian crypto tax platform. Highlight competitive advantages over PrivateACB and cloud platforms, drive sign-ups with clear value propositions.
-
-**Depends on:** Phase 7 (existing web UI as foundation)
-
-**Plans:** 5 plans in 3 waves
-
-Plans:
-- [ ] 14-01-PLAN.md — Foundation: deps, dark mode migration, route group, nav/footer, middleware/cache (Wave 1) [MKT-11]
-- [ ] 14-02-PLAN.md — Waitlist backend: Alembic migration, FastAPI endpoint, Next.js proxy (Wave 1) [MKT-01]
-- [ ] 14-03-PLAN.md — Landing page: hero, waitlist form, feature cards, comparison, chains, pricing (Wave 2) [MKT-01,02,04,05,08,10]
-- [ ] 14-04-PLAN.md — Secondary pages: Features, Pricing, Privacy, Compliance, About (Wave 2) [MKT-03,04,06,07,08,09]
-- [ ] 14-05-PLAN.md — Analytics + polish: Plausible integration, 404 page, visual verification (Wave 3) [MKT-11,12]
-
-**Requirements:**
-- MKT-01: Hero section with clear value proposition and CTA
-- MKT-02: Feature comparison section — Axiom vs PrivateACB vs cloud platforms (CoinTracker, Koinly)
-- MKT-03: Privacy & security section with breach timeline (CoinTracker, Koinly, Waltio incidents)
-- MKT-04: Canadian data sovereignty messaging (Toronto-hosted, PIPEDA/CARF compliance)
-- MKT-05: Automation showcase — blockchain indexing vs CSV-only, DeFi-native capture, AI classification
-- MKT-06: CRA compliance section — ACB method, superficial loss with proration, CARF 2026 readiness
-- MKT-07: Future roadmap section — post-quantum encryption, client-side zero-knowledge calculations, passkey-derived encryption
-- MKT-08: Pricing section with clear tiers
-- MKT-09: Trust signals — security architecture diagram, "what stays local / what crosses the network" transparency table
-- MKT-10: Multi-chain support showcase (NEAR, Ethereum, Polygon, XRP, Akash)
-- MKT-11: Responsive design, SEO-optimized, fast load times
-- MKT-12: Analytics integration (privacy-respecting — no Mixpanel/third-party analytics that caused competitor breaches)
-
-**Key messaging pillars:**
-1. **Privacy without compromise** — Canadian-hosted, planned client-side encryption, no third-party analytics
-2. **Automation that competitors can't match** — Direct blockchain indexing, DeFi-native, AI classification
-3. **CRA-ready compliance** — ACB, superficial loss, CARF, T1135
-4. **Post-quantum future-proof** — AES-256 with passkey-derived keys
-
-**Competitive positioning:**
-- vs PrivateACB: "They make you download CSVs. We read the blockchain directly. Same privacy commitment, 10x less work."
-- vs CoinTracker/Koinly: "They've been breached. Your data on our platform stays in Canada, encrypted, under your control."
-- vs spreadsheets: "Stop guessing your ACB. We calculate it automatically with CRA-compliant superficial loss rules."
-
-**Success Criteria:**
-1. [ ] Landing page loads in < 2s on mobile
-2. [ ] Feature comparison table accurately represents all competitors
-3. [ ] Breach timeline section sourced and verifiable
-4. [ ] CTA buttons lead to sign-up flow
-5. [ ] Responsive across mobile/tablet/desktop
-6. [ ] SEO meta tags, Open Graph, structured data present
-7. [ ] No third-party analytics that transmit user data (use self-hosted analytics or privacy-respecting alternative)
-8. [ ] Pricing tiers clearly communicated
-
-**Deliverables:**
-- `web/app/(marketing)/` — Marketing pages (Next.js App Router)
-- `web/app/(marketing)/page.tsx` — Landing page
-- `web/app/(marketing)/features/page.tsx` — Detailed features
-- `web/app/(marketing)/privacy/page.tsx` — Privacy & security deep-dive
-- `web/app/(marketing)/pricing/page.tsx` — Pricing tiers
-- `web/app/(marketing)/compliance/page.tsx` — CRA compliance details
-- `web/components/marketing/` — Reusable marketing components (hero, comparison table, breach timeline, etc.)
 
 ---
 

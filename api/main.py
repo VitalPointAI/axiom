@@ -39,6 +39,7 @@ from api.routers import (
     streaming_router,
     transactions_router,
     verification_router,
+    waitlist_router,
     wallets_router,
 )
 
@@ -112,6 +113,7 @@ def create_app() -> FastAPI:
     application.include_router(accountant_router)
     application.include_router(preferences_router)
     application.include_router(staking_router)
+    application.include_router(waitlist_router)
     application.include_router(streaming_router, prefix="/api/stream")
     application.include_router(admin_router, prefix="/api/admin")
 
