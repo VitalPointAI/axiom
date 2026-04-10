@@ -5,6 +5,7 @@ status: draft
 shadcn_initialized: false
 preset: none
 created: 2026-04-10
+revised: 2026-04-10
 ---
 
 # Phase 14 — UI Design Contract
@@ -43,26 +44,28 @@ Declared values (multiples of 4 only):
 | xl | 32px | Layout gaps, grid column gap |
 | 2xl | 48px | Major section breaks between landing page sections |
 | 3xl | 64px | Page-level vertical rhythm, hero top/bottom padding (mobile) |
-| 4xl | 96px | Hero section padding (desktop), large section vertical spacing |
 
 Exceptions:
 - Touch targets on mobile: minimum 44px height for all interactive elements (CTAs, nav items, theme toggle) per WCAG 2.5.5
 - Hero headline leading on mobile: use tight line-height (1.1) to prevent overflow on small screens despite heading size
+- Hero desktop padding: 96px — justified by viewport height proportion on 1280px+ screens. Applied as `py-24` (Tailwind `96px`) only on `xl:` breakpoint for the hero section wrapper.
 
 ---
 
 ## Typography
 
-| Role | Size | Weight | Line Height | Usage |
-|------|------|--------|-------------|-------|
-| Body | 16px | 400 (regular) | 1.6 | Paragraph copy, feature descriptions, comparison table cells |
-| Label / UI | 14px | 500 (medium) | 1.4 | Nav links, badge text, form labels, caption text, footnotes |
-| Heading | 24px (mobile) / 32px (desktop) | 600 (semibold) | 1.25 | Section headings (h2), feature card titles, pricing title |
-| Display | 40px (mobile) / 64px (desktop) | 700 (bold) | 1.1 | Hero headline, major section taglines |
+| Role | Size | Tailwind Class | Weight | Line Height | Usage |
+|------|------|----------------|--------|-------------|-------|
+| Body | 16px | `text-base` | 400 (regular) | 1.6 | Paragraph copy, feature descriptions, comparison table cells |
+| Label / UI | 14px | `text-sm` | 400 (regular) | 1.4 | Nav links, badge text, form labels, caption text, footnotes |
+| Heading | 24px → 32px | `text-2xl md:text-3xl` | 700 (bold) | 1.25 | Section headings (h2), feature card titles, pricing title |
+| Display | 40px → 64px | `text-4xl md:text-6xl` | 700 (bold) | 1.1 | Hero headline, major section taglines |
 
 Font family: `Inter, system-ui, sans-serif` — loaded via `next/font/google` (already in `web/app/layout.tsx`).
 
-**Weights used:** 400 (body copy), 500 (labels/UI), 600 (headings), 700 (display). Four weights maximum — Inter variable font makes this zero overhead.
+**Declared weights:** 400 (body copy, labels, UI text) and 700 (headings, display). Two weights total — sufficient contrast for the crypto-native aesthetic; Inter variable font makes this zero overhead.
+
+**Declared sizes:** 4 canonical values — 14px, 16px, 24px, 40px. Responsive scaling (24→32 for Heading, 40→64 for Display) is an implementation detail expressed via Tailwind responsive classes, not additional declared sizes.
 
 **Source:** Inter confirmed in layout.tsx. Sizes derived from mobile-first mandate (D-12, D-20) and crypto-native aesthetic (D-11) at discretion.
 
@@ -99,6 +102,18 @@ Dark mode values are the primary rendering state. Light mode values are override
 
 ---
 
+## Visual Hierarchy
+
+**Hero focal point:** The hero headline is the primary visual anchor. On load, the eye path is: gradient headline text → subheadline → waitlist form → secondary CTA. All other elements (background glow, geometric patterns) are subordinate and must not compete with this path.
+
+- Hero headline: Display role (text-4xl md:text-6xl, weight 700, gradient fill) — highest visual weight
+- Hero subheadline: Body role (text-base, weight 400, muted text color) — deliberately lower weight than headline
+- Waitlist form: Mid-weight — Input + CTA button grouped, accent-colored submit button draws the eye to the conversion action
+- Background glow: `rgba(99, 102, 241, 0.15)` — ambient, never brighter than foreground content
+- Geometric patterns: opacity 0.05–0.10 — texture only, not focal points
+
+---
+
 ## Component Inventory
 
 New components required for this phase (all in `web/components/marketing/`):
@@ -116,7 +131,7 @@ New components required for this phase (all in `web/components/marketing/`):
 | Pricing Card | `pricing-card.tsx` | default | Flat annual fee. Single card. Clear CTA |
 | Chain Showcase | `chain-showcase.tsx` | default | Icon grid: NEAR, ETH, Polygon, XRP, Akash |
 | Section Wrapper | `section-wrapper.tsx` | default | Consistent section padding, optional heading, Framer Motion scroll entrance |
-| Theme Toggle | `theme-toggle.tsx` | default | next-themes useTheme() hook. Icon: Sun / Moon from lucide-react |
+| Theme Toggle | `theme-toggle.tsx` | default | next-themes useTheme() hook. Icon: Sun / Moon from lucide-react. `aria-label="Toggle theme"` |
 
 Reused shadcn/ui components: Button (CTA, outline, ghost variants), Card (feature cards, pricing), Badge (comparison table checkmarks/labels), Input (waitlist email field), Label (form labels).
 
@@ -167,12 +182,12 @@ All pages use the `(marketing)` route group layout: `MarketingNav` + `<main>` + 
 | Primary CTA (all pages) | "Join the waitlist" | CONTEXT.md D-14 |
 | Hero headline | "The first Canadian-sovereign, blockchain-native crypto tax platform." | CONTEXT.md D-05, specifics |
 | Hero subheadline | "CRA-compliant ACB calculations. Direct blockchain indexing. Your data stays in Canada." | Derived from D-01, D-02, D-03 |
-| Secondary CTA | "Learn how it works" | Default — links to /features |
+| Secondary CTA | "See how Axiom works" | Default — links to /features |
 | Waitlist form placeholder | "your@email.com" | Default |
 | Waitlist form submit button | "Join the waitlist" | CONTEXT.md D-14 |
 | Waitlist success state | "You're on the list. We'll email you when Axiom opens." | Default |
 | Waitlist duplicate email | "You're already on the list. We'll be in touch." | Default |
-| Waitlist error state | "Something went wrong. Please try again." | Default |
+| Waitlist error state | "Something went wrong. Please try again, or email us at hello@axiom.tax." | Default + fallback contact path |
 | Email validation error | "Please enter a valid email address." | Default |
 | Empty state (no breach data loaded) | N/A — breach timeline is static content | — |
 | Nav CTA | "Join the waitlist" | CONTEXT.md D-14 |
@@ -241,6 +256,7 @@ No third-party registry blocks are used in this phase. All shadcn/ui components 
 - Semantic HTML: `<nav>`, `<main>`, `<section aria-label="...">`, `<footer>` — not div soup
 - Breach timeline links: `target="_blank" rel="noopener noreferrer"` on all external source links
 - Images: `next/image` with `alt` text on all images; no decorative images without `alt=""`
+- Theme Toggle: `aria-label="Toggle theme"` — required accessibility contract on the button element
 
 ---
 
