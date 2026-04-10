@@ -7,6 +7,7 @@ services:
       - POSTGRES_DB=neartax
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - /mnt/HC_Volume_105374692/pgdata:/var/lib/postgresql/volume
     ports:
       - "127.0.0.1:5433:5432"
     shm_size: 256mb
