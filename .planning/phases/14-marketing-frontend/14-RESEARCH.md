@@ -539,22 +539,25 @@ export function FeatureGrid({ features }: { features: { title: string; desc: str
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Is Plausible already deployed on the DO Toronto droplet?**
+1. **Is Plausible already deployed on the DO Toronto droplet?** (RESOLVED)
    - What we know: D-16 specifies self-hosted Plausible on DO Toronto droplet.
    - What's unclear: No docker-compose service for Plausible found in production config. May need a separate deployment step.
    - Recommendation: Plan a Wave 0 task to verify/deploy Plausible before the analytics integration task. Analytics can be wired up with a placeholder domain and activated when Plausible is live.
+   - **Resolution:** Plan 05 wires up next-plausible with `customDomain="https://analytics.axiom.tax"` and `selfHosted` prop. If Plausible is not yet deployed, analytics calls silently fail with no user impact. Plausible deployment is out of scope for this phase (infrastructure concern).
 
-2. **Does waitlist storage go in the existing `users` table or a new `waitlist_signups` table?**
+2. **Does waitlist storage go in the existing `users` table or a new `waitlist_signups` table?** (RESOLVED)
    - What we know: `users` table has an `email` column. The product isn't fully public — waitlist emails are pre-signup.
    - What's unclear: Whether waitlist emails become user accounts automatically or remain a separate list.
    - Recommendation: Use a separate `waitlist_signups` table (email, created_at, source). Keeps separation of concerns; no user account is created until the user actually signs up.
+   - **Resolution:** Plan 02 creates a separate `waitlist_signups` table via Alembic migration 012. Waitlist emails are independent of user accounts — no auto-conversion. This follows the recommendation.
 
-3. **Does the dark mode migration break existing dashboard styling?**
+3. **Does the dark mode migration break existing dashboard styling?** (RESOLVED)
    - What we know: `globals.css` has ~60+ lines of `@media (prefers-color-scheme: dark)` overrides using `!important` for Tailwind class overrides. These will stop working after switching to `darkMode: 'class'`.
    - What's unclear: How many dashboard components rely on these media query overrides vs Tailwind `dark:` utilities.
    - Recommendation: Convert all `@media (prefers-color-scheme: dark)` blocks in `globals.css` to `.dark` class selectors in the same migration. This is a single-file change but must be tested in the dashboard.
+   - **Resolution:** Plan 01 Task 1 converts all `@media (prefers-color-scheme: dark)` blocks to `.dark` class selectors. Plan 05 checkpoint includes dashboard visual verification to confirm no regressions.
 
 ---
 
