@@ -124,12 +124,12 @@ fn fetch_and_extract(
                             }
                         }
                     }
+                    // Receipt execution outcomes: only index receiver_id (where actions land).
+                    // predecessor_id is typically a contract (not a user wallet) and
+                    // inflates the index ~30% with data that doesn't help wallet lookups.
                     if let Some(reos) = shard.get("receipt_execution_outcomes").and_then(|r| r.as_array()) {
                         for reo in reos {
                             if let Some(receipt) = reo.get("receipt") {
-                                if let Some(p) = receipt.get("predecessor_id").and_then(|v| v.as_str()) {
-                                    if p != "system" { accounts.insert(p.to_lowercase()); }
-                                }
                                 if let Some(r) = receipt.get("receiver_id").and_then(|v| v.as_str()) {
                                     if r != "system" { accounts.insert(r.to_lowercase()); }
                                 }

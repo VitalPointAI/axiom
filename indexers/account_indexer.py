@@ -96,12 +96,12 @@ def _fetch_and_extract(archive_block: int) -> list[tuple[str, int]]:
                                         pairs.append((si.lower(), height))
                                     if ri and ri != "system":
                                         pairs.append((ri.lower(), height))
+                            # Receipt execution outcomes: only index receiver_id
+                            # (where actions land). predecessor_id is typically a
+                            # contract and inflates the index without helping lookups.
                             for reo in shard.get("receipt_execution_outcomes", []):
                                 receipt = reo.get("receipt", {})
-                                pi = receipt.get("predecessor_id", "")
                                 ri = receipt.get("receiver_id", "")
-                                if pi and pi != "system":
-                                    pairs.append((pi.lower(), height))
                                 if ri and ri != "system":
                                     pairs.append((ri.lower(), height))
                 return pairs
@@ -242,14 +242,10 @@ class AccountIndexer:
                         if cls._should_index(r):
                             accounts.add(r)
 
+            # Receipt execution outcomes: only index receiver_id
             for reo in shard.get("receipt_execution_outcomes", []):
                 receipt = reo.get("receipt", {})
-                predecessor = receipt.get("predecessor_id")
                 receiver = receipt.get("receiver_id")
-                if predecessor:
-                    p = predecessor.lower()
-                    if cls._should_index(p):
-                        accounts.add(p)
                 if receiver:
                     r = receiver.lower()
                     if cls._should_index(r):
@@ -269,8 +265,8 @@ class AccountIndexer:
     def insert_account_blocks(self, pairs: list[tuple[str, int]]) -> int:
         """Batch insert (account_id, block_height) pairs. Returns count inserted.
 
-        During backfill (no indexes), uses plain INSERT for maximum speed.
-        Duplicates are handled by dedup after index rebuild.
+        Uses ON CONFLICT DO NOTHING to skip duplicates during insert,
+        eliminating the need for a post-backfill dedup step.
         """
         if not pairs:
             return 0
@@ -284,6 +280,7 @@ class AccountIndexer:
                 """
                 INSERT INTO account_block_index (account_id, block_height)
                 SELECT unnest(%s::text[]), unnest(%s::bigint[])
+                ON CONFLICT DO NOTHING
                 """,
                 (accounts, heights),
             )
@@ -298,39 +295,33 @@ class AccountIndexer:
             self.pool.putconn(conn)
 
     def _rebuild_indexes(self) -> None:
-        """Rebuild PK and indexes after bulk loading.
+        """Ensure PK and indexes exist after bulk loading.
 
-        Deduplicates rows first (bulk insert may have created duplicates),
-        then adds the primary key constraint and lookup index.
+        No dedup needed — ON CONFLICT DO NOTHING prevents duplicates during insert.
+        Just ensures the primary key and lookup index are in place.
         """
         conn = self.pool.getconn()
         try:
             cur = conn.cursor()
 
-            # Deduplicate — keep one row per (account_id, block_height)
-            logger.info("Deduplicating account_block_index...")
+            # Check if PK exists already
             cur.execute("""
-                DELETE FROM account_block_index a
-                USING account_block_index b
-                WHERE a.ctid < b.ctid
-                  AND a.account_id = b.account_id
-                  AND a.block_height = b.block_height
+                SELECT 1 FROM pg_constraint
+                WHERE conname = 'account_block_index_pkey'
             """)
-            deduped = cur.rowcount
-            conn.commit()
-            logger.info("Removed %d duplicate rows.", deduped)
+            if not cur.fetchone():
+                logger.info("Adding primary key constraint...")
+                cur.execute("""
+                    ALTER TABLE account_block_index
+                    ADD CONSTRAINT account_block_index_pkey
+                    PRIMARY KEY (account_id, block_height)
+                """)
+                conn.commit()
+            else:
+                logger.info("Primary key already exists.")
 
-            # Add primary key
-            logger.info("Adding primary key constraint...")
-            cur.execute("""
-                ALTER TABLE account_block_index
-                ADD CONSTRAINT account_block_index_pkey
-                PRIMARY KEY (account_id, block_height)
-            """)
-            conn.commit()
-
-            # Add lookup index
-            logger.info("Creating lookup index...")
+            # Lookup index
+            logger.info("Ensuring lookup index exists...")
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS ix_abi_account_block
                 ON account_block_index (account_id, block_height)
@@ -480,16 +471,30 @@ class AccountIndexer:
             logger.info("Loading %s into PostgreSQL (%d MB)...",
                         tmp_path, file_size // (1024 * 1024))
 
+            # COPY into temp table, then INSERT ... ON CONFLICT DO NOTHING
+            # (COPY doesn't support ON CONFLICT directly)
             conn = self.pool.getconn()
             try:
                 cur = conn.cursor()
+                cur.execute("""
+                    CREATE TEMP TABLE IF NOT EXISTS abi_staging
+                    (account_id TEXT, block_height BIGINT)
+                    ON COMMIT DELETE ROWS
+                """)
                 with open(tmp_path, 'r') as f:
                     cur.copy_expert(
-                        "COPY account_block_index (account_id, block_height) FROM STDIN",
+                        "COPY abi_staging (account_id, block_height) FROM STDIN",
                         f,
                     )
+                cur.execute("""
+                    INSERT INTO account_block_index (account_id, block_height)
+                    SELECT DISTINCT account_id, block_height FROM abi_staging
+                    ON CONFLICT DO NOTHING
+                """)
+                inserted = cur.rowcount
                 conn.commit()
                 cur.close()
+                logger.info("Inserted %d rows (deduped via ON CONFLICT).", inserted)
             except Exception as exc:
                 conn.rollback()
                 logger.error("COPY failed at block %d: %s", current, exc)

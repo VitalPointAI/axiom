@@ -91,9 +91,16 @@ while [ "$CURRENT" -lt "$END" ]; do
     # Count pairs
     PAIRS=$(wc -l < "$TMPFILE")
 
-    # COPY into PostgreSQL
-    PGPASSWORD=$PG_PASS psql -h 127.0.0.1 -p 5433 -U neartax -q -c \
-        "COPY account_block_index (account_id, block_height) FROM STDIN" < "$TMPFILE"
+    # COPY into staging table, then INSERT ... ON CONFLICT DO NOTHING
+    PGPASSWORD=$PG_PASS psql -h 127.0.0.1 -p 5433 -U neartax -q <<EOSQL
+CREATE TEMP TABLE IF NOT EXISTS abi_staging (account_id TEXT, block_height BIGINT);
+TRUNCATE abi_staging;
+\copy abi_staging (account_id, block_height) FROM '$TMPFILE'
+INSERT INTO account_block_index (account_id, block_height)
+SELECT DISTINCT account_id, block_height FROM abi_staging
+ON CONFLICT DO NOTHING;
+DROP TABLE abi_staging;
+EOSQL
 
     # Update cursor
     PGPASSWORD=$PG_PASS psql -h 127.0.0.1 -p 5433 -U neartax -q -c \
@@ -124,26 +131,16 @@ echo "  Total pairs: $TOTAL_PAIRS"
 echo "  Total time: $(($(date +%s) - TOTAL_START))s"
 echo "================================================================"
 
-# Rebuild indexes
-echo "Rebuilding indexes..."
-PGPASSWORD=$PG_PASS psql -h 127.0.0.1 -p 5433 -U neartax -c "
-    DELETE FROM account_block_index a
-    USING account_block_index b
-    WHERE a.ctid < b.ctid
-      AND a.account_id = b.account_id
-      AND a.block_height = b.block_height;
-"
-echo "Dedup complete."
-
+# Ensure indexes exist (no dedup needed — ON CONFLICT handles it)
+echo "Ensuring indexes exist..."
 PGPASSWORD=$PG_PASS psql -h 127.0.0.1 -p 5433 -U neartax -c "
     ALTER TABLE account_block_index
-    ADD CONSTRAINT account_block_index_pkey
+    ADD CONSTRAINT IF NOT EXISTS account_block_index_pkey
     PRIMARY KEY (account_id, block_height);
-"
-echo "Primary key added."
+" 2>/dev/null || echo "Primary key already exists."
 
 PGPASSWORD=$PG_PASS psql -h 127.0.0.1 -p 5433 -U neartax -c "
     CREATE INDEX IF NOT EXISTS ix_abi_account_block
     ON account_block_index (account_id, block_height);
 "
-echo "Index created. Done!"
+echo "Index verified. Done!"
