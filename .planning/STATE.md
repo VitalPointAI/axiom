@@ -2,13 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-last_updated: "2026-03-16T15:51:24Z"
+status: Ready to execute
+last_updated: "2026-04-10T20:55:00.133Z"
 progress:
-  total_phases: 12
+  total_phases: 13
   completed_phases: 12
-  total_plans: 59
+  total_plans: 64
   completed_plans: 59
+  percent: 92
 ---
 
 # Project State
@@ -23,6 +24,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 ## Current Phase
 
 **Phase 13: Reliable Indexing** COMPLETE ✅
+
 - Plan 13-01: Cost tracking tables + CostTracker middleware + chain registry ✅ DONE (2026-03-17)
 - Plan 13-02: NearStreamFetcher with neardata.xyz block streaming ✅ DONE (2026-03-17)
 - Plan 13-03: EVMStreamFetcher with Alchemy WebSocket block detection ✅ DONE (2026-03-21)
@@ -30,11 +32,13 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Plan 13-05: SSE streaming + admin API + fetcher hardening ✅ DONE (2026-03-21)
 
 **Phase 12: User Onboarding** COMPLETE ✅
+
 - Plan 12-01: Migration 010 + preferences API + wallet suggestions + tests ✅ DONE (2026-03-16)
 - Plan 12-02: Onboarding wizard frontend ✅ DONE (2026-03-16)
 - Plan 12-03: Inline guidance + banner system ✅ DONE (2026-03-16)
 
 **Phase 11: Robustness & Missing Features** IN PROGRESS
+
 - Plan 11-01: Unified audit_log migration 008 + AuditLog model + write_audit() helper ✅ DONE (2026-03-14)
 - Plan 11-02: Manifest generation + stale detection (pending)
 - Plan 11-03: Multi-hop swap decomposition in classifier (pending)
@@ -42,6 +46,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Plan 11-05: Offline mode + fragile area hardening (pending)
 
 **Phase 6: Reporting** COMPLETE ✅
+
 - Plan 06-01: ReportEngine base class + CapitalGainsReport + IncomeReport ✅ DONE (2026-03-13)
 - Plan 06-02: LedgerReport + T1135Checker + SuperficialLossReport (Wave 2) ✅ DONE (2026-03-13)
 - Plan 06-03: KoinlyExport + accounting software exports ✅ DONE (2026-03-13)
@@ -49,6 +54,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Plan 06-05: PDF templates + PackageBuilder + ReportHandler job wiring ✅ DONE (2026-03-13)
 
 **Phase 5: Verification** COMPLETE ✅
+
 - Plan 05-01: Migration 005 + SQLAlchemy models + VerifyHandler skeleton + service/ACB wiring + config tolerances ✅ DONE (2026-03-13)
 - Plan 05-02: BalanceReconciler: NEAR decomposed + EVM + dual cross-check + auto-diagnosis ✅ DONE (2026-03-13)
 - Plan 05-03: DuplicateDetector: hash dedup + bridge heuristic + exchange re-scan + balance-aware merge ✅ DONE (2026-03-13)
@@ -56,6 +62,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Full pipeline: classify -> ACB -> verify_balances (reconcile -> duplicates -> gaps -> report)
 
 **Phase 2: Multi-Chain + Exchanges** COMPLETE ✅
+
 - Plan 02-01: Alembic migration 002 + ChainFetcher/ExchangeParser/ExchangeConnector ABCs ✅ DONE (2026-03-12)
 - Plan 02-02: EVMFetcher (Etherscan V2 pagination + PostgreSQL upsert, 4 chains) ✅ DONE (2026-03-12)
 - Plan 02-03: Exchange CSV parsers migrated to PostgreSQL (all 5 parsers + 21 unit tests) ✅ DONE (2026-03-12)
@@ -68,6 +75,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - All 5 exchange parsers (Coinbase, Crypto.com, Wealthsimple, Uphold, Coinsquare) COMPLETE ✅
 
 **Phase 1: NEAR Indexer** COMPLETE
+
 - Plan 01-01: PostgreSQL schema + Alembic + config cleanup ✅ DONE (2026-03-12)
 - Plan 01-02: Standalone indexer service + NEAR transaction fetcher ✅ DONE (2026-03-12)
 - Plan 01-03: Multi-source price service + epoch staking rewards + lockup parser ✅ DONE (2026-03-12)
@@ -76,10 +84,12 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Plan 01-06: Gap closure: wallet API handler schema fix ✅ DONE (2026-03-12)
 
 **Phase 8: CI/CD Deployment** COMPLETE
+
 - Plan 08-01: Production Docker Compose + deployment scripts ✅ DONE (2026-03-12)
 - Plan 08-02: GitHub Actions deploy workflow + .gitignore hardening ✅ DONE (2026-03-12)
 
 **Phase 7: Web UI** COMPLETE ✅
+
 - Plan 07-01: FastAPI foundation (migration 006 + app + auth deps + test infra) ✅ DONE (2026-03-13)
 - Plan 07-02: WebAuthn passkey + OAuth + magic link auth system ✅ DONE (2026-03-13)
 - Plan 07-03: Wallet CRUD + portfolio summary + job status endpoints ✅ DONE (2026-03-13)
@@ -89,6 +99,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Plan 07-07: Docker deployment + Next.js API route removal (4-service Docker stack, api/Dockerfile, 75 routes deleted) ✅ DONE (2026-03-13)
 
 **Needs from Aaron:**
+
 1. Exchange CSV files (Crypto.com, Wealthsimple, Uphold, Coinsquare, Coinbase)
 2. Etherscan API key for EVM chains
 3. CoinGecko API key for historical prices
@@ -113,6 +124,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 ## Accumulated Context
 
 ### Roadmap Evolution
+
 - Phase 8 added: GitHub Actions CI/CD deployment - deploy dockerized components on push to existing server
 - Phase 9 added: Code Quality & Hardening — refactor monolithic modules, complete SQLite→PostgreSQL migration, fix N+1 queries, add test coverage, API rate limiting, CI/CD quality gates
 - Phase 10 added: Remaining Concerns Remediation — refactor large modules, performance improvements, robustness hardening, test gap coverage, dependency hygiene (14 requirements from CONCERNS.md)
