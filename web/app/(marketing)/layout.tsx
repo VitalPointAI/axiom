@@ -4,7 +4,7 @@ import MarketingFooter from '@/components/marketing/marketing-footer'
 
 export default function MarketingLayout({ children }: { children: React.ReactNode }) {
   return (
-    <PlausibleProvider domain="axiom.tax" customDomain="https://analytics.axiom.tax" selfHosted>
+    <PlausibleProvider src="https://analytics.axiom.tax/js/pa-axiom.js" init={{ endpoint: 'https://analytics.axiom.tax/api/event' }}>
       <MarketingNav />
       <main className="min-h-screen">{children}</main>
       <MarketingFooter />
