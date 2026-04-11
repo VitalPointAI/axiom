@@ -11,11 +11,11 @@ import FeatureGrid from './feature-grid'
 export const metadata: Metadata = {
   title: 'Axiom - Canadian Crypto Tax Platform',
   description:
-    'CRA-compliant crypto tax reporting. ACB method, superficial loss, CARF 2026. Blockchain-native. Canadian-hosted.',
+    'Privacy-preserving, blockchain-native Canadian crypto tax reporting. Post-quantum encryption. Your data never leaves Canada.',
   openGraph: {
     title: 'Axiom - Canadian Crypto Tax Platform',
     description:
-      'Canadian-sovereign, blockchain-native crypto tax reporting.',
+      'Privacy-preserving, blockchain-native Canadian crypto tax reporting.',
     type: 'website',
     locale: 'en_CA',
   },
@@ -64,9 +64,10 @@ export default function LandingPage() {
             Your data never leaves Canada.
           </h2>
           <p className="text-base text-muted-foreground mb-6">
-            Toronto-hosted infrastructure with no third-party analytics. No US
-            or UK cloud providers. We&apos;re building planned client-side
-            encryption so your tax data is private by design.
+            Toronto-hosted infrastructure with post-quantum encryption,
+            client-side zero-knowledge computation, and passkey-derived
+            encryption keys. No third-party analytics. No US or UK cloud
+            providers. Private by design.
           </p>
           <a
             href="/privacy"

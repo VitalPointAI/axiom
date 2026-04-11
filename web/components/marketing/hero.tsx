@@ -12,12 +12,12 @@ export default function Hero() {
     <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 lg:px-8 text-center">
       <h1 className="text-4xl md:text-6xl font-bold leading-[1.1] mb-6">
         <span className="gradient-text">
-          Canadian-sovereign, blockchain-native crypto tax reporting.
+          Privacy-preserving, blockchain-native Canadian crypto tax reporting.
         </span>
       </h1>
 
       <p className="text-base text-muted-foreground max-w-2xl mx-auto mb-8">
-        CRA-compliant ACB calculations. Direct blockchain indexing. Your data stays in Canada.
+        CRA-compliant ACB calculations. Direct blockchain indexing. Post-quantum encryption. Your data never leaves Canada.
       </p>
 
       <div className="max-w-md mx-auto mb-6">

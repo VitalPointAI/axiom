@@ -233,3 +233,47 @@ body {
 .glow-bg {
   background: radial-gradient(ellipse at 50% 0%, rgba(99, 102, 241, 0.15) 0%, transparent 70%);
 }
+
+/* Subtle animated background for marketing pages */
+.marketing-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.marketing-bg::before {
+  content: '';
+  position: absolute;
+  width: 150%;
+  height: 150%;
+  top: -25%;
+  left: -25%;
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(99, 102, 241, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(139, 92, 246, 0.05) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 80%, rgba(6, 182, 212, 0.04) 0%, transparent 50%);
+  animation: drift 30s ease-in-out infinite alternate;
+}
+
+@keyframes drift {
+  0% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  33% {
+    transform: translate(2%, -1%) rotate(0.5deg);
+  }
+  66% {
+    transform: translate(-1%, 2%) rotate(-0.3deg);
+  }
+  100% {
+    transform: translate(1%, -2%) rotate(0.2deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marketing-bg::before {
+    animation: none;
+  }
+}

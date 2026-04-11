@@ -1,7 +1,7 @@
 'use client'
 
 import { motion, useReducedMotion } from 'framer-motion'
-import { Shield, Zap, Bot, Lock, BarChart3, Globe } from 'lucide-react'
+import { Shield, Zap, Bot, Lock, BarChart3, Globe, KeyRound } from 'lucide-react'
 import FeatureCard from '@/components/marketing/feature-card'
 
 const features = [
@@ -25,9 +25,15 @@ const features = [
   },
   {
     icon: Lock,
-    title: 'Your Data Stays in Canada',
+    title: 'Post-Quantum Encrypted',
     description:
-      'Toronto-hosted infrastructure. No third-party analytics. No US or UK cloud providers touching your tax data.',
+      'AES-256 encryption with quantum-resistant key exchange. Your tax data is encrypted at rest and in transit with cryptography built to withstand future threats.',
+  },
+  {
+    icon: KeyRound,
+    title: 'Zero-Knowledge Architecture',
+    description:
+      'Client-side computation keeps your raw data in your browser. Passkey-derived encryption keys mean even Axiom cannot access your information without your physical key.',
   },
   {
     icon: BarChart3,

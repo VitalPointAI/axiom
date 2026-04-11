@@ -40,24 +40,24 @@ const sovereigntyFeatures = [
   },
 ]
 
-const roadmapItems = [
+const encryptionFeatures = [
   {
     icon: Lock,
     title: 'Post-Quantum Encryption',
     description:
-      'AES-256 encryption today with planned quantum-resistant key exchange. Future-proof your data against advances in computing.',
+      'AES-256 encryption with quantum-resistant key exchange protects your data against both current and future threats to cryptographic security.',
   },
   {
     icon: Cpu,
-    title: 'Client-Side Zero-Knowledge Tax Calculations',
+    title: 'Client-Side Zero-Knowledge Computation',
     description:
-      'Your raw transaction data will be processed entirely in your browser. The server only sees encrypted, aggregated results. Your financial details never reach our servers.',
+      'Your raw transaction data is processed entirely in your browser. The server only sees encrypted, aggregated results. Your financial details never reach our servers.',
   },
   {
     icon: KeyRound,
     title: 'Passkey-Derived Encryption Keys',
     description:
-      'Your hardware security key (YubiKey, Touch ID, Windows Hello) will derive the encryption key for your data. Even Axiom cannot access your information without your physical key.',
+      'Your hardware security key (YubiKey, Touch ID, Windows Hello) derives the encryption key for your data. Even Axiom cannot access your information without your physical key.',
   },
 ]
 
@@ -109,18 +109,18 @@ export default function PrivacyPage() {
         </div>
       </SectionWrapper>
 
-      {/* Future Roadmap Teaser */}
-      <SectionWrapper aria-label="Security roadmap">
+      {/* Encryption & Privacy Architecture */}
+      <SectionWrapper aria-label="Encryption architecture">
         <h2 className="text-2xl md:text-3xl font-bold mb-4">
-          What&apos;s coming next
+          Privacy by design, not by promise
         </h2>
         <p className="text-base text-muted-foreground mb-8 max-w-2xl">
-          We&apos;re building toward a future where even Axiom cannot access
-          your data. Post-quantum encryption, zero-knowledge computation, and
-          hardware-key-derived encryption are on our roadmap.
+          Axiom is architected so that even we cannot access your data.
+          Post-quantum encryption, zero-knowledge computation, and
+          hardware-key-derived encryption are built in from day one.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {roadmapItems.map((item) => (
+          {encryptionFeatures.map((item) => (
             <div
               key={item.title}
               className="border border-emerald-500/20 rounded-lg p-6 bg-emerald-500/5"
@@ -135,9 +135,6 @@ export default function PrivacyPage() {
             </div>
           ))}
         </div>
-        <p className="text-sm text-muted-foreground mt-6">
-          These are planned features on our roadmap.
-        </p>
       </SectionWrapper>
 
       {/* Bottom CTA */}

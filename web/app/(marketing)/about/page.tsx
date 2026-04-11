@@ -2,9 +2,6 @@ import type { Metadata } from 'next'
 import SectionWrapper from '@/components/marketing/section-wrapper'
 import WaitlistForm from '@/components/marketing/waitlist-form'
 import {
-  Lock,
-  Cpu,
-  KeyRound,
   Globe,
   Repeat,
   Layers,
@@ -26,24 +23,6 @@ export const metadata: Metadata = {
 }
 
 const roadmapItems = [
-  {
-    icon: Lock,
-    title: 'Post-Quantum Encryption',
-    description:
-      'AES-256 encryption with planned quantum-resistant key exchange to future-proof your data.',
-  },
-  {
-    icon: Cpu,
-    title: 'Zero-Knowledge Tax Calculations',
-    description:
-      'Client-side computation so your raw transaction data never reaches our servers.',
-  },
-  {
-    icon: KeyRound,
-    title: 'Passkey-Derived Encryption',
-    description:
-      'Your hardware security key derives the encryption key for your data. Even we cannot access it.',
-  },
   {
     icon: Globe,
     title: 'Multi-Chain Expansion',
