@@ -48,29 +48,27 @@
   --ring: 221.2 83.2% 53.3%;
 }
 
-/* Dark mode using media query */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 217 33% 17%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 25%;
-    --input: 217.2 32.6% 25%;
-    --ring: 224.3 76.3% 48%;
-  }
+/* Dark mode using class-based toggle (next-themes) */
+.dark {
+  --background: 222.2 84% 4.9%;
+  --foreground: 210 40% 98%;
+  --card: 217 33% 17%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222.2 84% 4.9%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 217.2 91.2% 59.8%;
+  --primary-foreground: 222.2 47.4% 11.2%;
+  --secondary: 217.2 32.6% 17.5%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217.2 32.6% 17.5%;
+  --muted-foreground: 215 20.2% 65.1%;
+  --accent: 217.2 32.6% 17.5%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 217.2 32.6% 25%;
+  --input: 217.2 32.6% 25%;
+  --ring: 224.3 76.3% 48%;
 }
 
 /* Base styles */
@@ -80,7 +78,7 @@ body {
 }
 
 /* Dark mode overrides for Tailwind classes */
-@media (prefers-color-scheme: dark) {
+.dark {
   /* Background colors */
   .bg-white { background-color: #1e293b !important; }
   .bg-slate-50 { background-color: #0f172a !important; }
@@ -196,7 +194,7 @@ body {
 .bg-input { background-color: hsl(var(--input)) !important; }
 
 /* Additional dark mode text colors */
-@media (prefers-color-scheme: dark) {
+.dark {
   .text-gray-400 { color: #9ca3af !important; }
   .text-gray-300 { color: #d1d5db !important; }
   .text-gray-200 { color: #e5e7eb !important; }
@@ -222,4 +220,16 @@ body {
   .recharts-text { fill: #e2e8f0 !important; }
   .recharts-cartesian-axis-tick-value { fill: #94a3b8 !important; }
   .recharts-legend-item-text { color: #e2e8f0 !important; }
+}
+
+/* Marketing gradient utilities */
+.gradient-text {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #06b6d4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.glow-bg {
+  background: radial-gradient(ellipse at 50% 0%, rgba(99, 102, 241, 0.15) 0%, transparent 70%);
 }

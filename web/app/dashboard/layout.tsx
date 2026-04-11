@@ -1,6 +1,6 @@
 'use client';
 
-import { useAuth } from '@/components/auth-provider';
+import { AuthProvider, useAuth } from '@/components/auth-provider';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Sidebar } from '@/components/sidebar';
@@ -19,7 +19,7 @@ interface WalletsResponse {
   wallets: Array<{ id: number; account_id: string; chain: string }>;
 }
 
-export default function DashboardLayout({
+function DashboardLayoutInner({
   children,
 }: {
   children: React.ReactNode;
@@ -126,9 +126,21 @@ export default function DashboardLayout({
           {children}
         </main>
       </div>
-      
+
       {/* Tally AI Assistant */}
       <Tally />
     </div>
+  );
+}
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <AuthProvider>
+      <DashboardLayoutInner>{children}</DashboardLayoutInner>
+    </AuthProvider>
   );
 }
