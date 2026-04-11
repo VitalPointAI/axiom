@@ -407,6 +407,49 @@ Plans:
 - `tests/test_admin_api.py` — Admin API tests
 - `tests/test_streaming_api.py` — SSE streaming API tests
 
+### Phase 15: Account Block Index Integer Encoding
+
+**Goal:** Reduce NEAR account_block_index disk footprint from ~1.3 TB to under 250 GB via dictionary-encoded integer IDs + segment-based indexing (1K-block granules), while maintaining sub-2-minute wallet lookup performance.
+**Requirements:** INT-01 through INT-08
+**Depends on:** Phase 13
+**Plans:** 3 plans in 3 waves
+
+Plans:
+- [ ] 15-01-PLAN.md — Alembic migration 020: account_dictionary + account_block_index_v2 schema (Wave 1) [INT-01]
+- [ ] 15-02-PLAN.md — Rust indexer dictionary cache + segment output + Python COPY pipeline v2 (Wave 2) [INT-02, INT-03, INT-04]
+- [ ] 15-03-PLAN.md — Python lookup via dictionary+segments + admin status + data migration script (Wave 3) [INT-05, INT-06, INT-07, INT-08]
+
+**Requirements:**
+- INT-01: Migration 020 creates account_dictionary and account_block_index_v2 tables
+- INT-02: Rust indexer resolves account strings to integer IDs via PostgreSQL dictionary
+- INT-03: Rust indexer emits (account_int, segment_start) integer pairs to stdout
+- INT-04: Python COPY pipeline uses v2 staging table with INTEGER columns
+- INT-05: near_fetcher.py queries v2 table via dictionary join + segment expansion
+- INT-06: admin.py reports v2 table stats (entry count, dictionary size)
+- INT-07: Data migration script converts existing old-format rows to v2 in batches
+- INT-08: Wallet lookup completes under 2 minutes end-to-end
+
+**Success Criteria:**
+1. [ ] account_dictionary table maps ~15M account strings to compact integer IDs
+2. [ ] account_block_index_v2 uses INTEGER account_int + INTEGER segment_start (8 bytes/row data)
+3. [ ] Rust indexer pre-warms dictionary HashMap and resolves strings to ints in writer thread
+4. [ ] Bulk indexing throughput >= 2,700 blocks/sec (same as current)
+5. [ ] Wallet lookup via dictionary join + segment scan completes in < 2 minutes
+6. [ ] Data migration script converts existing data in 1M-block batches without locking
+7. [ ] Old table retained for manual verification before drop
+8. [ ] Full index fits under 250 GB on 500 GB disk
+
+**Deliverables:**
+- db/migrations/versions/020_integer_encoded_index.py — Migration 020
+- indexers/account-indexer-rs/src/main.rs — Rust indexer with dictionary cache + segment output
+- indexers/account-indexer-rs/Cargo.toml — Added postgres dependency
+- indexers/account_indexer.py — Updated COPY pipeline for v2
+- indexers/near_fetcher.py — Updated lookup via dictionary + segments
+- scripts/run_account_indexer.sh — Updated shell pipeline for v2
+- scripts/migrate_to_v2.py — Data migration script (old -> v2)
+- api/routers/admin.py — Updated status endpoint for v2
+- scripts/check_account_indexer.sh — Updated health check for v2
+
 ---
 
 ## Dependencies
