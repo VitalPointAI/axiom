@@ -193,21 +193,15 @@ class AccountIndexer:
             self.pool.putconn(conn)
 
     def reset(self) -> None:
-        """Reset the index — truncate v2 tables and restart from genesis.
-
-        Truncates both account_block_index_v2 and account_dictionary since
-        they form a single logical dataset. The old account_block_index table
-        is left untouched (coexists during transition).
-        """
+        """Reset the index — truncate and restart from genesis."""
         conn = self.pool.getconn()
         try:
             cur = conn.cursor()
-            cur.execute("TRUNCATE account_block_index_v2")
-            cur.execute("TRUNCATE account_dictionary")
+            cur.execute("TRUNCATE account_block_index")
             cur.execute("UPDATE account_indexer_state SET last_processed_block = 0, updated_at = NOW() WHERE id = 1")
             conn.commit()
             cur.close()
-            logger.info("Account index reset (v2 + dictionary truncated). Will rebuild from genesis.")
+            logger.info("Account index reset. Will rebuild from genesis.")
         except Exception:
             conn.rollback()
             raise
@@ -269,13 +263,10 @@ class AccountIndexer:
     # ------------------------------------------------------------------
 
     def insert_account_blocks(self, pairs: list[tuple[str, int]]) -> int:
-        """Batch insert (account_id, block_height) pairs into account_block_index_v2.
+        """Batch insert (account_id, block_height) pairs. Returns count inserted.
 
-        Resolves account_id strings to integer IDs via account_dictionary,
-        converts block_height to segment_start (floor to nearest 1000), then
-        inserts (account_int, segment_start) into account_block_index_v2.
-
-        Uses ON CONFLICT DO NOTHING to skip duplicates.
+        Uses ON CONFLICT DO NOTHING to skip duplicates during insert,
+        eliminating the need for a post-backfill dedup step.
         """
         if not pairs:
             return 0
@@ -283,48 +274,15 @@ class AccountIndexer:
         conn = self.pool.getconn()
         try:
             cur = conn.cursor()
-
-            # Collect unique account strings
-            unique_accounts = list({p[0] for p in pairs})
-
-            # Ensure all accounts exist in dictionary (batch upsert, ignore existing)
+            accounts = [p[0] for p in pairs]
+            heights = [p[1] for p in pairs]
             cur.execute(
                 """
-                INSERT INTO account_dictionary (account_id)
-                SELECT unnest(%s::text[])
-                ON CONFLICT (account_id) DO NOTHING
-                """,
-                (unique_accounts,),
-            )
-
-            # Fetch integer IDs for all accounts in this batch
-            cur.execute(
-                "SELECT id, account_id FROM account_dictionary WHERE account_id = ANY(%s::text[])",
-                (unique_accounts,),
-            )
-            id_map = {row[1]: row[0] for row in cur.fetchall()}
-
-            # Build (account_int, segment_start) integer pairs
-            account_ints = []
-            segment_starts = []
-            for account_id, block_height in pairs:
-                if account_id in id_map:
-                    account_ints.append(id_map[account_id])
-                    segment_starts.append((block_height // 1000) * 1000)
-
-            if not account_ints:
-                conn.commit()
-                cur.close()
-                return 0
-
-            # Insert into v2 table using integer columns
-            cur.execute(
-                """
-                INSERT INTO account_block_index_v2 (account_int, segment_start)
-                SELECT unnest(%s::integer[]), unnest(%s::integer[])
+                INSERT INTO account_block_index (account_id, block_height)
+                SELECT unnest(%s::text[]), unnest(%s::bigint[])
                 ON CONFLICT DO NOTHING
                 """,
-                (account_ints, segment_starts),
+                (accounts, heights),
             )
             inserted = cur.rowcount
             conn.commit()
@@ -337,36 +295,36 @@ class AccountIndexer:
             self.pool.putconn(conn)
 
     def _rebuild_indexes(self) -> None:
-        """Ensure PK and indexes exist on account_block_index_v2 after bulk loading.
+        """Ensure PK and indexes exist after bulk loading.
 
         No dedup needed — ON CONFLICT DO NOTHING prevents duplicates during insert.
-        Just ensures the primary key and lookup index are in place on the v2 table.
+        Just ensures the primary key and lookup index are in place.
         """
         conn = self.pool.getconn()
         try:
             cur = conn.cursor()
 
-            # Check if v2 PK exists already
+            # Check if PK exists already
             cur.execute("""
                 SELECT 1 FROM pg_constraint
-                WHERE conname = 'account_block_index_v2_pkey'
+                WHERE conname = 'account_block_index_pkey'
             """)
             if not cur.fetchone():
-                logger.info("Adding primary key constraint on account_block_index_v2...")
+                logger.info("Adding primary key constraint...")
                 cur.execute("""
-                    ALTER TABLE account_block_index_v2
-                    ADD CONSTRAINT account_block_index_v2_pkey
-                    PRIMARY KEY (account_int, segment_start)
+                    ALTER TABLE account_block_index
+                    ADD CONSTRAINT account_block_index_pkey
+                    PRIMARY KEY (account_id, block_height)
                 """)
                 conn.commit()
             else:
-                logger.info("Primary key already exists on account_block_index_v2.")
+                logger.info("Primary key already exists.")
 
-            # Lookup index on v2
-            logger.info("Ensuring lookup index exists on account_block_index_v2...")
+            # Lookup index
+            logger.info("Ensuring lookup index exists...")
             cur.execute("""
-                CREATE INDEX IF NOT EXISTS ix_abiv2_account_segment
-                ON account_block_index_v2 (account_int, segment_start)
+                CREATE INDEX IF NOT EXISTS ix_abi_account_block
+                ON account_block_index (account_id, block_height)
             """)
             conn.commit()
             cur.close()
@@ -459,7 +417,6 @@ class AccountIndexer:
         import threading
 
         api_key = os.environ.get("FASTNEAR_API_KEY", "")
-        database_url = os.environ.get("DATABASE_URL", "")
         chunk_size = 1_000_000  # 1M blocks per chunk
 
         current = start_block
@@ -478,8 +435,6 @@ class AccountIndexer:
             ]
             if api_key:
                 cmd.extend(["--api-key", api_key])
-            if database_url:
-                cmd.extend(["--database-url", database_url])
 
             # Write to temp file, then COPY from file (avoids pipe backpressure)
             import tempfile
@@ -516,30 +471,30 @@ class AccountIndexer:
             logger.info("Loading %s into PostgreSQL (%d MB)...",
                         tmp_path, file_size // (1024 * 1024))
 
-            # COPY into v2 staging table (integer columns), then INSERT ... ON CONFLICT DO NOTHING.
-            # (COPY doesn't support ON CONFLICT directly; staging table pattern handles duplicates.)
+            # COPY into temp table, then INSERT ... ON CONFLICT DO NOTHING
+            # (COPY doesn't support ON CONFLICT directly)
             conn = self.pool.getconn()
             try:
                 cur = conn.cursor()
                 cur.execute("""
-                    CREATE TEMP TABLE IF NOT EXISTS abi_staging_v2
-                    (account_int INTEGER, segment_start INTEGER)
+                    CREATE TEMP TABLE IF NOT EXISTS abi_staging
+                    (account_id TEXT, block_height BIGINT)
                     ON COMMIT DELETE ROWS
                 """)
                 with open(tmp_path, 'r') as f:
                     cur.copy_expert(
-                        "COPY abi_staging_v2 (account_int, segment_start) FROM STDIN",
+                        "COPY abi_staging (account_id, block_height) FROM STDIN",
                         f,
                     )
                 cur.execute("""
-                    INSERT INTO account_block_index_v2 (account_int, segment_start)
-                    SELECT DISTINCT account_int, segment_start FROM abi_staging_v2
+                    INSERT INTO account_block_index (account_id, block_height)
+                    SELECT DISTINCT account_id, block_height FROM abi_staging
                     ON CONFLICT DO NOTHING
                 """)
                 inserted = cur.rowcount
                 conn.commit()
                 cur.close()
-                logger.info("Inserted %d rows into account_block_index_v2 (deduped via ON CONFLICT).", inserted)
+                logger.info("Inserted %d rows (deduped via ON CONFLICT).", inserted)
             except Exception as exc:
                 conn.rollback()
                 logger.error("COPY failed at block %d: %s", current, exc)
@@ -678,14 +633,9 @@ class AccountIndexer:
         conn = self.pool.getconn()
         try:
             cur = conn.cursor()
-            # Use reltuples for fast approximate count on large v2 table
-            cur.execute(
-                "SELECT reltuples::bigint FROM pg_class WHERE relname = 'account_block_index_v2'"
-            )
-            row = cur.fetchone()
-            total_pairs = row[0] if row else 0
-            # Unique accounts comes from dictionary table (authoritative count)
-            cur.execute("SELECT COUNT(*) FROM account_dictionary")
+            cur.execute("SELECT COUNT(*) FROM account_block_index")
+            total_pairs = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(DISTINCT account_id) FROM account_block_index")
             unique_accounts = cur.fetchone()[0]
             cur.execute("SELECT updated_at FROM account_indexer_state WHERE id = 1")
             updated_at = cur.fetchone()[0]

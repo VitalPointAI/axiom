@@ -14,7 +14,7 @@ Data sources:
   - chain_sync_config table: enabled chains and budget limits
   - indexing_jobs table: last job status per chain
   - api_cost_log table: last API call timestamp per chain
-  - account_indexer_state / account_block_index tables (migration 018)
+  - account_indexer_state / account_block_index_v2 / account_dictionary tables (migration 020)
   - Docker socket (/var/run/docker.sock) for container status
 """
 
@@ -247,7 +247,7 @@ async def get_account_indexer_status(
 
     Used by the admin dashboard to monitor the sidecar indexer.
 
-    Returns 'not_initialized' status if migration 018 hasn't been applied yet.
+    Returns 'not_initialized' status if migration 020 hasn't been applied yet.
     """
 
     def _query(conn):
@@ -275,24 +275,27 @@ async def get_account_indexer_status(
 
             last_block, updated_at = state
 
-            # Use pg_stat estimate — exact COUNT(*) times out on 40M+ rows with no index
+            # Use pg_stat estimate — exact COUNT(*) times out on large tables
             cur.execute(
-                "SELECT reltuples::bigint FROM pg_class WHERE relname = 'account_block_index'"
+                "SELECT reltuples::bigint FROM pg_class WHERE relname = 'account_block_index_v2'"
             )
             row = cur.fetchone()
             total_entries = row[0] if row and row[0] > 0 else 0
 
+            # Dictionary table is small enough for exact COUNT(*)
             cur.execute(
-                "SELECT n_distinct FROM pg_stats WHERE tablename = 'account_block_index' AND attname = 'account_id'"
+                "SELECT COUNT(*) FROM account_dictionary"
             )
             row = cur.fetchone()
-            unique_accounts = int(abs(row[0])) if row and row[0] else 0
+            unique_accounts = int(row[0]) if row and row[0] else 0
+            dictionary_size = unique_accounts
 
             return {
                 "last_processed_block": last_block,
                 "updated_at": updated_at,
                 "total_entries": total_entries,
                 "unique_accounts": unique_accounts,
+                "dictionary_size": dictionary_size,
             }
         except Exception as exc:
             logger.debug("account-indexer-status query error: %s", exc)
@@ -401,6 +404,7 @@ async def get_account_indexer_status(
         "progress_pct": round(progress_pct, 1),
         "total_entries": result["total_entries"],
         "unique_accounts": result["unique_accounts"],
+        "dictionary_size": result["dictionary_size"],
         "updated_at": str(updated_at) if updated_at else None,
         "stale_seconds": int(stale_seconds) if stale_seconds is not None else None,
         "backfill_info": backfill_info,

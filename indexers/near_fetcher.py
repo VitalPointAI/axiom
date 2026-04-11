@@ -298,10 +298,10 @@ class NearFetcher:
 
         logger.info("Syncing %s (wallet_id=%s, job_id=%s)", account_id, wallet_id, job_id)
 
-        # Try the fast path: account_block_index
+        # Try the fast path: account_block_index_v2 via dictionary
         indexed_blocks = self._get_indexed_blocks(account_id)
         if indexed_blocks is not None:
-            logger.info("Using account_block_index: %d blocks for %s",
+            logger.info("Using account_block_index_v2: %d segments for %s",
                         len(indexed_blocks), account_id)
             self._sync_from_index(job_row, account_id, indexed_blocks)
         else:
@@ -318,116 +318,144 @@ class NearFetcher:
             logger.info("Verification passed for %s: %s", account_id, message)
 
     def _get_indexed_blocks(self, account_id: str) -> Optional[list]:
-        """Query account_block_index for blocks containing this account.
+        """Query account_block_index_v2 via dictionary for segment-based block ranges.
 
-        Returns a sorted list of block heights, or None if the index
-        table doesn't exist or is empty (not yet built).
+        Returns a sorted list of segment_start values (expanded from v2 table),
+        or None if the index table is empty / not yet built.
+        Each segment_start represents a 1000-block range [segment_start, segment_start + 999].
         """
         conn = self.db_pool.getconn()
         try:
             cur = conn.cursor()
-            # Check if the index has been built (has data and is reasonably current)
+            # Check if the index has been built
             try:
                 cur.execute("SELECT last_processed_block FROM account_indexer_state WHERE id = 1")
                 state = cur.fetchone()
                 if not state or state[0] < 1_000_000:
                     cur.close()
-                    return None  # Index not built yet
+                    return None
             except Exception:
                 cur.close()
                 conn.rollback()
-                return None  # Table doesn't exist yet
+                return None
 
+            # Resolve account string to integer via dictionary
             cur.execute(
-                "SELECT block_height FROM account_block_index WHERE account_id = %s ORDER BY block_height",
+                "SELECT id FROM account_dictionary WHERE account_id = %s",
                 (account_id.lower(),),
             )
-            rows = cur.fetchall()
-            cur.close()
-
-            if not rows:
-                # Index is built but account not found — could be a new account
-                # not yet indexed, or an account with zero on-chain activity.
-                # Check if the index is close to chain tip before trusting the
-                # empty result.
-                cur = conn.cursor()
+            dict_row = cur.fetchone()
+            if not dict_row:
+                # Account not in dictionary — check if index is near chain tip
+                # before concluding the account has no activity
                 cur.execute("SELECT last_processed_block FROM account_indexer_state WHERE id = 1")
                 last_block = cur.fetchone()[0]
                 cur.close()
 
                 try:
                     tip = self.client.get_final_block_height()
-                    if tip - last_block > 10000:
-                        return None  # Index too far behind — don't trust empty result
+                    if tip and last_block >= tip - 1000:
+                        return []  # Index is current, account genuinely has no activity
                 except Exception:
-                    return None
+                    pass
+                return None  # Index might not be current, fall back to full scan
 
-                # Index is current and account has no blocks — return empty list
+            account_int = dict_row[0]
+
+            # Query v2 table for segment_start values
+            cur.execute(
+                "SELECT segment_start FROM account_block_index_v2 WHERE account_int = %s ORDER BY segment_start",
+                (account_int,),
+            )
+            rows = cur.fetchall()
+            cur.close()
+
+            if not rows:
                 return []
 
-            return [r[0] for r in rows]
+            # Return segment_start values — _sync_from_index will scan each
+            # 1000-block range via neardata.xyz
+            segments = [r[0] for r in rows]
+            return segments
         finally:
             self.db_pool.putconn(conn)
 
     def _sync_from_index(self, job_row: dict, account_id: str, block_heights: list) -> None:
-        """Fetch only the specific blocks where this account has activity.
+        """Scan segment-based block ranges where this account has activity.
 
-        Instead of scanning millions of blocks, we fetch only the ones
-        that matter. A wallet with 5000 transactions might have activity
-        in ~2000 blocks — fetched in under a minute.
+        Receives a list of segment_start values from account_block_index_v2.
+        Each segment_start represents a 1000-block range [segment_start, segment_start+999].
+        Scans every block in each range via neardata.xyz, filtering for the target account.
+
+        Groups consecutive segments to minimise HTTP requests where possible.
         """
         wallet_id = job_row["wallet_id"]
         user_id = job_row["user_id"]
         job_id = job_row["id"]
 
-        if not block_heights:
-            logger.info("No indexed blocks for %s — nothing to sync.", account_id)
+        segments = block_heights  # renamed for clarity; still a list of segment_start ints
+
+        if not segments:
+            logger.info("No indexed segments for %s — nothing to sync.", account_id)
             return
 
-        total = len(block_heights)
-        self._set_progress_total(job_id, total)
-        logger.info("Fetching %d targeted blocks for %s", total, account_id)
+        # Expand each segment_start into the full list of 1000 block heights to scan.
+        # Group consecutive segments to avoid redundant progress updates but process
+        # block-by-block in parallel (same pattern as _sync_full_scan).
+        SEGMENT_SIZE = 1000
+        all_blocks: list[int] = []
+        for seg in segments:
+            all_blocks.extend(range(seg, seg + SEGMENT_SIZE))
 
-        # Process in batches with parallel fetching
+        total = len(all_blocks)
+        logger.info(
+            "Scanning %d segments (%d block ranges) for %s",
+            len(segments), len(segments), account_id,
+        )
+        self._set_progress_total(job_id, len(segments))
+
+        # Process in BATCH_SIZE-block batches with parallel fetching
         for batch_start in range(0, total, self.BATCH_SIZE):
-            if not hasattr(self, '_running') or True:  # Always run unless service stops
-                batch = block_heights[batch_start:batch_start + self.BATCH_SIZE]
-                batch_txs = []
+            batch = all_blocks[batch_start:batch_start + self.BATCH_SIZE]
+            batch_txs = []
 
-                def _fetch_and_extract(height):
-                    block = self.client.fetch_block(height)
-                    if not block:
-                        return []
-                    return self.client.extract_wallet_txs(block, account_id)
+            def _fetch_and_extract(height, _account_id=account_id):
+                block = self.client.fetch_block(height)
+                if not block:
+                    return []
+                return self.client.extract_wallet_txs(block, _account_id)
 
-                with ThreadPoolExecutor(max_workers=self.WORKERS) as pool:
-                    futures = {
-                        pool.submit(_fetch_and_extract, h): h
-                        for h in batch
-                    }
-                    for future in as_completed(futures):
-                        try:
-                            raw_txs = future.result()
-                            for raw_tx in raw_txs:
-                                parsed = parse_transaction(
-                                    raw_tx, wallet_id=wallet_id,
-                                    user_id=user_id, account_id=account_id,
-                                )
-                                if parsed:
-                                    batch_txs.append(parsed)
-                        except Exception as e:
-                            logger.debug("Block fetch error: %s", e)
+            with ThreadPoolExecutor(max_workers=self.WORKERS) as pool:
+                futures = {
+                    pool.submit(_fetch_and_extract, h): h
+                    for h in batch
+                }
+                for future in as_completed(futures):
+                    try:
+                        raw_txs = future.result()
+                        for raw_tx in raw_txs:
+                            parsed = parse_transaction(
+                                raw_tx, wallet_id=wallet_id,
+                                user_id=user_id, account_id=account_id,
+                            )
+                            if parsed:
+                                batch_txs.append(parsed)
+                    except Exception as e:
+                        logger.debug("Block fetch error: %s", e)
 
-                if batch_txs:
-                    self._batch_insert(batch_txs)
+            if batch_txs:
+                self._batch_insert(batch_txs)
 
-                progress = batch_start + len(batch)
-                self._update_job_progress(job_id, str(batch[-1]), progress)
+            # Progress is measured in segments completed (not individual blocks)
+            segments_done = min(len(segments), (batch_start + len(batch)) // SEGMENT_SIZE + 1)
+            self._update_job_progress(job_id, str(batch[-1]), segments_done)
 
-                pct = min(100, progress * 100 // total)
-                if pct % 10 == 0:
-                    logger.info("Index sync %s: %d%% (%d/%d blocks)",
-                                account_id, pct, progress, total)
+            pct = min(100, (batch_start + len(batch)) * 100 // total)
+            if pct % 10 == 0:
+                logger.info(
+                    "Index sync %s: %d%% (%d/%d segments scanned)",
+                    account_id, pct, segments_done, len(segments),
+                )
 
     def _sync_full_scan(self, job_row: dict, account_id: str) -> None:
         """Fallback: scan all blocks from neardata.xyz (slow but complete).

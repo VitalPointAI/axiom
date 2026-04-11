@@ -1,29 +1,20 @@
 //! Account Block Index Builder — Rust fetcher for neardata.xyz archives.
 //!
 //! Fetches .tgz archives in parallel, extracts account IDs, and streams
-//! tab-separated (account_int, segment_start) integer pairs to stdout continuously.
+//! tab-separated (account_id, block_height) pairs to stdout continuously.
 //! Workers send results through a channel so the writer never blocks fetching.
-//!
-//! The writer thread owns a DictionaryCache that resolves account ID strings
-//! to integer IDs via the PostgreSQL account_dictionary table. The cache is
-//! pre-warmed at startup and grows lazily for new accounts. Segment start is
-//! calculated as (block_height / 1000) * 1000.
 
 use clap::Parser;
 use flate2::read::GzDecoder;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io::{self, BufWriter, Cursor, Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::time::Instant;
 use tar::Archive;
 
-use postgres::{Client, NoTls};
-
 const ARCHIVE_BOUNDARIES: &[u64] = &[122_000_000, 142_000_000];
 const BLOCKS_PER_ARCHIVE: u64 = 10;
-
-// ─── CLI Arguments ─────────────────────────────────────────────────────────
 
 #[derive(Parser)]
 #[command(name = "account-indexer-rs")]
@@ -38,148 +29,7 @@ struct Args {
     workers: usize,
     #[arg(long, default_value = "500")]
     progress_interval: u64,
-    /// PostgreSQL connection string for the account_dictionary table.
-    /// Example: postgresql://neartax:pass@127.0.0.1:5433/neartax
-    #[arg(long, env = "DATABASE_URL")]
-    database_url: String,
 }
-
-// ─── Dictionary Cache ───────────────────────────────────────────────────────
-
-/// In-memory HashMap backed by the PostgreSQL account_dictionary table.
-///
-/// The cache is pre-warmed at startup by loading the full dictionary into
-/// a HashMap<String, i32>. For new accounts, resolve() inserts them into
-/// the dictionary via an upsert and caches the returned ID.
-///
-/// Thread safety: this struct is NOT thread-safe. It is owned exclusively
-/// by the writer thread (single-threaded dictionary access avoids any locking).
-struct DictionaryCache {
-    /// Maps account_id string → integer id (from account_dictionary.id)
-    cache: HashMap<String, i32>,
-    /// Blocking PostgreSQL connection used for dictionary lookups/inserts
-    client: Client,
-    /// Saved connection string for reconnection on idle timeout
-    database_url: String,
-}
-
-impl DictionaryCache {
-    /// Connect to PostgreSQL and pre-allocate the HashMap.
-    fn new(database_url: &str) -> Self {
-        let client = Self::connect(database_url);
-        Self {
-            cache: HashMap::with_capacity(20_000_000), // pre-allocate for ~15M accounts
-            client,
-            database_url: database_url.to_string(),
-        }
-    }
-
-    /// Parse the URL, enable TCP keepalives (guards against idle timeout during
-    /// long archive fetch windows), and connect.
-    fn connect(database_url: &str) -> Client {
-        let mut config = database_url
-            .parse::<postgres::Config>()
-            .expect("Invalid DATABASE_URL");
-        config.keepalives(true);
-        config.keepalives_idle(std::time::Duration::from_secs(30));
-        config
-            .connect(NoTls)
-            .expect("Failed to connect to PostgreSQL for account_dictionary")
-    }
-
-    /// Load the entire account_dictionary table into the in-memory HashMap.
-    ///
-    /// Called once at startup before the writer loop begins. After this,
-    /// the vast majority of resolve() calls will be fast cache hits.
-    fn warm_cache(&mut self) {
-        let rows = self
-            .client
-            .query("SELECT id, account_id FROM account_dictionary", &[])
-            .expect("Failed to pre-warm dictionary cache from PostgreSQL");
-        let count = rows.len();
-        for row in rows {
-            let id: i32 = row.get(0);
-            let account_id: String = row.get(1);
-            self.cache.insert(account_id, id);
-        }
-        eprintln!("Dictionary pre-warm complete: {} entries", count);
-    }
-
-    /// Resolve an account ID string to its integer ID.
-    ///
-    /// 1. Fast path: return from in-memory cache (>99% of calls after warm).
-    /// 2. DB lookup: SELECT id FROM account_dictionary WHERE account_id = $1
-    /// 3. DB insert: INSERT ... ON CONFLICT ... RETURNING id (upsert for new accounts)
-    ///
-    /// If any PG query fails with a connection error, the connection is
-    /// re-established once and the query is retried.
-    fn resolve(&mut self, account_id: &str) -> i32 {
-        // 1. Cache hit (fast path)
-        if let Some(&id) = self.cache.get(account_id) {
-            return id;
-        }
-
-        // 2. DB lookup
-        match self.query_opt_with_retry(
-            "SELECT id FROM account_dictionary WHERE account_id = $1",
-            account_id,
-        ) {
-            Some(id) => {
-                self.cache.insert(account_id.to_string(), id);
-                return id;
-            }
-            None => {} // fall through to insert
-        }
-
-        // 3. DB insert (upsert — safe for concurrent access)
-        let id = self.insert_with_retry(account_id);
-        self.cache.insert(account_id.to_string(), id);
-        id
-    }
-
-    /// SELECT id with a single reconnect-on-error retry.
-    fn query_opt_with_retry(&mut self, sql: &str, account_id: &str) -> Option<i32> {
-        for attempt in 0..2 {
-            match self.client.query_opt(sql, &[&account_id]) {
-                Ok(Some(row)) => return Some(row.get(0)),
-                Ok(None) => return None,
-                Err(e) if attempt == 0 && Self::is_connection_error(&e) => {
-                    eprintln!("Reconnecting to PostgreSQL after idle timeout: {}", e);
-                    self.client = Self::connect(&self.database_url);
-                }
-                Err(e) => panic!("Dictionary lookup failed: {}", e),
-            }
-        }
-        None
-    }
-
-    /// INSERT ... ON CONFLICT ... RETURNING id with a single reconnect-on-error retry.
-    fn insert_with_retry(&mut self, account_id: &str) -> i32 {
-        let sql = "INSERT INTO account_dictionary (account_id) VALUES ($1) \
-                   ON CONFLICT (account_id) DO UPDATE SET account_id = EXCLUDED.account_id \
-                   RETURNING id";
-        for attempt in 0..2 {
-            match self.client.query_one(sql, &[&account_id]) {
-                Ok(row) => return row.get(0),
-                Err(e) if attempt == 0 && Self::is_connection_error(&e) => {
-                    eprintln!("Reconnecting to PostgreSQL after idle timeout: {}", e);
-                    self.client = Self::connect(&self.database_url);
-                }
-                Err(e) => panic!("Dictionary insert failed: {}", e),
-            }
-        }
-        unreachable!()
-    }
-
-    /// Heuristic: does the postgres error look like a lost connection?
-    fn is_connection_error(e: &postgres::Error) -> bool {
-        let s = e.to_string().to_lowercase();
-        s.contains("connection") || s.contains("reset") || s.contains("broken pipe")
-            || s.contains("eof") || s.contains("io error")
-    }
-}
-
-// ─── Archive fetching (workers — unchanged) ─────────────────────────────────
 
 fn archive_url(block_height: u64) -> String {
     let padded = format!("{:012}", block_height);
@@ -298,8 +148,6 @@ fn fetch_and_extract(
     Vec::new()
 }
 
-// ─── Main ───────────────────────────────────────────────────────────────────
-
 fn main() {
     let args = Args::parse();
 
@@ -309,7 +157,6 @@ fn main() {
     let api_key = args.api_key.clone();
     let workers = args.workers;
     let progress_interval = args.progress_interval;
-    let database_url = args.database_url.clone();
 
     eprintln!(
         "account-indexer-rs: blocks {} → {} ({} archives, {} workers)",
@@ -319,28 +166,18 @@ fn main() {
     let archives_done = AtomicU64::new(0);
     let timer = Instant::now();
 
-    // Channel: workers send (account_string, block_height) pairs.
-    // The writer thread resolves strings to integer IDs via DictionaryCache.
+    // Channel: workers send pairs, main thread writes to stdout
     let (tx, rx) = mpsc::sync_channel::<Vec<(String, u64)>>(workers * 4);
 
-    // Spawn writer thread — owns DictionaryCache, resolves strings to ints,
-    // emits "account_int\tsegment_start\n" to stdout.
+    // Spawn writer thread — drains channel to stdout
     let writer_handle = std::thread::spawn(move || {
-        // Create and warm the dictionary cache
-        let mut dict_cache = DictionaryCache::new(&database_url);
-        dict_cache.warm_cache();
-
         let stdout = io::stdout();
         let mut writer = BufWriter::with_capacity(1 << 20, stdout.lock());
         let mut total_pairs: u64 = 0;
 
         for pairs in rx {
-            for (account_string, block_height) in &pairs {
-                // Resolve account string → integer ID (cache hit >99% after warm)
-                let account_int = dict_cache.resolve(account_string);
-                // Segment start: round block_height down to nearest 1000
-                let segment_start = (block_height / 1000) * 1000;
-                let _ = write!(writer, "{}\t{}\n", account_int, segment_start as i32);
+            for (account, height) in &pairs {
+                let _ = write!(writer, "{}\t{}\n", account, height);
             }
             total_pairs += pairs.len() as u64;
             // Flush periodically to keep COPY fed
@@ -352,7 +189,7 @@ fn main() {
         total_pairs
     });
 
-    // Spawn worker threads (unchanged — still extract (String, u64) pairs)
+    // Spawn worker threads
     let mut handles = Vec::new();
     let archive_heights: Vec<u64> = (0..total_archives)
         .map(|i| start + i * BLOCKS_PER_ARCHIVE)
@@ -370,6 +207,7 @@ fn main() {
         let archives_done = &archives_done as *const AtomicU64 as usize;
         let total_archives = total_archives;
         let progress_interval = progress_interval;
+        let timer_start = timer.elapsed().as_secs_f64(); // capture offset
 
         let handle = std::thread::spawn(move || {
             let archives_done = unsafe { &*(archives_done as *const AtomicU64) };
@@ -387,6 +225,7 @@ fn main() {
 
                 let done = archives_done.fetch_add(1, Ordering::Relaxed) + 1;
                 if done % progress_interval == 0 {
+                    // Can't easily share timer across threads, use done count for rate
                     eprintln!(
                         "Progress: {}/{} archives ({:.1}%)",
                         done, total_archives,

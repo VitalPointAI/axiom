@@ -43,7 +43,7 @@ fi
 
 # Container is running — check progress
 LAST_BLOCK=$(docker exec axiom-postgres-1 psql -U neartax -t -c "SELECT last_processed_block FROM account_indexer_state WHERE id = 1;" 2>/dev/null | tr -d ' ')
-INDEX_COUNT=$(docker exec axiom-postgres-1 psql -U neartax -t -c "SELECT COUNT(*) FROM account_block_index;" 2>/dev/null | tr -d ' ')
+INDEX_COUNT=$(docker exec axiom-postgres-1 psql -U neartax -t -c "SELECT reltuples::bigint FROM pg_class WHERE relname = 'account_block_index_v2';" 2>/dev/null | tr -d ' ')
 
 echo "$TIMESTAMP OK: container=$CONTAINER_STATUS block=$LAST_BLOCK entries=$INDEX_COUNT"
 
