@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Axiom - Canadian Crypto Tax Platform',
     description:
-      'The first Canadian-sovereign, blockchain-native crypto tax platform.',
+      'Canadian-sovereign, blockchain-native crypto tax reporting.',
     type: 'website',
     locale: 'en_CA',
   },

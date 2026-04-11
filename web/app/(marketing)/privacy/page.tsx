@@ -147,8 +147,8 @@ export default function PrivacyPage() {
             Privacy-first crypto taxes
           </h2>
           <p className="text-base text-muted-foreground mb-8">
-            Join the waitlist for the first Canadian-sovereign crypto tax
-            platform.
+            Join the waitlist for Canadian-sovereign crypto tax
+            reporting.
           </p>
           <WaitlistForm variant="standalone" />
         </div>

@@ -14,11 +14,11 @@ import {
 export const metadata: Metadata = {
   title: 'About - Axiom',
   description:
-    'Building the first Canadian-sovereign, blockchain-native crypto tax platform.',
+    'Building a Canadian-sovereign, blockchain-native crypto tax platform.',
   openGraph: {
     title: 'About - Axiom',
     description:
-      'Building the first Canadian-sovereign, blockchain-native crypto tax platform.',
+      'Building a Canadian-sovereign, blockchain-native crypto tax platform.',
     type: 'website',
     locale: 'en_CA',
   },
