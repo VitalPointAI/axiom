@@ -1,3 +1,4 @@
+import Image from 'next/image'
 import Link from 'next/link'
 
 const quickLinks = [
@@ -15,7 +16,10 @@ export default function MarketingFooter() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {/* Brand column */}
           <div>
-            <h3 className="font-bold text-xl text-foreground">Axiom</h3>
+            <div className="flex items-center gap-2">
+              <Image src="/axiom-logomark.svg" alt="" width={24} height={24} className="h-6 w-6" />
+              <h3 className="font-bold text-xl text-foreground">Axiom</h3>
+            </div>
             <p className="mt-2 text-sm text-muted-foreground">
               Canadian crypto taxes, done right.
             </p>

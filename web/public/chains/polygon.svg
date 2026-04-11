@@ -1,0 +1,12 @@
+<svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Polygon (MATIC) mark — angular interlocking shape -->
+  <path
+    d="M33 14.5L25.5 10L18 14.5V19L11 23.5V32.5L18.5 37L26 32.5V28L33 23.5V14.5Z"
+    fill="#8247E5"
+  />
+  <path
+    d="M33 23.5L25.5 28V32.5L33 37L40.5 32.5V23.5L33 19V23.5Z"
+    fill="#8247E5"
+    opacity="0.7"
+  />
+</svg>

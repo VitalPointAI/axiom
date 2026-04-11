@@ -1,0 +1,10 @@
+{
+  "name": "Axiom",
+  "short_name": "Axiom",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "theme_color": "#020817",
+  "background_color": "#020817",
+  "display": "standalone"
+}

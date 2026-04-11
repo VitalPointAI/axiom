@@ -1,0 +1,11 @@
+<svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Ethereum diamond mark -->
+  <!-- Top half -->
+  <path d="M24 4 L38 24 L24 20 Z" fill="#627EEA" opacity="0.6" />
+  <path d="M24 4 L10 24 L24 20 Z" fill="#627EEA" />
+  <!-- Bottom half -->
+  <path d="M24 44 L38 24 L24 20 Z" fill="#627EEA" opacity="0.6" />
+  <path d="M24 44 L10 24 L24 20 Z" fill="#627EEA" />
+  <!-- Middle accent line -->
+  <path d="M10 24 L24 30 L38 24 L24 20 Z" fill="#627EEA" opacity="0.8" />
+</svg>

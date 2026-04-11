@@ -1,0 +1,6 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Favicon: simplified cube for small sizes, no edge strokes -->
+  <path d="M32 4 L56 18 L32 32 L8 18 Z" fill="#06b6d4" />
+  <path d="M8 18 L32 32 L32 60 L8 46 Z" fill="#6366f1" />
+  <path d="M56 18 L56 46 L32 60 L32 32 Z" fill="#8b5cf6" />
+</svg>

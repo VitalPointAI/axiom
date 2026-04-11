@@ -1,0 +1,25 @@
+<svg viewBox="0 0 200 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Axiom full logo: logomark + wordmark -->
+
+  <!-- Logomark (isometric cube, scaled to fit 48x48) -->
+  <g transform="translate(0, 0)">
+    <!-- Top face -->
+    <path d="M24 3 L42 13.5 L24 24 L6 13.5 Z" fill="#06b6d4" />
+    <!-- Left face -->
+    <path d="M6 13.5 L24 24 L24 45 L6 34.5 Z" fill="#6366f1" />
+    <!-- Right face -->
+    <path d="M42 13.5 L42 34.5 L24 45 L24 24 Z" fill="#8b5cf6" />
+  </g>
+
+  <!-- Wordmark "Axiom" in system font (Inter Bold, tracking -0.02em) -->
+  <!-- Using SVG text for font flexibility; consumers can convert to paths -->
+  <text
+    x="56"
+    y="31"
+    font-family="Inter, system-ui, -apple-system, sans-serif"
+    font-weight="700"
+    font-size="26"
+    letter-spacing="-0.5"
+    fill="currentColor"
+  >Axiom</text>
+</svg>

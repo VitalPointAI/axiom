@@ -1,0 +1,11 @@
+<svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- XRP mark — X shape formed by converging/diverging lines -->
+  <!-- Top arms -->
+  <path d="M10 8 L19 18 L24 14 L29 18 L38 8" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  <!-- Bottom arms -->
+  <path d="M10 40 L19 30 L24 34 L29 30 L38 40" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  <!-- Center connection -->
+  <circle cx="24" cy="24" r="3" fill="currentColor" />
+  <line x1="24" y1="14" x2="24" y2="21" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" />
+  <line x1="24" y1="27" x2="24" y2="34" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" />
+</svg>

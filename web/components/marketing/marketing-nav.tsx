@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { Menu, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -36,7 +37,8 @@ export default function MarketingNav() {
     >
       <div className="max-w-[1200px] mx-auto px-4 md:px-6 lg:px-8 h-full flex items-center justify-between">
         {/* Logo */}
-        <Link href="/" className="font-bold text-xl text-foreground">
+        <Link href="/" className="flex items-center gap-2 font-bold text-xl text-foreground">
+          <Image src="/axiom-logomark.svg" alt="" width={28} height={28} className="h-7 w-7" />
           Axiom
         </Link>
 

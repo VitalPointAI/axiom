@@ -1,20 +1,18 @@
 'use client'
 
-import { Hexagon, Circle, Pentagon, Diamond, Triangle } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import Image from 'next/image'
 
 interface ChainInfo {
   name: string
-  icon: LucideIcon
-  color: string
+  logo: string
 }
 
 const chains: ChainInfo[] = [
-  { name: 'NEAR', icon: Hexagon, color: '#00C1DE' },
-  { name: 'Ethereum', icon: Diamond, color: '#627EEA' },
-  { name: 'Polygon', icon: Pentagon, color: '#8247E5' },
-  { name: 'XRP', icon: Circle, color: '#23292F' },
-  { name: 'Akash', icon: Triangle, color: '#FF414C' },
+  { name: 'NEAR', logo: '/chains/near.svg' },
+  { name: 'Ethereum', logo: '/chains/ethereum.svg' },
+  { name: 'Polygon', logo: '/chains/polygon.svg' },
+  { name: 'XRP', logo: '/chains/xrp.svg' },
+  { name: 'Akash', logo: '/chains/akash.svg' },
 ]
 
 export default function ChainShowcase() {
@@ -28,7 +26,7 @@ export default function ChainShowcase() {
         {chains.map((chain) => (
           <div key={chain.name} className="flex flex-col items-center gap-2">
             <div className="p-4 rounded-xl bg-card border border-border">
-              <chain.icon className="h-10 w-10" style={{ color: chain.color }} />
+              <Image src={chain.logo} alt={`${chain.name} logo`} width={40} height={40} className="h-10 w-10" />
             </div>
             <span className="text-sm text-muted-foreground font-medium">{chain.name}</span>
           </div>

@@ -1,0 +1,19 @@
+<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Axiom logomark: isometric cube — foundational building block -->
+  <!-- Three faces represent the brand gradient: indigo → purple → cyan -->
+
+  <!-- Top face (cyan — brightest, top-lit) -->
+  <path d="M32 4 L56 18 L32 32 L8 18 Z" fill="#06b6d4" />
+
+  <!-- Left face (indigo — shadow side) -->
+  <path d="M8 18 L32 32 L32 60 L8 46 Z" fill="#6366f1" />
+
+  <!-- Right face (purple — mid-tone) -->
+  <path d="M56 18 L56 46 L32 60 L32 32 Z" fill="#8b5cf6" />
+
+  <!-- Subtle edge highlights for definition -->
+  <path d="M32 4 L56 18 L32 32 L8 18 Z" stroke="rgba(255,255,255,0.1)" stroke-width="0.5" fill="none" />
+  <path d="M32 32 L32 60" stroke="rgba(255,255,255,0.08)" stroke-width="0.5" />
+  <path d="M8 18 L8 46" stroke="rgba(0,0,0,0.15)" stroke-width="0.5" />
+  <path d="M56 18 L56 46" stroke="rgba(0,0,0,0.1)" stroke-width="0.5" />
+</svg>
