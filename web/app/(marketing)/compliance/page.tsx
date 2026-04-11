@@ -1,7 +1,6 @@
 import type { Metadata } from 'next'
 import SectionWrapper from '@/components/marketing/section-wrapper'
 import WaitlistForm from '@/components/marketing/waitlist-form'
-import Image from 'next/image'
 import {
   Calculator,
   AlertTriangle,
@@ -85,7 +84,7 @@ export default function CompliancePage() {
             </p>
           </div>
           <div className="shrink-0">
-            <Image
+            <img
               src="/illustrations/tax-report.svg"
               alt="CRA-compliant tax report with capital gains, ACB summary, and verification"
               width={280}

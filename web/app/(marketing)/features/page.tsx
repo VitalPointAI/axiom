@@ -117,14 +117,28 @@ export default function FeaturesPage() {
     <>
       {/* Hero Section */}
       <SectionWrapper aria-label="Features overview">
-        <h1 className="text-4xl md:text-6xl font-bold mb-6">
-          <span className="gradient-text">Built for Canadian crypto taxes.</span>
-        </h1>
-        <p className="text-base text-muted-foreground max-w-2xl mb-12">
-          Direct blockchain indexing, AI-powered classification, multi-chain
-          support. See how Axiom handles your crypto tax reporting from start to
-          finish.
-        </p>
+        <div className="flex flex-col md:flex-row items-center gap-8 md:gap-16">
+          <div className="max-w-xl">
+            <h1 className="text-4xl md:text-6xl font-bold mb-6">
+              <span className="gradient-text">Built for Canadian crypto taxes.</span>
+            </h1>
+            <p className="text-base text-muted-foreground">
+              Direct blockchain indexing, AI-powered classification, multi-chain
+              support. See how Axiom handles your crypto tax reporting from start to
+              finish.
+            </p>
+          </div>
+          <div className="shrink-0">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/illustrations/dashboard-preview.svg"
+              alt="Axiom dashboard with portfolio analytics and tax reporting"
+              width={400}
+              height={243}
+              className="w-72 md:w-96 h-auto rounded-lg border border-border/30"
+            />
+          </div>
+        </div>
       </SectionWrapper>
 
       {/* Feature Grid */}

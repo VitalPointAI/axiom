@@ -1,5 +1,4 @@
 import type { Metadata } from 'next'
-import Image from 'next/image'
 
 import Hero from '@/components/marketing/hero'
 import SectionWrapper from '@/components/marketing/section-wrapper'
@@ -43,7 +42,7 @@ export default function LandingPage() {
           We read the blockchain directly. Exchange CSVs when you need them.
         </h2>
         <div className="flex justify-center mb-10">
-          <Image
+          <img
             src="/illustrations/blockchain-network.svg"
             alt="Interconnected blockchain network visualization"
             width={400}
@@ -71,7 +70,7 @@ export default function LandingPage() {
       <SectionWrapper aria-label="Privacy">
         <div className="flex flex-col md:flex-row items-center gap-8 md:gap-16">
           <div className="shrink-0">
-            <Image
+            <img
               src="/illustrations/shield-lock.svg"
               alt="Encrypted data streams flowing into a secure shield"
               width={280}

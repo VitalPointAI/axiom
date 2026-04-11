@@ -3,7 +3,6 @@ import SectionWrapper from '@/components/marketing/section-wrapper'
 import BreachTimeline from '@/components/marketing/breach-timeline'
 import DataFlowDiagram from '@/components/marketing/data-flow-diagram'
 import WaitlistForm from '@/components/marketing/waitlist-form'
-import Image from 'next/image'
 import { MapPin, EyeOff, ShieldCheck, Lock, KeyRound, Cpu } from 'lucide-react'
 
 export const metadata: Metadata = {
@@ -79,7 +78,7 @@ export default function PrivacyPage() {
             </p>
           </div>
           <div className="shrink-0">
-            <Image
+            <img
               src="/illustrations/canada-maple.svg"
               alt="Canadian data sovereignty with Toronto-hosted servers"
               width={240}
