@@ -1,6 +1,6 @@
 'use client';
 
-import { useAuth } from '@/components/auth-provider';
+import { AuthProvider, useAuth } from '@/components/auth-provider';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -11,7 +11,7 @@ interface PreferencesResponse {
   dismissed_banners: Record<string, boolean>;
 }
 
-export default function OnboardingLayout({
+function OnboardingLayoutInner({
   children,
 }: {
   children: React.ReactNode;
@@ -67,5 +67,17 @@ export default function OnboardingLayout({
         {children}
       </div>
     </div>
+  );
+}
+
+export default function OnboardingLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <AuthProvider>
+      <OnboardingLayoutInner>{children}</OnboardingLayoutInner>
+    </AuthProvider>
   );
 }
