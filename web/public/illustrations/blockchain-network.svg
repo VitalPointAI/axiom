@@ -1,0 +1,59 @@
+<svg viewBox="0 0 400 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Blockchain network illustration: interconnected nodes forming a mesh -->
+
+  <!-- Connection lines (drawn first, behind nodes) -->
+  <g stroke-width="1" opacity="0.2">
+    <!-- Core mesh -->
+    <line x1="200" y1="100" x2="120" y2="60" stroke="#6366f1" />
+    <line x1="200" y1="100" x2="280" y2="60" stroke="#8b5cf6" />
+    <line x1="200" y1="100" x2="120" y2="140" stroke="#6366f1" />
+    <line x1="200" y1="100" x2="280" y2="140" stroke="#8b5cf6" />
+    <line x1="120" y1="60" x2="280" y2="60" stroke="#06b6d4" stroke-dasharray="4 3" />
+    <line x1="120" y1="140" x2="280" y2="140" stroke="#06b6d4" stroke-dasharray="4 3" />
+    <line x1="120" y1="60" x2="120" y2="140" stroke="#6366f1" />
+    <line x1="280" y1="60" x2="280" y2="140" stroke="#8b5cf6" />
+
+    <!-- Outer spokes -->
+    <line x1="120" y1="60" x2="50" y2="30" stroke="#6366f1" />
+    <line x1="120" y1="60" x2="60" y2="100" stroke="#6366f1" />
+    <line x1="280" y1="60" x2="350" y2="30" stroke="#8b5cf6" />
+    <line x1="280" y1="60" x2="340" y2="100" stroke="#8b5cf6" />
+    <line x1="120" y1="140" x2="50" y2="170" stroke="#6366f1" />
+    <line x1="280" y1="140" x2="350" y2="170" stroke="#8b5cf6" />
+    <line x1="200" y1="100" x2="200" y2="30" stroke="#06b6d4" />
+    <line x1="200" y1="100" x2="200" y2="175" stroke="#06b6d4" />
+  </g>
+
+  <!-- Outer nodes (smaller) -->
+  <circle cx="50" cy="30" r="5" fill="#6366f1" opacity="0.3" />
+  <circle cx="60" cy="100" r="4" fill="#6366f1" opacity="0.25" />
+  <circle cx="50" cy="170" r="5" fill="#6366f1" opacity="0.3" />
+  <circle cx="350" cy="30" r="5" fill="#8b5cf6" opacity="0.3" />
+  <circle cx="340" cy="100" r="4" fill="#8b5cf6" opacity="0.25" />
+  <circle cx="350" cy="170" r="5" fill="#8b5cf6" opacity="0.3" />
+  <circle cx="200" cy="30" r="4" fill="#06b6d4" opacity="0.3" />
+  <circle cx="200" cy="175" r="4" fill="#06b6d4" opacity="0.3" />
+
+  <!-- Inner nodes (larger, with rings) -->
+  <circle cx="120" cy="60" r="12" fill="#6366f1" opacity="0.1" />
+  <circle cx="120" cy="60" r="7" fill="#6366f1" opacity="0.6" />
+  <circle cx="120" cy="60" r="3" fill="white" opacity="0.8" />
+
+  <circle cx="280" cy="60" r="12" fill="#8b5cf6" opacity="0.1" />
+  <circle cx="280" cy="60" r="7" fill="#8b5cf6" opacity="0.6" />
+  <circle cx="280" cy="60" r="3" fill="white" opacity="0.8" />
+
+  <circle cx="120" cy="140" r="12" fill="#6366f1" opacity="0.1" />
+  <circle cx="120" cy="140" r="7" fill="#6366f1" opacity="0.6" />
+  <circle cx="120" cy="140" r="3" fill="white" opacity="0.8" />
+
+  <circle cx="280" cy="140" r="12" fill="#8b5cf6" opacity="0.1" />
+  <circle cx="280" cy="140" r="7" fill="#8b5cf6" opacity="0.6" />
+  <circle cx="280" cy="140" r="3" fill="white" opacity="0.8" />
+
+  <!-- Center node (largest, accent) -->
+  <circle cx="200" cy="100" r="18" fill="#06b6d4" opacity="0.08" />
+  <circle cx="200" cy="100" r="12" fill="#06b6d4" opacity="0.15" />
+  <circle cx="200" cy="100" r="8" fill="#06b6d4" opacity="0.7" />
+  <circle cx="200" cy="100" r="4" fill="white" opacity="0.9" />
+</svg>

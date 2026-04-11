@@ -1,0 +1,42 @@
+<svg viewBox="0 0 300 280" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Canadian sovereignty illustration: maple leaf outline with data/server motif -->
+
+  <!-- Subtle background circle -->
+  <circle cx="150" cy="140" r="120" fill="#6366f1" opacity="0.03" />
+  <circle cx="150" cy="140" r="90" fill="#8b5cf6" opacity="0.03" />
+
+  <!-- Stylized maple leaf (outline only, geometric/modern) -->
+  <path d="M150 30
+    L162 70 L200 55 L185 90 L220 95 L190 115 L210 155
+    L170 140 L165 175 L150 155 L135 175 L130 140
+    L90 155 L110 115 L80 95 L115 90 L100 55
+    L138 70 Z"
+    stroke="#6366f1" stroke-width="1.5" fill="#6366f1" opacity="0.06"
+    stroke-linejoin="round" />
+
+  <!-- Stem -->
+  <line x1="150" y1="175" x2="150" y2="220" stroke="#6366f1" stroke-width="2" opacity="0.2" />
+
+  <!-- Server/data nodes inside the leaf -->
+  <g opacity="0.5">
+    <!-- Server rack lines -->
+    <rect x="135" y="95" width="30" height="6" rx="2" fill="#6366f1" opacity="0.3" />
+    <rect x="135" y="105" width="30" height="6" rx="2" fill="#8b5cf6" opacity="0.3" />
+    <rect x="135" y="115" width="30" height="6" rx="2" fill="#06b6d4" opacity="0.3" />
+
+    <!-- Activity dots on racks -->
+    <circle cx="158" cy="98" r="1.5" fill="#10b981" />
+    <circle cx="158" cy="108" r="1.5" fill="#10b981" />
+    <circle cx="158" cy="118" r="1.5" fill="#10b981" />
+  </g>
+
+  <!-- Location pin -->
+  <g transform="translate(150, 240)">
+    <path d="M0 -15 Q-10 -15 -10 -5 Q-10 3 0 12 Q10 3 10 -5 Q10 -15 0 -15 Z"
+      fill="#6366f1" opacity="0.2" stroke="#6366f1" stroke-width="1" opacity="0.4" />
+    <circle cx="0" cy="-5" r="3.5" fill="#6366f1" opacity="0.5" />
+  </g>
+
+  <!-- "Toronto" text position indicator -->
+  <rect x="110" y="262" width="80" height="4" rx="2" fill="currentColor" opacity="0.08" />
+</svg>

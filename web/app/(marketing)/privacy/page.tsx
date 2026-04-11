@@ -3,6 +3,7 @@ import SectionWrapper from '@/components/marketing/section-wrapper'
 import BreachTimeline from '@/components/marketing/breach-timeline'
 import DataFlowDiagram from '@/components/marketing/data-flow-diagram'
 import WaitlistForm from '@/components/marketing/waitlist-form'
+import Image from 'next/image'
 import { MapPin, EyeOff, ShieldCheck, Lock, KeyRound, Cpu } from 'lucide-react'
 
 export const metadata: Metadata = {
@@ -66,14 +67,27 @@ export default function PrivacyPage() {
     <>
       {/* Hero */}
       <SectionWrapper aria-label="Privacy overview">
-        <h1 className="text-4xl md:text-6xl font-bold mb-6">
-          <span className="gradient-text">Your data never leaves Canada.</span>
-        </h1>
-        <p className="text-base text-muted-foreground max-w-2xl">
-          Axiom is built on a simple principle: your financial data belongs to
-          you, and it should stay where you are. Every byte is processed and
-          stored in Toronto.
-        </p>
+        <div className="flex flex-col md:flex-row items-center gap-8 md:gap-16">
+          <div className="max-w-xl">
+            <h1 className="text-4xl md:text-6xl font-bold mb-6">
+              <span className="gradient-text">Your data never leaves Canada.</span>
+            </h1>
+            <p className="text-base text-muted-foreground">
+              Axiom is built on a simple principle: your financial data belongs to
+              you, and it should stay where you are. Every byte is processed and
+              stored in Toronto.
+            </p>
+          </div>
+          <div className="shrink-0">
+            <Image
+              src="/illustrations/canada-maple.svg"
+              alt="Canadian data sovereignty with Toronto-hosted servers"
+              width={240}
+              height={224}
+              className="w-48 md:w-60 h-auto"
+            />
+          </div>
+        </div>
       </SectionWrapper>
 
       {/* Breach Timeline */}

@@ -1,0 +1,77 @@
+<svg viewBox="0 0 280 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Tax report document illustration -->
+
+  <!-- Shadow/glow -->
+  <rect x="44" y="24" width="200" height="270" rx="10" fill="#6366f1" opacity="0.06" />
+
+  <!-- Document background -->
+  <rect x="40" y="20" width="200" height="270" rx="8" fill="none" stroke="#6366f1" stroke-width="1.5" opacity="0.3" />
+  <rect x="40" y="20" width="200" height="270" rx="8" fill="currentColor" opacity="0.03" />
+
+  <!-- Header bar -->
+  <rect x="40" y="20" width="200" height="40" rx="8" fill="#6366f1" opacity="0.1" />
+  <rect x="40" y="52" width="200" height="1" fill="#6366f1" opacity="0.15" />
+
+  <!-- Logo placeholder in header -->
+  <circle cx="62" cy="40" r="8" fill="#6366f1" opacity="0.3" />
+  <rect x="76" y="34" width="60" height="5" rx="2" fill="currentColor" opacity="0.15" />
+  <rect x="76" y="43" width="40" height="3" rx="1.5" fill="currentColor" opacity="0.08" />
+
+  <!-- "CRA Tax Report" badge -->
+  <rect x="170" y="30" width="56" height="20" rx="4" fill="#059669" opacity="0.15" />
+  <rect x="178" y="37" width="40" height="4" rx="2" fill="#10b981" opacity="0.5" />
+
+  <!-- Section: Capital Gains -->
+  <rect x="56" y="72" width="80" height="4" rx="2" fill="currentColor" opacity="0.2" />
+  <rect x="56" y="84" width="168" height="1" fill="currentColor" opacity="0.06" />
+
+  <!-- Table rows -->
+  <g opacity="0.12">
+    <rect x="56" y="92" width="50" height="3" rx="1.5" fill="currentColor" />
+    <rect x="140" y="92" width="30" height="3" rx="1.5" fill="#10b981" />
+    <rect x="190" y="92" width="34" height="3" rx="1.5" fill="currentColor" />
+  </g>
+  <g opacity="0.12">
+    <rect x="56" y="104" width="60" height="3" rx="1.5" fill="currentColor" />
+    <rect x="140" y="104" width="25" height="3" rx="1.5" fill="#ef4444" />
+    <rect x="190" y="104" width="28" height="3" rx="1.5" fill="currentColor" />
+  </g>
+  <g opacity="0.12">
+    <rect x="56" y="116" width="45" height="3" rx="1.5" fill="currentColor" />
+    <rect x="140" y="116" width="35" height="3" rx="1.5" fill="#10b981" />
+    <rect x="190" y="116" width="34" height="3" rx="1.5" fill="currentColor" />
+  </g>
+  <g opacity="0.12">
+    <rect x="56" y="128" width="55" height="3" rx="1.5" fill="currentColor" />
+    <rect x="140" y="128" width="20" height="3" rx="1.5" fill="#10b981" />
+    <rect x="190" y="128" width="30" height="3" rx="1.5" fill="currentColor" />
+  </g>
+
+  <!-- Divider -->
+  <rect x="56" y="142" width="168" height="1" fill="currentColor" opacity="0.08" />
+
+  <!-- Summary row (bold) -->
+  <rect x="56" y="152" width="70" height="4" rx="2" fill="currentColor" opacity="0.2" />
+  <rect x="180" y="152" width="44" height="4" rx="2" fill="#6366f1" opacity="0.4" />
+
+  <!-- Section: ACB Summary -->
+  <rect x="56" y="178" width="90" height="4" rx="2" fill="currentColor" opacity="0.2" />
+  <rect x="56" y="190" width="168" height="1" fill="currentColor" opacity="0.06" />
+
+  <!-- Mini chart -->
+  <polyline points="56,240 85,225 110,232 140,210 170,215 200,205 224,218"
+    stroke="#6366f1" stroke-width="1.5" fill="none" opacity="0.4" />
+  <polyline points="56,240 85,225 110,232 140,210 170,215 200,205 224,218 224,250 56,250"
+    fill="#6366f1" opacity="0.04" stroke="none" />
+
+  <!-- Chart axis -->
+  <line x1="56" y1="250" x2="224" y2="250" stroke="currentColor" stroke-width="0.5" opacity="0.1" />
+  <line x1="56" y1="200" x2="56" y2="250" stroke="currentColor" stroke-width="0.5" opacity="0.1" />
+
+  <!-- Bottom checkmark/verified badge -->
+  <g transform="translate(140, 272)">
+    <circle r="12" fill="#059669" opacity="0.1" />
+    <circle r="8" fill="#059669" opacity="0.15" />
+    <path d="M-4 0 L-1.5 3 L5 -3" stroke="#10b981" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+</svg>

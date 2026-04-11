@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import SectionWrapper from '@/components/marketing/section-wrapper'
 import WaitlistForm from '@/components/marketing/waitlist-form'
+import Image from 'next/image'
 import {
   Calculator,
   AlertTriangle,
@@ -71,15 +72,28 @@ export default function CompliancePage() {
     <>
       {/* Hero */}
       <SectionWrapper aria-label="Compliance overview">
-        <h1 className="text-4xl md:text-6xl font-bold mb-6">
-          <span className="gradient-text">
-            Built for Canada. CRA-ready on day one.
-          </span>
-        </h1>
-        <p className="text-base text-muted-foreground max-w-2xl">
-          Axiom implements Canadian crypto tax law correctly. Not adapted from a
-          US product. Not approximated. Built from the ground up for the CRA.
-        </p>
+        <div className="flex flex-col md:flex-row items-center gap-8 md:gap-16">
+          <div className="max-w-xl">
+            <h1 className="text-4xl md:text-6xl font-bold mb-6">
+              <span className="gradient-text">
+                Built for Canada. CRA-ready on day one.
+              </span>
+            </h1>
+            <p className="text-base text-muted-foreground">
+              Axiom implements Canadian crypto tax law correctly. Not adapted from a
+              US product. Not approximated. Built from the ground up for the CRA.
+            </p>
+          </div>
+          <div className="shrink-0">
+            <Image
+              src="/illustrations/tax-report.svg"
+              alt="CRA-compliant tax report with capital gains, ACB summary, and verification"
+              width={280}
+              height={320}
+              className="w-48 md:w-56 h-auto"
+            />
+          </div>
+        </div>
       </SectionWrapper>
 
       {/* CRA ACB Method */}

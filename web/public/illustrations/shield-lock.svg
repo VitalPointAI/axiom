@@ -1,0 +1,62 @@
+<svg viewBox="0 0 320 280" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Privacy/Security illustration: shield with lock and encrypted data streams -->
+
+  <!-- Outer glow -->
+  <ellipse cx="160" cy="150" rx="120" ry="110" fill="#6366f1" opacity="0.04" />
+
+  <!-- Shield shape -->
+  <path d="M160 30 L260 75 L260 160 Q260 230 160 260 Q60 230 60 160 L60 75 Z"
+    stroke="#6366f1" stroke-width="2" fill="none" opacity="0.3" />
+  <path d="M160 45 L245 85 L245 155 Q245 215 160 245 Q75 215 75 155 L75 85 Z"
+    stroke="#8b5cf6" stroke-width="1.5" fill="#8b5cf6" opacity="0.05" />
+
+  <!-- Lock body -->
+  <rect x="130" y="120" width="60" height="50" rx="6" fill="#6366f1" opacity="0.15" stroke="#6366f1" stroke-width="1.5" />
+
+  <!-- Lock shackle -->
+  <path d="M140 120 L140 100 Q140 80 160 80 Q180 80 180 100 L180 120"
+    stroke="#8b5cf6" stroke-width="3" fill="none" stroke-linecap="round" />
+
+  <!-- Keyhole -->
+  <circle cx="160" cy="140" r="6" fill="#06b6d4" />
+  <rect x="157.5" y="143" width="5" height="12" rx="2" fill="#06b6d4" />
+
+  <!-- Encrypted data streams flowing into shield -->
+  <!-- Left stream -->
+  <g opacity="0.4">
+    <circle cx="20" cy="80" r="3" fill="#6366f1" />
+    <line x1="23" y1="80" x2="60" y2="100" stroke="#6366f1" stroke-width="1" stroke-dasharray="4 3" />
+    <circle cx="20" cy="120" r="2" fill="#6366f1" />
+    <line x1="22" y1="120" x2="60" y2="130" stroke="#6366f1" stroke-width="1" stroke-dasharray="4 3" />
+    <circle cx="25" cy="160" r="2.5" fill="#6366f1" />
+    <line x1="27.5" y1="160" x2="60" y2="155" stroke="#6366f1" stroke-width="1" stroke-dasharray="4 3" />
+  </g>
+
+  <!-- Right stream -->
+  <g opacity="0.4">
+    <circle cx="300" cy="90" r="3" fill="#8b5cf6" />
+    <line x1="297" y1="90" x2="260" y2="110" stroke="#8b5cf6" stroke-width="1" stroke-dasharray="4 3" />
+    <circle cx="295" cy="140" r="2" fill="#8b5cf6" />
+    <line x1="293" y1="140" x2="260" y2="140" stroke="#8b5cf6" stroke-width="1" stroke-dasharray="4 3" />
+    <circle cx="298" cy="180" r="2.5" fill="#8b5cf6" />
+    <line x1="295.5" y1="180" x2="260" y2="165" stroke="#8b5cf6" stroke-width="1" stroke-dasharray="4 3" />
+  </g>
+
+  <!-- Top stream -->
+  <g opacity="0.35">
+    <circle cx="120" cy="15" r="2" fill="#06b6d4" />
+    <line x1="120" y1="17" x2="140" y2="45" stroke="#06b6d4" stroke-width="1" stroke-dasharray="4 3" />
+    <circle cx="200" cy="10" r="2.5" fill="#06b6d4" />
+    <line x1="200" y1="12.5" x2="180" y2="45" stroke="#06b6d4" stroke-width="1" stroke-dasharray="4 3" />
+  </g>
+
+  <!-- Small checkmark badges -->
+  <g transform="translate(90, 195)">
+    <circle r="8" fill="#059669" opacity="0.15" />
+    <path d="M-3 0 L-1 2.5 L4 -2.5" stroke="#10b981" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+  <g transform="translate(230, 195)">
+    <circle r="8" fill="#059669" opacity="0.15" />
+    <path d="M-3 0 L-1 2.5 L4 -2.5" stroke="#10b981" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+</svg>

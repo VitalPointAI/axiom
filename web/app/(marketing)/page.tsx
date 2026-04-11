@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Image from 'next/image'
 
 import Hero from '@/components/marketing/hero'
 import SectionWrapper from '@/components/marketing/section-wrapper'
@@ -41,6 +42,15 @@ export default function LandingPage() {
         <h2 className="text-2xl md:text-3xl font-bold text-center mb-8">
           We read the blockchain directly. Exchange CSVs when you need them.
         </h2>
+        <div className="flex justify-center mb-10">
+          <Image
+            src="/illustrations/blockchain-network.svg"
+            alt="Interconnected blockchain network visualization"
+            width={400}
+            height={200}
+            className="w-full max-w-md h-auto opacity-80"
+          />
+        </div>
         <ChainShowcase />
       </SectionWrapper>
 
@@ -59,22 +69,33 @@ export default function LandingPage() {
 
       {/* Privacy Teaser */}
       <SectionWrapper aria-label="Privacy">
-        <div className="text-center max-w-2xl mx-auto">
-          <h2 className="text-2xl md:text-3xl font-bold mb-4">
-            Your data never leaves Canada.
-          </h2>
-          <p className="text-base text-muted-foreground mb-6">
-            Toronto-hosted infrastructure with post-quantum encryption,
-            client-side zero-knowledge computation, and passkey-derived
-            encryption keys. No third-party analytics. No US or UK cloud
-            providers. Private by design.
-          </p>
-          <a
-            href="/privacy"
-            className="text-indigo-500 hover:text-indigo-400 text-sm font-medium underline underline-offset-4"
-          >
-            Learn more about our privacy architecture
-          </a>
+        <div className="flex flex-col md:flex-row items-center gap-8 md:gap-16">
+          <div className="shrink-0">
+            <Image
+              src="/illustrations/shield-lock.svg"
+              alt="Encrypted data streams flowing into a secure shield"
+              width={280}
+              height={250}
+              className="w-56 md:w-64 h-auto"
+            />
+          </div>
+          <div className="text-center md:text-left max-w-xl">
+            <h2 className="text-2xl md:text-3xl font-bold mb-4">
+              Your data never leaves Canada.
+            </h2>
+            <p className="text-base text-muted-foreground mb-6">
+              Toronto-hosted infrastructure with post-quantum encryption,
+              client-side zero-knowledge computation, and passkey-derived
+              encryption keys. No third-party analytics. No US or UK cloud
+              providers. Private by design.
+            </p>
+            <a
+              href="/privacy"
+              className="text-indigo-500 hover:text-indigo-400 text-sm font-medium underline underline-offset-4"
+            >
+              Learn more about our privacy architecture
+            </a>
+          </div>
         </div>
       </SectionWrapper>
 

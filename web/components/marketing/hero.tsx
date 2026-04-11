@@ -1,6 +1,7 @@
 'use client'
 
 import { motion, useReducedMotion } from 'framer-motion'
+import Image from 'next/image'
 import Link from 'next/link'
 import WaitlistForm from './waitlist-form'
 import { Button } from '@/components/ui/button'
@@ -29,6 +30,20 @@ export default function Hero() {
           See how Axiom works
         </Button>
       </Link>
+
+      {/* Dashboard preview */}
+      <div className="mt-16 max-w-3xl mx-auto">
+        <div className="rounded-xl border border-border/50 shadow-2xl shadow-indigo-500/5 overflow-hidden">
+          <Image
+            src="/illustrations/dashboard-preview.svg"
+            alt="Axiom dashboard preview showing portfolio analytics, transaction history, and tax reporting"
+            width={560}
+            height={340}
+            className="w-full h-auto"
+            priority
+          />
+        </div>
+      </div>
     </div>
   )
 
