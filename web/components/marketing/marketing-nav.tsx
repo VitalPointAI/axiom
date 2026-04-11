@@ -31,7 +31,7 @@ export default function MarketingNav() {
     <nav
       className={`fixed top-0 w-full z-50 h-16 transition-all duration-300 ease-out ${
         scrolled
-          ? 'bg-background/90 backdrop-blur-md border-b border-border'
+          ? 'bg-background border-b border-border shadow-sm'
           : 'bg-transparent'
       }`}
     >
