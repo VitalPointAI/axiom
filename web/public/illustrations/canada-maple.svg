@@ -2,8 +2,8 @@
   <!-- Canadian sovereignty illustration: maple leaf outline with data/server motif -->
 
   <!-- Subtle background circle -->
-  <circle cx="150" cy="140" r="120" fill="#6366f1" opacity="0.03" />
-  <circle cx="150" cy="140" r="90" fill="#8b5cf6" opacity="0.03" />
+  <circle cx="150" cy="140" r="120" fill="#6366f1" opacity="0.15" />
+  <circle cx="150" cy="140" r="90" fill="#8b5cf6" opacity="0.15" />
 
   <!-- Stylized maple leaf (outline only, geometric/modern) -->
   <path d="M150 30
@@ -11,7 +11,7 @@
     L170 140 L165 175 L150 155 L135 175 L130 140
     L90 155 L110 115 L80 95 L115 90 L100 55
     L138 70 Z"
-    stroke="#6366f1" stroke-width="1.5" fill="#6366f1" opacity="0.06"
+    stroke="#6366f1" stroke-width="1.5" fill="#6366f1" opacity="0.12"
     stroke-linejoin="round" />
 
   <!-- Stem -->
@@ -38,5 +38,5 @@
   </g>
 
   <!-- "Toronto" text position indicator -->
-  <rect x="110" y="262" width="80" height="4" rx="2" fill="currentColor" opacity="0.08" />
+  <rect x="110" y="262" width="80" height="4" rx="2" fill="#e2e8f0" opacity="0.15" />
 </svg>
