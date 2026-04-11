@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { usePlausible } from 'next-plausible'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -19,6 +20,7 @@ interface WaitlistFormProps {
 
 export default function WaitlistForm({ variant = 'inline' }: WaitlistFormProps) {
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'duplicate' | 'error'>('idle')
+  const plausible = usePlausible()
 
   const {
     register,
@@ -41,6 +43,7 @@ export default function WaitlistForm({ variant = 'inline' }: WaitlistFormProps) 
 
       if (res.status === 201) {
         setStatus('success')
+        try { plausible('waitlist_signup') } catch {}
       } else if (res.status === 200 && json.already_registered) {
         setStatus('duplicate')
       } else {
