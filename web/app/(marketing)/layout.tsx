@@ -8,7 +8,7 @@ export default function MarketingLayout({ children }: { children: React.ReactNod
     <PlausibleProvider src="https://analytics.axiom.tax/js/pa-axiom.js" init={{ endpoint: 'https://analytics.axiom.tax/api/event' }}>
       <AnimatedBg />
       <MarketingNav />
-      <main className="relative min-h-screen">{children}</main>
+      <main className="relative min-h-screen pt-16">{children}</main>
       <MarketingFooter />
     </PlausibleProvider>
   )
