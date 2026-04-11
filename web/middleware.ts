@@ -10,14 +10,25 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // === PUBLIC ROUTES (no auth check needed) ===
-  const publicPaths = [
-    '/auth',       // Auth page
-    '/_next',      // Next.js internals
+  // Exact-match marketing routes
+  const publicExactPaths = [
+    '/',
+    '/features',
+    '/pricing',
+    '/privacy',
+    '/compliance',
+    '/about',
     '/favicon.ico',
     '/robots.txt',
   ];
+  // Prefix-match routes (auth, Next.js internals, API endpoints)
+  const publicPrefixPaths = [
+    '/auth',
+    '/_next',
+    '/api/waitlist',
+  ];
 
-  if (publicPaths.some(path => pathname.startsWith(path))) {
+  if (publicExactPaths.includes(pathname) || publicPrefixPaths.some(path => pathname.startsWith(path))) {
     const response = NextResponse.next();
     addSecurityHeaders(response);
     return response;
