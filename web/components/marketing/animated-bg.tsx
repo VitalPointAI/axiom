@@ -17,10 +17,10 @@ export default function AnimatedBg() {
     let t = 0
 
     function animate() {
-      t += 0.002
-      const x = Math.sin(t * 0.7) * 30
-      const y = Math.cos(t * 0.5) * 20
-      const s = 1 + Math.sin(t * 0.3) * 0.02
+      t += 0.003
+      const x = Math.sin(t * 0.7) * 80
+      const y = Math.cos(t * 0.5) * 60
+      const s = 1 + Math.sin(t * 0.3) * 0.05
       el!.style.transform = `translate(${x}px, ${y}px) scale(${s})`
       frame = requestAnimationFrame(animate)
     }
@@ -36,9 +36,9 @@ export default function AnimatedBg() {
       aria-hidden="true"
       style={{
         background: [
-          'radial-gradient(ellipse 800px 600px at 25% 15%, rgba(99,102,241,0.18) 0%, transparent 70%)',
-          'radial-gradient(ellipse 600px 600px at 75% 55%, rgba(139,92,246,0.12) 0%, transparent 70%)',
-          'radial-gradient(ellipse 500px 400px at 45% 85%, rgba(6,182,212,0.10) 0%, transparent 70%)',
+          'radial-gradient(ellipse 900px 700px at 25% 15%, rgba(99,102,241,0.28) 0%, transparent 70%)',
+          'radial-gradient(ellipse 700px 700px at 75% 55%, rgba(139,92,246,0.20) 0%, transparent 70%)',
+          'radial-gradient(ellipse 600px 500px at 45% 85%, rgba(6,182,212,0.16) 0%, transparent 70%)',
         ].join(', '),
         willChange: 'transform',
       }}
