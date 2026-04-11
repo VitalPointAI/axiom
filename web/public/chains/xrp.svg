@@ -1,11 +1,5 @@
-<svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- XRP mark — X shape formed by converging/diverging lines -->
-  <!-- Top arms -->
-  <path d="M10 8 L19 18 L24 14 L29 18 L38 8" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-  <!-- Bottom arms -->
-  <path d="M10 40 L19 30 L24 34 L29 30 L38 40" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-  <!-- Center connection -->
-  <circle cx="24" cy="24" r="3" fill="currentColor" />
-  <line x1="24" y1="14" x2="24" y2="21" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" />
-  <line x1="24" y1="27" x2="24" y2="34" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" />
+<svg viewBox="0 0 512 424" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Official XRP logo from cryptologos.cc -->
+  <path d="M437,0h74L357,152.48c-55.77,55.19-146.19,55.19-202,0L.94,0H75L192,115.83a91.11,91.11,0,0,0,127.91,0Z" fill="currentColor"/>
+  <path d="M74.05,424H0L155,270.58c55.77-55.19,146.19-55.19,202,0L512,424H438L320,307.23a91.11,91.11,0,0,0-127.91,0Z" fill="currentColor"/>
 </svg>

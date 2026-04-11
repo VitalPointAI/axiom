@@ -1,18 +1,25 @@
 <svg viewBox="0 0 200 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Axiom full logo: logomark + wordmark -->
+  <!-- Axiom full logo: convergence A mark + wordmark -->
+  <defs>
+    <linearGradient id="wm-crossbar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#8b5cf6" />
+    </linearGradient>
+  </defs>
 
-  <!-- Logomark (isometric cube, scaled to fit 48x48) -->
+  <!-- Logomark (scaled to 48x48) -->
   <g transform="translate(0, 0)">
-    <!-- Top face -->
-    <path d="M24 3 L42 13.5 L24 24 L6 13.5 Z" fill="#06b6d4" />
-    <!-- Left face -->
-    <path d="M6 13.5 L24 24 L24 45 L6 34.5 Z" fill="#6366f1" />
-    <!-- Right face -->
-    <path d="M42 13.5 L42 34.5 L24 45 L24 24 Z" fill="#8b5cf6" />
+    <!-- Left leg -->
+    <path d="M6 42 L21.75 6 L24 6 L12.75 42 Z" fill="#6366f1" />
+    <!-- Right leg -->
+    <path d="M42 42 L26.25 6 L24 6 L35.25 42 Z" fill="#8b5cf6" />
+    <!-- Crossbar -->
+    <rect x="12" y="27" width="24" height="3.75" rx="1.875" fill="url(#wm-crossbar)" />
+    <!-- Apex -->
+    <circle cx="24" cy="6" r="3.75" fill="#06b6d4" />
   </g>
 
-  <!-- Wordmark "Axiom" in system font (Inter Bold, tracking -0.02em) -->
-  <!-- Using SVG text for font flexibility; consumers can convert to paths -->
+  <!-- Wordmark -->
   <text
     x="56"
     y="31"

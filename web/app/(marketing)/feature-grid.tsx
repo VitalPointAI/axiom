@@ -15,7 +15,7 @@ const features = [
     icon: Zap,
     title: 'Direct Blockchain Indexing',
     description:
-      'We read the blockchain directly. No CSV downloads, no copy-paste errors. DeFi transactions captured natively.',
+      'We read the blockchain directly for on-chain transactions. CSV import available for centralized exchanges without APIs.',
   },
   {
     icon: Bot,

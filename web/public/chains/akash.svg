@@ -1,15 +1,6 @@
-<svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Akash Network mark — stylized "A" / cloud computing shape -->
-  <path
-    d="M24 6 L40 38 L34 38 L30 30 L18 30 L14 38 L8 38 Z"
-    fill="#FF414C"
-  />
-  <!-- Crossbar cutout (creates the A shape) -->
-  <path
-    d="M20 26 L24 16 L28 26 Z"
-    fill="white"
-    opacity="0.0"
-  />
-  <!-- Inner accent bar -->
-  <rect x="19" y="25" width="10" height="3" rx="1" fill="white" opacity="0.3" />
+<svg viewBox="0 0 30.4 26.6" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Official Akash Network logo from cryptologos.cc -->
+  <polygon points="9.9,0 25.3,26.6 30.4,17.7 20.1,0" fill="#ED3524"/>
+  <polygon points="9.9,18.2 15.2,26.6 25.8,26.6 20.5,18.2" fill="#AE1E23"/>
+  <polygon points="5.3,8.4 0,17.5 5.3,26.6 16,8.4" fill="#ED3524"/>
 </svg>

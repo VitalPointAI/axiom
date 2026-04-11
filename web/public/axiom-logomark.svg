@@ -1,19 +1,42 @@
 <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Axiom logomark: isometric cube — foundational building block -->
-  <!-- Three faces represent the brand gradient: indigo → purple → cyan -->
+  <!--
+    Axiom logomark: Geometric "A" — convergence mark
+    Two paths rise from separate origins and converge at an apex,
+    representing multiple blockchain data sources converging into
+    one accurate tax calculation — the "axiom" (self-evident truth).
 
-  <!-- Top face (cyan — brightest, top-lit) -->
-  <path d="M32 4 L56 18 L32 32 L8 18 Z" fill="#06b6d4" />
+    Left leg  = indigo  (CRA compliance)
+    Right leg = purple  (blockchain-native)
+    Apex node = cyan    (clarity / result)
+    Crossbar  = gradient (the connection between data sources)
+  -->
+  <defs>
+    <linearGradient id="crossbar-grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#8b5cf6" />
+    </linearGradient>
+    <linearGradient id="left-leg" x1="0.5" y1="1" x2="0.5" y2="0">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.6" />
+      <stop offset="100%" stop-color="#6366f1" />
+    </linearGradient>
+    <linearGradient id="right-leg" x1="0.5" y1="1" x2="0.5" y2="0">
+      <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.6" />
+      <stop offset="100%" stop-color="#8b5cf6" />
+    </linearGradient>
+  </defs>
 
-  <!-- Left face (indigo — shadow side) -->
-  <path d="M8 18 L32 32 L32 60 L8 46 Z" fill="#6366f1" />
+  <!-- Left leg of the A -->
+  <path d="M8 56 L29 8 L32 8 L17 56 Z" fill="url(#left-leg)" />
 
-  <!-- Right face (purple — mid-tone) -->
-  <path d="M56 18 L56 46 L32 60 L32 32 Z" fill="#8b5cf6" />
+  <!-- Right leg of the A -->
+  <path d="M56 56 L35 8 L32 8 L47 56 Z" fill="url(#right-leg)" />
 
-  <!-- Subtle edge highlights for definition -->
-  <path d="M32 4 L56 18 L32 32 L8 18 Z" stroke="rgba(255,255,255,0.1)" stroke-width="0.5" fill="none" />
-  <path d="M32 32 L32 60" stroke="rgba(255,255,255,0.08)" stroke-width="0.5" />
-  <path d="M8 18 L8 46" stroke="rgba(0,0,0,0.15)" stroke-width="0.5" />
-  <path d="M56 18 L56 46" stroke="rgba(0,0,0,0.1)" stroke-width="0.5" />
+  <!-- Crossbar — the connection -->
+  <rect x="16" y="36" width="32" height="5" rx="2.5" fill="url(#crossbar-grad)" />
+
+  <!-- Apex node — the convergence point / truth -->
+  <circle cx="32" cy="8" r="5" fill="#06b6d4" />
+
+  <!-- Subtle glow behind apex -->
+  <circle cx="32" cy="8" r="8" fill="#06b6d4" opacity="0.15" />
 </svg>

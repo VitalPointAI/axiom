@@ -39,7 +39,7 @@ export default function LandingPage() {
       {/* Chain Showcase */}
       <SectionWrapper aria-label="Multi-chain support">
         <h2 className="text-2xl md:text-3xl font-bold text-center mb-8">
-          They make you download CSVs. We read the blockchain directly.
+          We read the blockchain directly. Exchange CSVs when you need them.
         </h2>
         <ChainShowcase />
       </SectionWrapper>

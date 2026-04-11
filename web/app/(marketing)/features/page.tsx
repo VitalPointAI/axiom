@@ -33,7 +33,7 @@ const features = [
     icon: Calculator,
     title: 'CRA ACB Compliance',
     description:
-      'Adjusted Cost Base (ACB) — the average price you paid across all units of each cryptocurrency — calculated automatically across all your wallets. The method the CRA requires.',
+      'Adjusted Cost Base (ACB), the average price you paid across all units of each cryptocurrency, calculated automatically across all your wallets. The method the CRA requires.',
   },
   {
     icon: AlertTriangle,
@@ -51,13 +51,13 @@ const features = [
     icon: Link2,
     title: 'Direct Blockchain Indexing',
     description:
-      'No CSV downloads. No copy-paste. Axiom reads your transaction history directly from the blockchain — every swap, stake, bridge, and transfer captured automatically.',
+      'Axiom reads your on-chain transaction history directly from the blockchain. Every swap, stake, bridge, and transfer captured automatically. CSV import available for centralized exchanges without APIs.',
   },
   {
     icon: Zap,
     title: 'DeFi-Native Transaction Capture',
     description:
-      'Liquidity pools, yield farming, token swaps, bridging — Axiom understands DeFi natively. Complex multi-step transactions are decomposed and classified correctly.',
+      'Liquidity pools, yield farming, token swaps, bridging: Axiom understands DeFi natively. Complex multi-step transactions are decomposed and classified correctly.',
   },
   {
     icon: Brain,
@@ -69,13 +69,13 @@ const features = [
     icon: Globe,
     title: 'Multi-Chain Support',
     description:
-      'NEAR Protocol, Ethereum, Polygon, Optimism, Cronos, Akash, XRP — and more chains coming. One platform for all your crypto tax reporting.',
+      'NEAR Protocol, Ethereum, Polygon, Optimism, Cronos, Akash, XRP, and more chains coming. One platform for all your crypto tax reporting.',
   },
   {
     icon: FileText,
     title: 'Complete Tax Report Generation',
     description:
-      'Capital gains and losses, income summaries, cost basis tracking — everything your accountant needs in a CRA-ready package. Export as CSV or PDF.',
+      'Capital gains and losses, income summaries, cost basis tracking. Everything your accountant needs in a CRA-ready package. Export as CSV or PDF.',
   },
 ]
 
@@ -84,13 +84,13 @@ const workflowSteps = [
     step: 1,
     title: 'Connect Your Wallets',
     description:
-      'Add your wallet addresses. Axiom supports NEAR, Ethereum, Polygon, and more. No private keys needed — just your public address.',
+      'Add your wallet addresses. Axiom supports NEAR, Ethereum, Polygon, and more. No private keys needed, just your public address.',
   },
   {
     step: 2,
     title: 'Automatic Indexing',
     description:
-      'Axiom reads the blockchain directly. Every transaction is pulled, parsed, and stored — no CSVs, no manual entry, no missing data.',
+      'Axiom reads the blockchain directly. Every on-chain transaction is pulled, parsed, and stored automatically. Exchange transactions can be imported via CSV.',
   },
   {
     step: 3,
@@ -153,8 +153,8 @@ export default function FeaturesPage() {
       {/* Automation Deep-Dive */}
       <SectionWrapper aria-label="How Axiom works">
         <h2 className="text-2xl md:text-3xl font-bold mb-4">
-          They make you download CSVs.{' '}
-          <span className="gradient-text">We read the blockchain directly.</span>
+          We read the blockchain directly.{' '}
+          <span className="gradient-text">No missing on-chain transactions.</span>
         </h2>
         <p className="text-base text-muted-foreground max-w-2xl mb-12">
           Five steps from wallet to tax report. No spreadsheets. No manual

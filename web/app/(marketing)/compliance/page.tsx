@@ -32,13 +32,13 @@ const filingSteps = [
   {
     icon: Wallet,
     title: 'Connect your wallets',
-    description: 'Add your wallet addresses — NEAR, Ethereum, Polygon, and more.',
+    description: 'Add your wallet addresses: NEAR, Ethereum, Polygon, and more.',
   },
   {
     icon: Search,
     title: 'Axiom indexes transactions',
     description:
-      'Every transaction is pulled directly from the blockchain. No CSVs, no manual entry.',
+      'On-chain transactions are pulled directly from the blockchain. Exchange data can be imported via CSV.',
   },
   {
     icon: Brain,
@@ -50,7 +50,7 @@ const filingSteps = [
     icon: Calculator,
     title: 'Reports generated',
     description:
-      'ACB calculations, capital gains/losses, income summaries — all computed per CRA rules.',
+      'ACB calculations, capital gains/losses, income summaries, all computed per CRA rules.',
   },
   {
     icon: Download,
@@ -94,7 +94,7 @@ export default function CompliancePage() {
             </h2>
             <p className="text-base text-muted-foreground max-w-2xl mb-4">
               The CRA requires the{' '}
-              <strong>Adjusted Cost Base (ACB)</strong> method — the average
+              <strong>Adjusted Cost Base (ACB)</strong> method, the average
               price you paid across all units of each cryptocurrency. Unlike
               FIFO (First In, First Out) or LIFO (Last In, First Out) used in
               some other countries, Canada uses the average cost method.
@@ -131,13 +131,13 @@ export default function CompliancePage() {
               <strong>superficial loss</strong>.
             </p>
             <p className="text-base text-muted-foreground max-w-2xl mb-4">
-              The denied loss is not gone forever — it gets added to the ACB of
+              The denied loss is not gone forever. It gets added to the ACB of
               the repurchased units. But getting this wrong means overstating
               your capital losses, which the CRA will catch.
             </p>
             <p className="text-base text-muted-foreground max-w-2xl">
               <strong>Axiom detects superficial losses automatically</strong>{' '}
-              with proration — splitting the denied loss proportionally when you
+              with proration, splitting the denied loss proportionally when you
               repurchase fewer units than you sold. Most platforms either ignore
               this rule entirely or apply it incorrectly.
             </p>
@@ -161,7 +161,7 @@ export default function CompliancePage() {
                 Crypto-Asset Reporting Framework (CARF)
               </strong>{' '}
               takes effect in 2026, requiring exchanges and platforms to report
-              crypto transactions to tax authorities — similar to how banks
+              crypto transactions to tax authorities, similar to how banks
               report interest income today.
             </p>
             <p className="text-base text-muted-foreground max-w-2xl mb-4">

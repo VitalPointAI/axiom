@@ -48,7 +48,7 @@ const roadmapItems = [
     icon: Globe,
     title: 'Multi-Chain Expansion',
     description:
-      'Solana, Bitcoin, Cosmos ecosystem, Avalanche, Arbitrum — and any chain our users need.',
+      'Solana, Bitcoin, Cosmos ecosystem, Avalanche, Arbitrum, and any chain our users need.',
   },
   {
     icon: Repeat,
@@ -90,8 +90,8 @@ export default function AboutPage() {
             proration.
           </p>
           <p className="text-base text-muted-foreground">
-            So we built something better. Axiom reads the blockchain directly —
-            no CSV downloads, no missing data. It calculates ACB the way the CRA
+            So we built something better. Axiom reads the blockchain directly
+            for on-chain transactions, with CSV import for exchange data. It calculates ACB the way the CRA
             requires. It keeps every byte of your data in Toronto. And it&apos;s
             built to be the most accurate crypto tax platform in Canada.
           </p>

@@ -1,7 +1,7 @@
 'use client'
 
 import { motion, useReducedMotion } from 'framer-motion'
-import { Check, Globe, Monitor, Server } from 'lucide-react'
+import { Check, Globe, Monitor, Server, ArrowRight, ArrowDown } from 'lucide-react'
 
 interface DataItem {
   label: string
@@ -16,7 +16,7 @@ const browserToServer: DataItem[] = [
 
 const serverToExternal: DataItem[] = [
   { label: 'Blockchain RPC queries (public data only)', staysLocal: false },
-  { label: 'Price API requests (CoinGecko - anonymous)', staysLocal: false },
+  { label: 'Price API requests (CoinGecko, anonymous)', staysLocal: false },
 ]
 
 const staysOnServer: DataItem[] = [
@@ -44,9 +44,9 @@ function DataItemRow({ item }: { item: DataItem }) {
   return (
     <div className="flex items-center gap-2 text-sm">
       {item.staysLocal ? (
-        <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+        <Check className="w-4 h-4 text-emerald-400 shrink-0" />
       ) : (
-        <Globe className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+        <Globe className="w-4 h-4 text-muted-foreground shrink-0" />
       )}
       <span className={item.staysLocal ? 'text-foreground' : 'text-muted-foreground'}>
         {item.label}
@@ -59,21 +59,25 @@ function FlowBox({
   title,
   subtitle,
   icon: Icon,
+  iconColor = 'text-muted-foreground',
   children,
   borderColor = 'border-border',
+  className = '',
 }: {
   title: string
   subtitle?: string
   icon: typeof Monitor
+  iconColor?: string
   children: React.ReactNode
   borderColor?: string
+  className?: string
 }) {
   return (
-    <div className={`border ${borderColor} rounded-lg p-4 md:p-6 bg-card`}>
+    <div className={`border ${borderColor} rounded-lg p-4 md:p-6 bg-card ${className}`}>
       <div className="flex items-center gap-2 mb-4">
-        <Icon className="w-5 h-5 text-muted-foreground" />
+        <Icon className={`w-5 h-5 ${iconColor}`} />
         <div>
-          <h3 className="text-lg font-semibold">{title}</h3>
+          <h3 className="text-lg font-semibold text-foreground">{title}</h3>
           {subtitle && (
             <p className="text-sm text-muted-foreground">{subtitle}</p>
           )}
@@ -85,115 +89,57 @@ function FlowBox({
 }
 
 function DesktopDiagram() {
-  const shouldReduceMotion = useReducedMotion()
-
   return (
-    <div className="hidden md:block relative">
-      <svg
-        viewBox="0 0 900 400"
-        className="w-full h-auto"
-        aria-label="Data flow diagram showing what stays on the Axiom server in Toronto versus what crosses the network"
+    <div className="hidden md:grid grid-cols-[1fr_auto_1.2fr_auto_1fr] items-center gap-4">
+      {/* Your Browser */}
+      <FlowBox title="Your Browser" icon={Monitor}>
+        <p className="text-xs text-muted-foreground mb-2">Data you send:</p>
+        {browserToServer.map((item) => (
+          <DataItemRow key={item.label} item={item} />
+        ))}
+      </FlowBox>
+
+      {/* Arrow */}
+      <ArrowRight className="w-6 h-6 text-indigo-500/50" />
+
+      {/* Axiom Server */}
+      <FlowBox
+        title="Axiom Server"
+        subtitle="Toronto"
+        icon={Server}
+        iconColor="text-indigo-400"
+        borderColor="border-indigo-500/50"
       >
-        {/* Your Browser Box */}
-        <rect x="20" y="50" width="220" height="300" rx="12" className="fill-card stroke-border" strokeWidth="1.5" />
-        <foreignObject x="30" y="60" width="200" height="280">
-          <div className="text-sm space-y-3 p-2">
-            <div className="flex items-center gap-2 mb-3">
-              <Monitor className="w-4 h-4 text-muted-foreground" />
-              <span className="font-semibold">Your Browser</span>
-            </div>
-            <p className="text-xs text-muted-foreground mb-2">Data you send:</p>
-            {browserToServer.map((item) => (
-              <DataItemRow key={item.label} item={item} />
-            ))}
-          </div>
-        </foreignObject>
+        <div className="border border-emerald-500/30 rounded-md p-3 bg-emerald-500/5">
+          <p className="text-xs text-emerald-400 font-medium mb-2">
+            Stays local, never leaves Canada
+          </p>
+          {staysOnServer.map((item) => (
+            <DataItemRow key={item.label} item={item} />
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          All stored data and processed results stay in Canada.
+        </p>
+      </FlowBox>
 
-        {/* Axiom Server Box - center, highlighted */}
-        <rect x="310" y="20" width="280" height="360" rx="12" className="fill-card stroke-indigo-500/50" strokeWidth="2" />
-        <foreignObject x="320" y="30" width="260" height="340">
-          <div className="text-sm space-y-3 p-2">
-            <div className="flex items-center gap-2 mb-2">
-              <Server className="w-4 h-4 text-indigo-400" />
-              <div>
-                <span className="font-semibold text-indigo-400">Axiom Server</span>
-                <span className="text-xs text-muted-foreground ml-1">(Toronto)</span>
-              </div>
-            </div>
-            <div className="border border-emerald-500/30 rounded-md p-2 bg-emerald-500/5">
-              <p className="text-xs text-emerald-400 font-medium mb-2">Stays local - never leaves Canada</p>
-              {staysOnServer.map((item) => (
-                <DataItemRow key={item.label} item={item} />
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              All stored data and processed results stay in Canada.
-            </p>
-          </div>
-        </foreignObject>
+      {/* Arrow */}
+      <ArrowRight className="w-6 h-6 text-muted-foreground/30" />
 
-        {/* External APIs Box */}
-        <rect x="660" y="80" width="220" height="240" rx="12" className="fill-card stroke-border" strokeWidth="1.5" strokeDasharray="6 3" />
-        <foreignObject x="670" y="90" width="200" height="220">
-          <div className="text-sm space-y-3 p-2">
-            <div className="flex items-center gap-2 mb-3">
-              <Globe className="w-4 h-4 text-muted-foreground" />
-              <span className="font-semibold text-muted-foreground">External APIs</span>
-            </div>
-            <p className="text-xs text-muted-foreground mb-2">Public data only:</p>
-            {serverToExternal.map((item) => (
-              <DataItemRow key={item.label} item={item} />
-            ))}
-            <p className="text-xs text-muted-foreground mt-3">
-              No user data is sent to external services.
-            </p>
-          </div>
-        </foreignObject>
-
-        {/* Connection lines */}
-        {/* Browser -> Server */}
-        {shouldReduceMotion ? (
-          <>
-            <line x1="240" y1="200" x2="310" y2="200" className="stroke-indigo-500/40" strokeWidth="2" markerEnd="url(#arrowhead)" />
-            {/* Server -> External */}
-            <line x1="590" y1="200" x2="660" y2="200" className="stroke-muted-foreground/30" strokeWidth="1.5" strokeDasharray="6 3" markerEnd="url(#arrowhead-muted)" />
-          </>
-        ) : (
-          <>
-            <motion.line
-              x1="240" y1="200" x2="310" y2="200"
-              className="stroke-indigo-500/40"
-              strokeWidth="2"
-              initial={{ pathLength: 0 }}
-              whileInView={{ pathLength: 1 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.8, ease: 'easeOut', delay: 0.3 }}
-              markerEnd="url(#arrowhead)"
-            />
-            <motion.line
-              x1="590" y1="200" x2="660" y2="200"
-              className="stroke-muted-foreground/30"
-              strokeWidth="1.5"
-              strokeDasharray="6 3"
-              initial={{ pathLength: 0 }}
-              whileInView={{ pathLength: 1 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.8, ease: 'easeOut', delay: 0.5 }}
-              markerEnd="url(#arrowhead-muted)"
-            />
-          </>
-        )}
-
-        {/* Arrow markers */}
-        <defs>
-          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-            <polygon points="0 0, 10 3.5, 0 7" className="fill-indigo-500/40" />
-          </marker>
-          <marker id="arrowhead-muted" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-            <polygon points="0 0, 10 3.5, 0 7" className="fill-muted-foreground/30" />
-          </marker>
-        </defs>
-      </svg>
+      {/* External APIs */}
+      <FlowBox
+        title="External APIs"
+        icon={Globe}
+        borderColor="border-border border-dashed"
+      >
+        <p className="text-xs text-muted-foreground mb-2">Public data only:</p>
+        {serverToExternal.map((item) => (
+          <DataItemRow key={item.label} item={item} />
+        ))}
+        <p className="text-xs text-muted-foreground mt-3">
+          No user data is sent to external services.
+        </p>
+      </FlowBox>
     </div>
   )
 }
@@ -201,29 +147,27 @@ function DesktopDiagram() {
 function MobileDiagram() {
   return (
     <div className="md:hidden space-y-4">
-      <FlowBox title="Your Browser" icon={Monitor} borderColor="border-border">
+      <FlowBox title="Your Browser" icon={Monitor}>
         <p className="text-xs text-muted-foreground mb-2">Data you send:</p>
         {browserToServer.map((item) => (
           <DataItemRow key={item.label} item={item} />
         ))}
       </FlowBox>
 
-      {/* Vertical arrow */}
       <div className="flex justify-center">
-        <div className="w-px h-8 bg-indigo-500/40 relative">
-          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-t-[8px] border-transparent border-t-indigo-500/40" />
-        </div>
+        <ArrowDown className="w-6 h-6 text-indigo-500/50" />
       </div>
 
       <FlowBox
         title="Axiom Server"
         subtitle="Toronto"
         icon={Server}
+        iconColor="text-indigo-400"
         borderColor="border-indigo-500/50"
       >
         <div className="border border-emerald-500/30 rounded-md p-3 bg-emerald-500/5 mb-3">
           <p className="text-xs text-emerald-400 font-medium mb-2">
-            Stays local - never leaves Canada
+            Stays local, never leaves Canada
           </p>
           {staysOnServer.map((item) => (
             <DataItemRow key={item.label} item={item} />
@@ -234,11 +178,8 @@ function MobileDiagram() {
         </p>
       </FlowBox>
 
-      {/* Vertical arrow */}
       <div className="flex justify-center">
-        <div className="w-px h-8 bg-muted-foreground/30 relative">
-          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-t-[8px] border-transparent border-t-muted-foreground/30" />
-        </div>
+        <ArrowDown className="w-6 h-6 text-muted-foreground/30" />
       </div>
 
       <FlowBox
