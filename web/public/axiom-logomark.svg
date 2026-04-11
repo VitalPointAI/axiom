@@ -2,49 +2,20 @@
   <!--
     Axiom logomark: Convergence Node
     Three data streams flow inward to a central point of truth.
-    Represents multiple blockchains/sources converging into one
-    accurate tax calculation.
-
-    Top stream    = cyan    (clarity / the result)
-    Left stream   = indigo  (compliance / CRA)
-    Right stream  = purple  (blockchain-native / DeFi)
-    Center node   = white   (the axiom / truth)
   -->
-  <defs>
-    <linearGradient id="stream-top" x1="0.5" y1="0" x2="0.5" y2="1">
-      <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.3" />
-      <stop offset="100%" stop-color="#06b6d4" />
-    </linearGradient>
-    <linearGradient id="stream-left" x1="0" y1="1" x2="1" y2="0">
-      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.3" />
-      <stop offset="100%" stop-color="#6366f1" />
-    </linearGradient>
-    <linearGradient id="stream-right" x1="1" y1="1" x2="0" y2="0">
-      <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.3" />
-      <stop offset="100%" stop-color="#8b5cf6" />
-    </linearGradient>
-  </defs>
 
-  <!-- Three converging streams (rounded strokes, tapered via gradient) -->
-  <!-- Top stream: flows down to center -->
-  <line x1="32" y1="4" x2="32" y2="28" stroke="url(#stream-top)" stroke-width="5" stroke-linecap="round" />
+  <!-- Three converging streams (solid color, no fade) -->
+  <!-- Top stream: cyan, flows down to center -->
+  <line x1="32" y1="2" x2="32" y2="24" stroke="#06b6d4" stroke-width="6" stroke-linecap="round" />
 
-  <!-- Bottom-left stream: flows up-right to center -->
-  <line x1="8" y1="52" x2="28" y2="34" stroke="url(#stream-left)" stroke-width="5" stroke-linecap="round" />
+  <!-- Bottom-left stream: indigo, flows up-right to center -->
+  <line x1="7" y1="54" x2="26" y2="36" stroke="#6366f1" stroke-width="6" stroke-linecap="round" />
 
-  <!-- Bottom-right stream: flows up-left to center -->
-  <line x1="56" y1="52" x2="36" y2="34" stroke="url(#stream-right)" stroke-width="5" stroke-linecap="round" />
+  <!-- Bottom-right stream: purple, flows up-left to center -->
+  <line x1="57" y1="54" x2="38" y2="36" stroke="#8b5cf6" stroke-width="6" stroke-linecap="round" />
 
-  <!-- Source nodes (small dots at the origin of each stream) -->
-  <circle cx="32" cy="4" r="3" fill="#06b6d4" opacity="0.5" />
-  <circle cx="8" cy="52" r="3" fill="#6366f1" opacity="0.5" />
-  <circle cx="56" cy="52" r="3" fill="#8b5cf6" opacity="0.5" />
-
-  <!-- Central convergence node (the axiom / truth) -->
-  <circle cx="32" cy="32" r="8" fill="#6366f1" />
-  <circle cx="32" cy="32" r="8" fill="url(#stream-right)" opacity="0.5" />
-  <circle cx="32" cy="32" r="4" fill="white" opacity="0.9" />
-
-  <!-- Subtle outer glow -->
-  <circle cx="32" cy="32" r="12" fill="#6366f1" opacity="0.08" />
+  <!-- Central convergence node -->
+  <circle cx="32" cy="31" r="9" fill="#6366f1" />
+  <circle cx="32" cy="31" r="9" fill="#8b5cf6" opacity="0.4" />
+  <circle cx="32" cy="31" r="4.5" fill="white" opacity="0.95" />
 </svg>

@@ -1,13 +1,14 @@
 <svg viewBox="0 0 200 48" fill="none" xmlns="http://www.w3.org/2000/svg">
   <!-- Axiom full logo: convergence node + wordmark -->
 
-  <!-- Logomark (scaled to fit 48x48) -->
+  <!-- Logomark (scaled to 48x48) -->
   <g transform="translate(0, 0)">
-    <line x1="24" y1="3" x2="24" y2="21" stroke="#06b6d4" stroke-width="3.75" stroke-linecap="round" />
-    <line x1="6" y1="39" x2="21" y2="25.5" stroke="#6366f1" stroke-width="3.75" stroke-linecap="round" />
-    <line x1="42" y1="39" x2="27" y2="25.5" stroke="#8b5cf6" stroke-width="3.75" stroke-linecap="round" />
-    <circle cx="24" cy="24" r="6" fill="#6366f1" />
-    <circle cx="24" cy="24" r="3" fill="white" />
+    <line x1="24" y1="1.5" x2="24" y2="18" stroke="#06b6d4" stroke-width="4.5" stroke-linecap="round" />
+    <line x1="5" y1="40.5" x2="19.5" y2="27" stroke="#6366f1" stroke-width="4.5" stroke-linecap="round" />
+    <line x1="43" y1="40.5" x2="28.5" y2="27" stroke="#8b5cf6" stroke-width="4.5" stroke-linecap="round" />
+    <circle cx="24" cy="23" r="6.75" fill="#6366f1" />
+    <circle cx="24" cy="23" r="6.75" fill="#8b5cf6" opacity="0.4" />
+    <circle cx="24" cy="23" r="3.4" fill="white" opacity="0.95" />
   </g>
 
   <!-- Wordmark -->
