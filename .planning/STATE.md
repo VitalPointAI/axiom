@@ -131,6 +131,8 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Phase 11 added: Robustness & Missing Features — audit log consistency, fragile area hardening, data export validation
 - Phase 12 added: User Onboarding — guide new users through setup (wallets, exchanges, reports, validation, reconciliation, warning/error resolution)
 - Phase 13 added: Reliable Indexing — investigate and implement the most reliable, robust, accurate, cost-effective indexing solution for 100% transaction data coverage; evaluate TheGraph, SubQuery, dedicated cloud indexing servers; cost/benefit analysis of managed services vs self-hosted
+- Phase 14 added: Marketing Frontend — public-facing marketing site with waitlist, privacy/compliance pages, Plausible analytics
+- Phase 15 added: Account Block Index Integer Encoding — reduce NEAR index from ~1.3 TB to ~260 GB via dictionary-encoded integer IDs, maintain sub-2-minute wallet lookups
 
 ## Blockers
 
