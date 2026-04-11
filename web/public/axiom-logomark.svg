@@ -1,42 +1,50 @@
 <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
   <!--
-    Axiom logomark: Geometric "A" — convergence mark
-    Two paths rise from separate origins and converge at an apex,
-    representing multiple blockchain data sources converging into
-    one accurate tax calculation — the "axiom" (self-evident truth).
+    Axiom logomark: Convergence Node
+    Three data streams flow inward to a central point of truth.
+    Represents multiple blockchains/sources converging into one
+    accurate tax calculation.
 
-    Left leg  = indigo  (CRA compliance)
-    Right leg = purple  (blockchain-native)
-    Apex node = cyan    (clarity / result)
-    Crossbar  = gradient (the connection between data sources)
+    Top stream    = cyan    (clarity / the result)
+    Left stream   = indigo  (compliance / CRA)
+    Right stream  = purple  (blockchain-native / DeFi)
+    Center node   = white   (the axiom / truth)
   -->
   <defs>
-    <linearGradient id="crossbar-grad" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#6366f1" />
-      <stop offset="100%" stop-color="#8b5cf6" />
+    <linearGradient id="stream-top" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.3" />
+      <stop offset="100%" stop-color="#06b6d4" />
     </linearGradient>
-    <linearGradient id="left-leg" x1="0.5" y1="1" x2="0.5" y2="0">
-      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.6" />
+    <linearGradient id="stream-left" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.3" />
       <stop offset="100%" stop-color="#6366f1" />
     </linearGradient>
-    <linearGradient id="right-leg" x1="0.5" y1="1" x2="0.5" y2="0">
-      <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.6" />
+    <linearGradient id="stream-right" x1="1" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.3" />
       <stop offset="100%" stop-color="#8b5cf6" />
     </linearGradient>
   </defs>
 
-  <!-- Left leg of the A -->
-  <path d="M8 56 L29 8 L32 8 L17 56 Z" fill="url(#left-leg)" />
+  <!-- Three converging streams (rounded strokes, tapered via gradient) -->
+  <!-- Top stream: flows down to center -->
+  <line x1="32" y1="4" x2="32" y2="28" stroke="url(#stream-top)" stroke-width="5" stroke-linecap="round" />
 
-  <!-- Right leg of the A -->
-  <path d="M56 56 L35 8 L32 8 L47 56 Z" fill="url(#right-leg)" />
+  <!-- Bottom-left stream: flows up-right to center -->
+  <line x1="8" y1="52" x2="28" y2="34" stroke="url(#stream-left)" stroke-width="5" stroke-linecap="round" />
 
-  <!-- Crossbar — the connection -->
-  <rect x="16" y="36" width="32" height="5" rx="2.5" fill="url(#crossbar-grad)" />
+  <!-- Bottom-right stream: flows up-left to center -->
+  <line x1="56" y1="52" x2="36" y2="34" stroke="url(#stream-right)" stroke-width="5" stroke-linecap="round" />
 
-  <!-- Apex node — the convergence point / truth -->
-  <circle cx="32" cy="8" r="5" fill="#06b6d4" />
+  <!-- Source nodes (small dots at the origin of each stream) -->
+  <circle cx="32" cy="4" r="3" fill="#06b6d4" opacity="0.5" />
+  <circle cx="8" cy="52" r="3" fill="#6366f1" opacity="0.5" />
+  <circle cx="56" cy="52" r="3" fill="#8b5cf6" opacity="0.5" />
 
-  <!-- Subtle glow behind apex -->
-  <circle cx="32" cy="8" r="8" fill="#06b6d4" opacity="0.15" />
+  <!-- Central convergence node (the axiom / truth) -->
+  <circle cx="32" cy="32" r="8" fill="#6366f1" />
+  <circle cx="32" cy="32" r="8" fill="url(#stream-right)" opacity="0.5" />
+  <circle cx="32" cy="32" r="4" fill="white" opacity="0.9" />
+
+  <!-- Subtle outer glow -->
+  <circle cx="32" cy="32" r="12" fill="#6366f1" opacity="0.08" />
 </svg>
