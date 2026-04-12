@@ -28,6 +28,26 @@ from api.dependencies import get_current_user, get_pool_dep
 
 
 # ---------------------------------------------------------------------------
+# DEK cleanup — zero between every test to prevent context leakage (Phase 16)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _zero_dek_between_tests():
+    """Ensure the request-scoped DEK is zeroed after every test.
+
+    This prevents DEK leakage across tests when tests call set_dek() without
+    a corresponding zero_dek() (e.g. on test failure mid-way through).
+    """
+    yield
+    try:
+        from db.crypto import zero_dek
+        zero_dek()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Mock database fixtures
 # ---------------------------------------------------------------------------
 
