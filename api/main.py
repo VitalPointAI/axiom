@@ -25,6 +25,7 @@ import indexers.db as _db
 from api.rate_limit import limiter
 from config import validate_env, OFFLINE_MODE
 from api.auth import router as auth_router
+from api.routers import internal_crypto as _internal_crypto
 from api.routers import (
     accountant_router,
     admin_router,
@@ -116,6 +117,7 @@ def create_app() -> FastAPI:
     application.include_router(waitlist_router)
     application.include_router(streaming_router, prefix="/api/stream")
     application.include_router(admin_router, prefix="/api/admin")
+    application.include_router(_internal_crypto.router)
 
     # ----------------------------------------------------------------
     # Health check — unauthenticated
