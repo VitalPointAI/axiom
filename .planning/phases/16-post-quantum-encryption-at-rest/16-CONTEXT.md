@@ -36,6 +36,7 @@ This phase delivers on the "Post-Quantum Encrypted" marketing claim already live
   - `classification_rules` (user-scoped rules only; global system rules stay cleartext)
   - `spam_rules` (user-scoped only)
 - **D-04:** Tables that stay cleartext (not user-linkable or required for pre-auth routing):
+  - **Public blockchain cache — the entire Phase 15 public data plane:** `account_transactions`, `account_dictionary`, `account_block_index_v2`, `block_heights`, and any other tables written by the Rust account indexer. These are keyed by public NEAR account IDs (not `user_id`) and mirror already-public on-chain data. Zero linkability risk; encrypting them would kneecap the shared indexer for no privacy gain.
   - `price_cache`, `price_cache_minute` (public market data)
   - `users.id`, `users.created_at` (opaque internal ID and timestamp — no linkability on their own)
   - `sessions`, `passkeys`, `challenges`, `magic_link_tokens` (auth plumbing; already managed by `@vitalpoint/near-phantom-auth` — do not touch; that package's own data model is the source of truth)
@@ -66,11 +67,12 @@ This phase delivers on the "Post-Quantum Encrypted" marketing claim already live
 
 - **D-16:** **Default mode: user-triggered pipelines only.** The account indexer, classifier, ACB recompute, gap reindex, verifier, and report generators only run while the user is actively logged in. The live session holds the unwrapped DEK in memory and dispatches pipeline jobs using that key. On logout or session expiry, the key is zeroed and pipelines for that user pause mid-run (must resume gracefully on next login). This is what every new user gets out of the box and what the privacy page can truthfully claim by default.
 - **D-17:** **Opt-in mode: persistent sealed worker key.** A user can explicitly flip a settings toggle — labeled in the UI as "Let Axiom keep indexing my wallets in the background (less private, more convenient)" — which generates a sealed worker copy of the DEK bound to a server-side worker process. The worker can then run background indexing/ACB/report jobs without the user being logged in. The user can revoke the worker key at any time from settings; revocation zeros the worker key and pauses all background jobs for that user.
-- **D-18:** **Phase 15 implication:** The current systemd-managed account indexer is a server-wide daemon that continuously writes to the DB. Phase 16 MUST refactor its invocation model:
-  - Indexer keeps its systemd daemon, but becomes a job dispatcher that only processes work for users with either (a) a live session or (b) an opt-in sealed worker key available.
-  - Users with neither have their indexing paused; a "paused due to offline privacy mode" banner appears in the UI on next login.
-  - Researcher must read [scripts/run_account_indexer.sh](scripts/run_account_indexer.sh) and the systemd unit to understand the current refactor surface.
-  - This is the largest operational change the phase introduces — plan for it early.
+- **D-18:** **Session awareness applies to the per-user materialization pipeline, NOT the Rust account indexer.** The two must stay cleanly separated:
+  - **Unchanged (public data plane):** The Rust account indexer ([indexers/account-indexer-rs/](indexers/account-indexer-rs/), systemd-managed) keeps running exactly as Phase 15 shipped it. It ingests public NEAR blocks into `account_transactions`, `account_dictionary`, `account_block_index_v2`, `block_heights`, `price_cache*`. These tables carry zero linkability — they're a shared public-blockchain cache keyed by public account IDs, not by `user_id`. Leave them cleartext. Do not touch the indexer's invocation model.
+  - **Session- or worker-key-aware (per-user plane):** The per-user materialization pipeline — wallet sync → classifier → ACB → verifier → ledgers → reports — is what runs only when a DEK is available. On login, the session-unwrapped DEK decrypts the user's `wallets.account_id` list, the pipeline reads the public `account_transactions` cache for each address (fast, no decryption), runs classify/ACB/verify/report in memory, and writes the encrypted results into the user's `transactions`, `transaction_classifications`, `acb_snapshots`, `capital_gains_ledger`, `income_ledger`, `verification_results`, etc.
+  - Users without a live session and without an opt-in worker key simply don't have their per-user data refreshed until next login. A "last synced at X" timestamp in the UI is enough; no "paused" banner needed.
+  - The privacy win is two-fold: (a) the server can't enumerate which public addresses belong to which users because `wallets.account_id` is encrypted, and (b) the server can't read any user's derived/classified/tax-relevant data at rest. The public blockchain cache keeps cooking in the background uninterrupted.
+  - Researcher/planner must locate where the FastAPI API currently triggers per-user pipelines (classifier → ACB → verifier → report-gen) and gate those entry points on DEK availability — not touch the Rust indexer.
 - **D-19:** **Worker-key UX surface:** the settings page needs a new section "Background processing" with (a) clear explanation of the privacy tradeoff, (b) toggle, (c) status indicator ("Worker active", "Last run", "Revoke"), (d) audit trail entry on every toggle. Scope this as part of Phase 16 deliverables — not deferred.
 
 ### Migration Strategy (D-20 — D-23)
@@ -157,7 +159,8 @@ None. No todos matched this phase in cross-reference.
 
 ### Integration points
 - **Session→DEK lifecycle** — wherever a FastAPI request dependency resolves the user, Phase 16 also resolves the unwrapped DEK and exposes it to ORM decoders. This is the narrowest integration seam.
-- **Account indexer (systemd, Rust)** — [indexers/account-indexer-rs/](indexers/account-indexer-rs/) — needs a new work queue that only yields jobs for users whose DEK is available (live session OR opt-in worker key).
+- **Account indexer (systemd, Rust)** — [indexers/account-indexer-rs/](indexers/account-indexer-rs/) — UNCHANGED. Keeps writing the public blockchain cache. Do not add session awareness here.
+- **Per-user pipeline entry points (FastAPI)** — classifier handler, ACB handler, verifier handler, report generator, wallet-sync handler. These are the actual gating points for DEK availability. Researcher must enumerate them in [api/routers/](api/routers/) and wherever the job queue dispatches pipeline work.
 - **Report generation (PackageBuilder)** — currently runs in-process; needs to hold the DEK only for the duration of the generate-and-download cycle.
 - **Audit log writer** — [db/audit.py](db/audit.py) — wrap every write in a DEK-aware encoder.
 
