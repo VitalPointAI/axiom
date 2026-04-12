@@ -298,10 +298,10 @@ class NearFetcher:
 
         logger.info("Syncing %s (wallet_id=%s, job_id=%s)", account_id, wallet_id, job_id)
 
-        # Try the fast path: account_block_index_v2 via dictionary
+        # Try the fast path: account_transactions via dictionary
         indexed_blocks = self._get_indexed_blocks(account_id)
         if indexed_blocks is not None:
-            logger.info("Using account_block_index_v2: %d segments for %s",
+            logger.info("Using account_transactions: %d blocks for %s",
                         len(indexed_blocks), account_id)
             self._sync_from_index(job_row, account_id, indexed_blocks)
         else:
@@ -318,11 +318,11 @@ class NearFetcher:
             logger.info("Verification passed for %s: %s", account_id, message)
 
     def _get_indexed_blocks(self, account_id: str) -> Optional[list]:
-        """Query account_block_index_v2 via dictionary for segment-based block ranges.
+        """Query account_transactions via dictionary for exact block heights.
 
-        Returns a sorted list of segment_start values (expanded from v2 table),
-        or None if the index table is empty / not yet built.
-        Each segment_start represents a 1000-block range [segment_start, segment_start + 999].
+        Returns a sorted list of block heights where the account has activity,
+        or None if the index hasn't been built yet. Unlike the old segment-based
+        index, each returned height is an exact block to fetch — no range scans.
         """
         conn = self.db_pool.getconn()
         try:
@@ -362,9 +362,10 @@ class NearFetcher:
 
             account_int = dict_row[0]
 
-            # Query v2 table for segment_start values
+            # Query block-precise index for exact block heights
             cur.execute(
-                "SELECT segment_start FROM account_block_index_v2 WHERE account_int = %s ORDER BY segment_start",
+                "SELECT block_height FROM account_transactions "
+                "WHERE account_int = %s ORDER BY block_height",
                 (account_int,),
             )
             rows = cur.fetchall()
@@ -373,50 +374,34 @@ class NearFetcher:
             if not rows:
                 return []
 
-            # Return segment_start values — _sync_from_index will scan each
-            # 1000-block range via neardata.xyz
-            segments = [r[0] for r in rows]
-            return segments
+            return [r[0] for r in rows]
         finally:
             self.db_pool.putconn(conn)
 
     def _sync_from_index(self, job_row: dict, account_id: str, block_heights: list) -> None:
-        """Scan segment-based block ranges where this account has activity.
+        """Fetch exact blocks from the block-precise index.
 
-        Receives a list of segment_start values from account_block_index_v2.
-        Each segment_start represents a 1000-block range [segment_start, segment_start+999].
-        Scans every block in each range via neardata.xyz, filtering for the target account.
-
-        Groups consecutive segments to minimise HTTP requests where possible.
+        Receives a list of block heights from account_transactions. Unlike the
+        old segment-based path, each block height is an exact match — no 1000-
+        block range expansion needed. Most active wallets resolve to a few
+        hundred to a few thousand blocks, so total fetch time is typically
+        well under 2 minutes with 10 parallel workers.
         """
         wallet_id = job_row["wallet_id"]
         user_id = job_row["user_id"]
         job_id = job_row["id"]
 
-        segments = block_heights  # renamed for clarity; still a list of segment_start ints
-
-        if not segments:
-            logger.info("No indexed segments for %s — nothing to sync.", account_id)
+        if not block_heights:
+            logger.info("No indexed blocks for %s — nothing to sync.", account_id)
             return
 
-        # Expand each segment_start into the full list of 1000 block heights to scan.
-        # Group consecutive segments to avoid redundant progress updates but process
-        # block-by-block in parallel (same pattern as _sync_full_scan).
-        SEGMENT_SIZE = 1000
-        all_blocks: list[int] = []
-        for seg in segments:
-            all_blocks.extend(range(seg, seg + SEGMENT_SIZE))
+        total = len(block_heights)
+        logger.info("Fetching %d indexed blocks for %s", total, account_id)
+        self._set_progress_total(job_id, total)
 
-        total = len(all_blocks)
-        logger.info(
-            "Scanning %d segments (%d block ranges) for %s",
-            len(segments), len(segments), account_id,
-        )
-        self._set_progress_total(job_id, len(segments))
-
-        # Process in BATCH_SIZE-block batches with parallel fetching
+        blocks_done = 0
         for batch_start in range(0, total, self.BATCH_SIZE):
-            batch = all_blocks[batch_start:batch_start + self.BATCH_SIZE]
+            batch = block_heights[batch_start:batch_start + self.BATCH_SIZE]
             batch_txs = []
 
             def _fetch_and_extract(height, _account_id=account_id):
@@ -446,15 +431,14 @@ class NearFetcher:
             if batch_txs:
                 self._batch_insert(batch_txs)
 
-            # Progress is measured in segments completed (not individual blocks)
-            segments_done = min(len(segments), (batch_start + len(batch)) // SEGMENT_SIZE + 1)
-            self._update_job_progress(job_id, str(batch[-1]), segments_done)
+            blocks_done += len(batch)
+            self._update_job_progress(job_id, str(batch[-1]), blocks_done)
 
-            pct = min(100, (batch_start + len(batch)) * 100 // total)
+            pct = min(100, blocks_done * 100 // total)
             if pct % 10 == 0:
                 logger.info(
-                    "Index sync %s: %d%% (%d/%d segments scanned)",
-                    account_id, pct, segments_done, len(segments),
+                    "Index sync %s: %d%% (%d/%d blocks fetched)",
+                    account_id, pct, blocks_done, total,
                 )
 
     def _sync_full_scan(self, job_row: dict, account_id: str) -> None:

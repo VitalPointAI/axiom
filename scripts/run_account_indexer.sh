@@ -92,15 +92,16 @@ while [ "$CURRENT" -lt "$END" ]; do
     # Count pairs
     PAIRS=$(wc -l < "$TMPFILE")
 
-    # COPY into v2 staging table (integer columns), then INSERT ... ON CONFLICT DO NOTHING
+    # COPY into staging table (integer columns), then INSERT ... ON CONFLICT DO NOTHING
+    # into the block-precise account_transactions table (replaces old segment-based index).
     PGPASSWORD=$PG_PASS psql -h 127.0.0.1 -p 5433 -U neartax -q <<EOSQL
-CREATE TEMP TABLE IF NOT EXISTS abi_staging_v2 (account_int INTEGER, segment_start INTEGER);
-TRUNCATE abi_staging_v2;
-\copy abi_staging_v2 (account_int, segment_start) FROM '$TMPFILE'
-INSERT INTO account_block_index_v2 (account_int, segment_start)
-SELECT DISTINCT account_int, segment_start FROM abi_staging_v2
+CREATE TEMP TABLE IF NOT EXISTS atx_staging (account_int INTEGER, block_height INTEGER);
+TRUNCATE atx_staging;
+\copy atx_staging (account_int, block_height) FROM '$TMPFILE'
+INSERT INTO account_transactions (account_int, block_height)
+SELECT DISTINCT account_int, block_height FROM atx_staging
 ON CONFLICT DO NOTHING;
-DROP TABLE abi_staging_v2;
+DROP TABLE atx_staging;
 EOSQL
 
     # Update cursor
@@ -128,20 +129,13 @@ done
 echo ""
 echo "================================================================"
 echo "  Backfill complete!"
-echo "  Total pairs: $TOTAL_PAIRS"
+echo "  Total rows: $TOTAL_PAIRS"
 echo "  Total time: $(($(date +%s) - TOTAL_START))s"
 echo "================================================================"
 
-# Ensure indexes exist on account_block_index_v2 (no dedup needed — ON CONFLICT handles it)
-echo "Ensuring indexes exist on account_block_index_v2..."
+# The account_transactions table's primary key is defined by migration 021,
+# so no runtime index creation is needed. Just verify it exists as a sanity check.
 PGPASSWORD=$PG_PASS psql -h 127.0.0.1 -p 5433 -U neartax -c "
-    ALTER TABLE account_block_index_v2
-    ADD CONSTRAINT IF NOT EXISTS account_block_index_v2_pkey
-    PRIMARY KEY (account_int, segment_start);
-" 2>/dev/null || echo "Primary key already exists on account_block_index_v2."
-
-PGPASSWORD=$PG_PASS psql -h 127.0.0.1 -p 5433 -U neartax -c "
-    CREATE INDEX IF NOT EXISTS ix_abiv2_account_segment
-    ON account_block_index_v2 (account_int, segment_start);
+    SELECT COUNT(*) AS total_rows FROM account_transactions;
 "
-echo "Index verified. Done!"
+echo "Done!"

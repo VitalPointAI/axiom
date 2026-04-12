@@ -14,7 +14,7 @@ Data sources:
   - chain_sync_config table: enabled chains and budget limits
   - indexing_jobs table: last job status per chain
   - api_cost_log table: last API call timestamp per chain
-  - account_indexer_state / account_block_index_v2 / account_dictionary tables (migration 020)
+  - account_indexer_state / account_transactions / account_dictionary tables (migrations 020, 021)
   - Docker socket (/var/run/docker.sock) for container status
 """
 
@@ -275,9 +275,10 @@ async def get_account_indexer_status(
 
             last_block, updated_at = state
 
-            # Use pg_stat estimate — exact COUNT(*) times out on large tables
+            # Use pg_stat estimate — exact COUNT(*) times out on large tables.
+            # account_transactions is the block-precise index (migration 021).
             cur.execute(
-                "SELECT reltuples::bigint FROM pg_class WHERE relname = 'account_block_index_v2'"
+                "SELECT reltuples::bigint FROM pg_class WHERE relname = 'account_transactions'"
             )
             row = cur.fetchone()
             total_entries = row[0] if row and row[0] > 0 else 0
@@ -312,7 +313,7 @@ async def get_account_indexer_status(
     if result is None:
         return {
             "status": "not_initialized",
-            "message": "Account indexer tables not found. Run migration 018.",
+            "message": "Account indexer tables not found. Run migrations 020 and 021.",
         }
 
     last_block = result["last_processed_block"]

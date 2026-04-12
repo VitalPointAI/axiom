@@ -193,41 +193,6 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  account-indexer:
-    build:
-      context: .
-      dockerfile: indexers/Dockerfile
-    command: ["python", "-m", "indexers.account_indexer"]
-    environment:
-      - DATABASE_URL=postgresql://neartax:${POSTGRES_PASSWORD}@postgres:5432/neartax
-      - FASTNEAR_API_KEY=${FASTNEAR_API_KEY}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-          cpus: "4.0"
-    networks:
-      - axiom-net
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python", "-m", "indexers.account_indexer_health"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 300s
-    labels:
-      app.service: account-indexer
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
 networks:
   axiom-net:
     driver: bridge

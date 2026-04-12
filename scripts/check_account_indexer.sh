@@ -1,54 +1,54 @@
 #!/bin/bash
 # Account indexer health monitor — runs via cron every 5 minutes.
-# Checks if the account-indexer container is healthy and the DB cursor
-# is advancing. Sends an alert via the Axiom API if something's wrong.
+# Checks that the host-run account indexer (v0.3 Rust binary) is running
+# and the cursor is advancing. Sends an alert via the Axiom API if stalled.
 #
 # Crontab entry:
-#   */5 * * * * /home/deploy/axiom/scripts/check_account_indexer.sh >> /home/deploy/axiom/logs/indexer-monitor.log 2>&1
+#   */5 * * * * /home/deploy/Axiom/scripts/check_account_indexer.sh >> /home/deploy/logs/indexer-monitor.log 2>&1
 
-LOGFILE="/home/deploy/axiom/logs/indexer-monitor.log"
+LOGFILE="/home/deploy/logs/indexer-monitor.log"
 ALERT_FLAG="/tmp/account_indexer_alert_sent"
-
-# Check container status
-CONTAINER_STATUS=$(docker inspect --format='{{.State.Health.Status}}' axiom-account-indexer-1 2>/dev/null)
-CONTAINER_RUNNING=$(docker inspect --format='{{.State.Running}}' axiom-account-indexer-1 2>/dev/null)
+STATE_FILE="/tmp/account_indexer_last_block"
 
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-if [ "$CONTAINER_RUNNING" != "true" ]; then
-    echo "$TIMESTAMP ALERT: account-indexer container is not running!"
+# Check if the Rust indexer process is running
+INDEXER_PID=$(pgrep -f "account-indexer-rs-v2.*--database-url" | head -1)
 
-    # Try to restart it
-    cd /home/deploy/axiom && docker compose -f docker-compose.prod.yml up -d account-indexer 2>&1
-    echo "$TIMESTAMP Attempted restart."
-
-    # Send alert (only once per incident)
+if [ -z "$INDEXER_PID" ]; then
+    echo "$TIMESTAMP WARNING: account-indexer-rs-v2 not running"
     if [ ! -f "$ALERT_FLAG" ]; then
         touch "$ALERT_FLAG"
-        # Log the alert — email notification through Axiom API could be added here
-        echo "$TIMESTAMP ALERT SENT: account-indexer down and restarted"
+        echo "$TIMESTAMP ALERT: account indexer process is not running"
     fi
     exit 1
 fi
 
-if [ "$CONTAINER_STATUS" = "unhealthy" ]; then
-    echo "$TIMESTAMP WARNING: account-indexer is unhealthy (stale). Docker will restart it."
+# Container is running — check cursor progress
+PG_PASS=$(grep '^POSTGRES_PASSWORD=' /home/deploy/Axiom/.env 2>/dev/null | cut -d= -f2)
+LAST_BLOCK=$(PGPASSWORD=$PG_PASS psql -h 127.0.0.1 -p 5433 -U neartax -t -c \
+    "SELECT last_processed_block FROM account_indexer_state WHERE id = 1;" 2>/dev/null | tr -d ' ')
+INDEX_COUNT=$(PGPASSWORD=$PG_PASS psql -h 127.0.0.1 -p 5433 -U neartax -t -c \
+    "SELECT reltuples::bigint FROM pg_class WHERE relname = 'account_transactions';" 2>/dev/null | tr -d ' ')
 
-    if [ ! -f "$ALERT_FLAG" ]; then
-        touch "$ALERT_FLAG"
-        echo "$TIMESTAMP ALERT SENT: account-indexer unhealthy"
+echo "$TIMESTAMP OK: pid=$INDEXER_PID block=$LAST_BLOCK entries=$INDEX_COUNT"
+
+# Check for cursor stall — if last_block hasn't moved in 2 consecutive checks
+if [ -f "$STATE_FILE" ]; then
+    PREV_BLOCK=$(cat "$STATE_FILE")
+    if [ "$LAST_BLOCK" = "$PREV_BLOCK" ]; then
+        echo "$TIMESTAMP WARNING: cursor stalled at block $LAST_BLOCK"
+        if [ ! -f "$ALERT_FLAG" ]; then
+            touch "$ALERT_FLAG"
+            echo "$TIMESTAMP ALERT: indexer cursor has not advanced"
+        fi
+        exit 1
     fi
-    exit 1
 fi
+echo "$LAST_BLOCK" > "$STATE_FILE"
 
-# Container is running — check progress
-LAST_BLOCK=$(docker exec axiom-postgres-1 psql -U neartax -t -c "SELECT last_processed_block FROM account_indexer_state WHERE id = 1;" 2>/dev/null | tr -d ' ')
-INDEX_COUNT=$(docker exec axiom-postgres-1 psql -U neartax -t -c "SELECT reltuples::bigint FROM pg_class WHERE relname = 'account_block_index_v2';" 2>/dev/null | tr -d ' ')
-
-echo "$TIMESTAMP OK: container=$CONTAINER_STATUS block=$LAST_BLOCK entries=$INDEX_COUNT"
-
-# Clear alert flag when healthy
+# Clear alert flag when healthy and progressing
 if [ -f "$ALERT_FLAG" ]; then
     rm "$ALERT_FLAG"
-    echo "$TIMESTAMP RECOVERED: account-indexer is healthy again"
+    echo "$TIMESTAMP RECOVERED: account indexer is healthy again"
 fi
