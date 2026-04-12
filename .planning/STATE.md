@@ -3,17 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Executing Phase 16
-last_updated: "2026-04-12T21:51:36Z"
+last_updated: "2026-04-12T23:05:00Z"
+stopped_at: "Completed 16-02-PLAN.md"
 progress:
   total_phases: 14
   completed_phases: 13
-  total_plans: 76
-  completed_plans: 63
-  percent: 83
-phase_16:
-  current_plan: 2
-  total_plans: 7
-  stopped_at: "Completed 16-01-PLAN.md"
+  total_plans: 69
+  completed_plans: 64
+  percent: 93
 ---
 
 # Project State
@@ -30,7 +27,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 **Phase 16: Post-Quantum Encryption at Rest** IN PROGRESS
 
 - Plan 16-01: Crypto foundation (kyber-py, db/crypto.py, EncryptedBytes, 24 unit tests) ✅ DONE (2026-04-12)
-- Plan 16-02: Internal crypto router (pending)
+- Plan 16-02: Internal crypto router ✅ DONE (2026-04-12)
 - Plan 16-03: Auth-service key custody (pending)
 - Plan 16-04: Migration 022 (pending)
 - Plan 16-05: ORM wiring (pending)
