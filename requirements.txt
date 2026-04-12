@@ -31,3 +31,6 @@ aiofiles>=24.0.0
 
 # Rate limiting
 slowapi>=0.1.9
+
+# Post-quantum cryptography
+kyber-py==1.2.0
