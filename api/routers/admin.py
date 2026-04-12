@@ -490,8 +490,12 @@ async def get_container_status(
         disk_info = {}
         mem_info = {}
 
+        # Prefer the pgdata volume (where PostgreSQL's data lives) since
+        # that is the storage that actually matters for the app.
+        # Falls back to root filesystem if the volume isn't mounted.
+        disk_target = "/mnt/axiom_pgdata" if os.path.exists("/mnt/axiom_pgdata") else "/"
         try:
-            result = subprocess.run(["df", "-h", "/"], capture_output=True, text=True, timeout=5)
+            result = subprocess.run(["df", "-h", disk_target], capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 lines = result.stdout.strip().split("\n")
                 if len(lines) >= 2:
@@ -500,6 +504,7 @@ async def get_container_status(
                         disk_info = {
                             "total": parts[1], "used": parts[2],
                             "available": parts[3], "use_pct": parts[4],
+                            "mount": disk_target,
                         }
         except Exception:
             pass

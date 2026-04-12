@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Executing Phase 14
-last_updated: "2026-04-10T23:27:44.782Z"
+status: Executing Phase 15
+last_updated: "2026-04-11T20:28:20.346Z"
 progress:
   total_phases: 13
   completed_phases: 12
-  total_plans: 64
+  total_plans: 62
   completed_plans: 59
-  percent: 92
+  percent: 95
 ---
 
 # Project State
@@ -19,7 +19,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 **Core value:** Accurate tax reporting — every transaction correctly classified, every balance reconciled.
-**Current focus:** Phase 14 — marketing-frontend
+**Current focus:** Phase 15 — account-block-index-integer-encoding
 
 ## Current Phase
 

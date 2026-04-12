@@ -141,6 +141,7 @@ services:
     volumes:
       - uploads_data:/app/uploads
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${PG_VOLUME_PATH:-/mnt/axiom_pgdata}:/mnt/axiom_pgdata:ro
     labels:
       app.service: api
     logging:
@@ -230,6 +231,12 @@ services:
 networks:
   axiom-net:
     driver: bridge
+    # Pin the subnet so nginx can reliably reach the host API
+    # (network_mode: host) via the gateway IP 172.28.0.1.
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+          gateway: 172.28.0.1
 
 volumes:
   postgres_data:

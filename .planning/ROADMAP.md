@@ -412,12 +412,12 @@ Plans:
 **Goal:** Reduce NEAR account_block_index disk footprint from ~1.3 TB to under 250 GB via dictionary-encoded integer IDs + segment-based indexing (1K-block granules), while maintaining sub-2-minute wallet lookup performance.
 **Requirements:** INT-01 through INT-08
 **Depends on:** Phase 13
-**Plans:** 3 plans in 3 waves
+**Plans:** 3/3 plans complete
 
 Plans:
-- [ ] 15-01-PLAN.md — Alembic migration 020: account_dictionary + account_block_index_v2 schema (Wave 1) [INT-01]
-- [ ] 15-02-PLAN.md — Rust indexer dictionary cache + segment output + Python COPY pipeline v2 (Wave 2) [INT-02, INT-03, INT-04]
-- [ ] 15-03-PLAN.md — Python lookup via dictionary+segments + admin status + data migration script (Wave 3) [INT-05, INT-06, INT-07, INT-08]
+- [x] 15-01-PLAN.md — Alembic migration 020: account_dictionary + account_block_index_v2 schema (Wave 1) [INT-01]
+- [x] 15-02-PLAN.md — Rust indexer dictionary cache + segment output + Python COPY pipeline v2 (Wave 2) [INT-02, INT-03, INT-04]
+- [x] 15-03-PLAN.md — Python lookup via dictionary+segments + admin status + data migration script (Wave 3) [INT-05, INT-06, INT-07, INT-08]
 
 **Requirements:**
 - INT-01: Migration 020 creates account_dictionary and account_block_index_v2 tables
