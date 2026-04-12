@@ -1,54 +1,123 @@
 #!/bin/bash
 # Account indexer health monitor — runs via cron every 5 minutes.
-# Checks that the host-run account indexer (v0.3 Rust binary) is running
-# and the cursor is advancing. Sends an alert via the Axiom API if stalled.
 #
-# Crontab entry:
+# Responsibilities:
+#   1. Verify the axiom-account-indexer systemd unit is active
+#   2. Verify the cursor has advanced since the last check, OR that it is
+#      within LIVE_LAG_BLOCKS of the chain tip (i.e. caught up)
+#   3. If either check fails, restart the service via systemctl
+#   4. Log status to /home/deploy/logs/indexer-monitor.log
+#
+# Install via crontab (run once as the deploy user):
+#   crontab -e
 #   */5 * * * * /home/deploy/Axiom/scripts/check_account_indexer.sh >> /home/deploy/logs/indexer-monitor.log 2>&1
+#
+# Requires sudo access for the systemctl restart step. Configure via:
+#   sudo visudo -f /etc/sudoers.d/deploy-indexer
+#     deploy ALL=(ALL) NOPASSWD: /bin/systemctl restart axiom-account-indexer.service, /bin/systemctl is-active axiom-account-indexer.service
 
-LOGFILE="/home/deploy/logs/indexer-monitor.log"
-ALERT_FLAG="/tmp/account_indexer_alert_sent"
-STATE_FILE="/tmp/account_indexer_last_block"
+set -u
 
-TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+SERVICE=axiom-account-indexer.service
+STATE_FILE=/tmp/axiom_account_indexer_last_block
+ALERT_FLAG=/tmp/axiom_account_indexer_alert
+LOGDIR=/home/deploy/logs
+mkdir -p "$LOGDIR"
 
-# Check if the Rust indexer process is running
-INDEXER_PID=$(pgrep -f "account-indexer-rs-v2.*--database-url" | head -1)
+TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-if [ -z "$INDEXER_PID" ]; then
-    echo "$TIMESTAMP WARNING: account-indexer-rs-v2 not running"
+log() {
+    echo "[$TIMESTAMP] $*"
+}
+
+# Load env for DB access
+ENV_FILE=/home/deploy/Axiom/.env
+if [ -f "$ENV_FILE" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
+fi
+
+restart_service() {
+    log "Restarting $SERVICE"
+    if sudo -n /bin/systemctl restart "$SERVICE" 2>&1; then
+        log "Restart issued successfully"
+    else
+        log "ERROR: failed to restart $SERVICE (sudo permissions?)"
+        return 1
+    fi
+}
+
+# 1. Is the service active?
+if ! systemctl is-active --quiet "$SERVICE"; then
+    log "WARN: $SERVICE is not active"
     if [ ! -f "$ALERT_FLAG" ]; then
         touch "$ALERT_FLAG"
-        echo "$TIMESTAMP ALERT: account indexer process is not running"
+        log "ALERT: indexer down"
     fi
+    restart_service
     exit 1
 fi
 
-# Container is running — check cursor progress
-PG_PASS=$(grep '^POSTGRES_PASSWORD=' /home/deploy/Axiom/.env 2>/dev/null | cut -d= -f2)
-LAST_BLOCK=$(PGPASSWORD=$PG_PASS psql -h 127.0.0.1 -p 5433 -U neartax -t -c \
+# 2. Read current cursor
+if [ -z "${POSTGRES_PASSWORD:-}" ]; then
+    log "ERROR: POSTGRES_PASSWORD not set in env"
+    exit 2
+fi
+export PGPASSWORD="$POSTGRES_PASSWORD"
+CURRENT_CURSOR=$(psql -h 127.0.0.1 -p 5433 -U neartax -t -c \
     "SELECT last_processed_block FROM account_indexer_state WHERE id = 1;" 2>/dev/null | tr -d ' ')
-INDEX_COUNT=$(PGPASSWORD=$PG_PASS psql -h 127.0.0.1 -p 5433 -U neartax -t -c \
-    "SELECT reltuples::bigint FROM pg_class WHERE relname = 'account_transactions';" 2>/dev/null | tr -d ' ')
 
-echo "$TIMESTAMP OK: pid=$INDEXER_PID block=$LAST_BLOCK entries=$INDEX_COUNT"
+if [ -z "$CURRENT_CURSOR" ]; then
+    log "WARN: cannot read cursor from DB"
+    exit 1
+fi
 
-# Check for cursor stall — if last_block hasn't moved in 2 consecutive checks
-if [ -f "$STATE_FILE" ]; then
-    PREV_BLOCK=$(cat "$STATE_FILE")
-    if [ "$LAST_BLOCK" = "$PREV_BLOCK" ]; then
-        echo "$TIMESTAMP WARNING: cursor stalled at block $LAST_BLOCK"
-        if [ ! -f "$ALERT_FLAG" ]; then
-            touch "$ALERT_FLAG"
-            echo "$TIMESTAMP ALERT: indexer cursor has not advanced"
-        fi
-        exit 1
+# 3. Fetch chain tip
+TIP=$(curl -s --max-time 10 -X POST https://rpc.mainnet.fastnear.com \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer ${FASTNEAR_API_KEY:-}" \
+    -d '{"jsonrpc":"2.0","id":"1","method":"status","params":[]}' \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['sync_info']['latest_block_height'])" \
+    2>/dev/null)
+
+if [ -z "$TIP" ] || [ "$TIP" -le 0 ] 2>/dev/null; then
+    log "WARN: cannot read chain tip (RPC unreachable or throttled)"
+    # Don't restart the service just because the RPC is flaky — bail out
+    exit 1
+fi
+
+BEHIND=$((TIP - CURRENT_CURSOR))
+
+# 4. Compare against previous cursor
+STALL_THRESHOLD=${STALL_THRESHOLD:-5}  # caught up if within 5 blocks of tip
+if [ "$BEHIND" -le "$STALL_THRESHOLD" ]; then
+    log "OK: caught up (cursor=$CURRENT_CURSOR, tip=$TIP, behind=$BEHIND)"
+    echo "$CURRENT_CURSOR" > "$STATE_FILE"
+    [ -f "$ALERT_FLAG" ] && rm -f "$ALERT_FLAG" && log "RECOVERED"
+    exit 0
+fi
+
+if [ ! -f "$STATE_FILE" ]; then
+    log "OK: first check (cursor=$CURRENT_CURSOR, tip=$TIP, behind=$BEHIND, backfilling)"
+    echo "$CURRENT_CURSOR" > "$STATE_FILE"
+    exit 0
+fi
+
+PREVIOUS_CURSOR=$(cat "$STATE_FILE" 2>/dev/null || echo 0)
+if [ "$CURRENT_CURSOR" -le "$PREVIOUS_CURSOR" ]; then
+    log "WARN: cursor stalled at $CURRENT_CURSOR (prev=$PREVIOUS_CURSOR, tip=$TIP, behind=$BEHIND)"
+    if [ ! -f "$ALERT_FLAG" ]; then
+        touch "$ALERT_FLAG"
+        log "ALERT: indexer cursor not advancing, attempting restart"
     fi
+    restart_service
+    exit 1
 fi
-echo "$LAST_BLOCK" > "$STATE_FILE"
 
-# Clear alert flag when healthy and progressing
-if [ -f "$ALERT_FLAG" ]; then
-    rm "$ALERT_FLAG"
-    echo "$TIMESTAMP RECOVERED: account indexer is healthy again"
-fi
+ADVANCED=$((CURRENT_CURSOR - PREVIOUS_CURSOR))
+log "OK: progressing (cursor=$CURRENT_CURSOR, +$ADVANCED since last check, tip=$TIP, behind=$BEHIND)"
+echo "$CURRENT_CURSOR" > "$STATE_FILE"
+[ -f "$ALERT_FLAG" ] && rm -f "$ALERT_FLAG" && log "RECOVERED"
+exit 0

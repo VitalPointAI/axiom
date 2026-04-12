@@ -166,6 +166,28 @@ fi
 echo "==> Ensuring all services are running"
 $SSH_CMD "$SSH_TARGET" "cd $DEPLOY_PATH && docker compose -f docker-compose.prod.yml up -d postgres api web proxy indexer"
 
+# Step 6b: Sync and reload the host-run account indexer systemd unit.
+# The unit file lives in the repo at deploy/systemd/axiom-account-indexer.service.
+# We copy it into /etc/systemd/system, reload the daemon so systemd picks up any
+# changes, and restart the service so it runs against the latest shell script +
+# binary. This must run OUTSIDE the Docker services because the account indexer
+# runs on the host (Docker bridge networking is ~200x slower for neardata.xyz).
+echo "==> Syncing axiom-account-indexer systemd unit"
+$SSH_CMD "$SSH_TARGET" "
+  if [ -f $DEPLOY_PATH/deploy/systemd/axiom-account-indexer.service ]; then
+    sudo cp $DEPLOY_PATH/deploy/systemd/axiom-account-indexer.service /etc/systemd/system/axiom-account-indexer.service
+    sudo systemctl daemon-reload
+    if systemctl list-unit-files axiom-account-indexer.service | grep -q enabled; then
+      sudo systemctl restart axiom-account-indexer.service
+      echo 'axiom-account-indexer service restarted'
+    else
+      echo 'axiom-account-indexer unit file synced (service not yet enabled - run: sudo systemctl enable --now axiom-account-indexer)'
+    fi
+  else
+    echo 'WARN: deploy/systemd/axiom-account-indexer.service not found in repo, skipping'
+  fi
+" || echo "WARN: systemd sync step failed (likely missing sudoers entry) — indexer not restarted"
+
 echo "==> Waiting for services to stabilize (20s)"
 sleep 20
 

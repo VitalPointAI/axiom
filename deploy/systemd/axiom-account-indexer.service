@@ -1,0 +1,41 @@
+[Unit]
+Description=Axiom Account Block Indexer (Rust v0.3, host-run)
+Documentation=https://github.com/VitalPointAI/axiom
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/home/deploy/Axiom
+
+# Load POSTGRES_PASSWORD and FASTNEAR_API_KEY from the deploy-managed .env
+EnvironmentFile=/home/deploy/Axiom/.env
+
+ExecStart=/bin/bash /home/deploy/Axiom/scripts/run_account_indexer.sh
+
+# Restart on any non-zero exit. 10s delay avoids tight restart loops on
+# repeated failures. StartLimit below caps runaway restart loops.
+Restart=always
+RestartSec=10s
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+# Give the script time to shut down cleanly on stop/restart (current chunk
+# should finish its COPY + cursor update before the process exits)
+KillSignal=SIGTERM
+TimeoutStopSec=60
+
+# Log to journald (also captured via StandardOutput=journal by default)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=axiom-account-indexer
+
+# Resource ceilings. Dictionary cache is ~600MB for full chain; leave room.
+MemoryMax=3G
+CPUQuota=400%
+
+[Install]
+WantedBy=multi-user.target
