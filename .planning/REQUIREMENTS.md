@@ -60,6 +60,18 @@
 - [x] **CICD-02**: Docker Compose orchestration for all services (PostgreSQL, FastAPI backend, Next.js frontend, indexer)
 - [x] **CICD-03**: Server deployment via SSH with zero-downtime strategy
 
+
+### Post-Quantum Encryption (Phase 16)
+
+- [x] **PQE-01**: Each user has an ML-KEM-768 keypair provisioned at registration; public encapsulation key (`mlkem_ek`, 1184 bytes) stored server-side; private decapsulation key (`mlkem_sealed_dk`) sealed via PRF-derived (or IPFS+password fallback) sealing key, never stored unsealed.
+- [x] **PQE-02**: Per-user 256-bit DEK generated at registration, wrapped with user's ML-KEM-768 encapsulation key (envelope encryption), stored as `users.wrapped_dek`. DEK only present in process memory during an authenticated session or an opt-in worker.
+- [x] **PQE-03**: All sensitive columns on `transactions`, `wallets`, `staking_events`, `lockup_events`, `epoch_snapshots`, `transaction_classifications`, `acb_snapshots`, `capital_gains_ledger`, `income_ledger`, `verification_results`, `account_verification_status`, `audit_log` (data entries), user-scoped `classification_rules`, user-scoped `spam_rules` are stored as AES-256-GCM ciphertext via SQLAlchemy `EncryptedBytes` TypeDecorator. A `pg_dump | strings` scan finds zero plaintext amounts, counterparties, or tx hashes.
+- [ ] **PQE-04**: `users.email` replaced by `email_hmac` (HMAC-SHA256 with server key) for login lookup. `users.username` and `users.near_account_id` encrypted with user DEK; `near_account_id_hmac` added as cleartext login-lookup surrogate.
+- [ ] **PQE-05**: Per-user materialization pipeline (classifier, ACB, verifier, reports, wallet sync) only runs when a session DEK is resolvable. The Rust account indexer (Phase 15 public data plane) is untouched and continues running. Requests without a resolvable DEK that touch encrypted data raise an explicit error, never silently return `None`.
+- [ ] **PQE-06**: Opt-in "Background processing" worker key: users can enable a sealed worker copy of their DEK (`users.worker_sealed_dek`) via Settings; revocation wipes the worker key atomically; UI surfaces privacy tradeoff, status, last-run, and revoke control; every toggle writes an audit log entry.
+- [ ] **PQE-07**: Migration performs a clean-slate wipe of all user-data tables (D-20), preserves auth tables (D-22), provides a documented rollback via `pg_dump` backup (D-23), and the onboarding wizard has a "returning from pre-encryption release" path that guides users to re-enter wallets (D-21).
+- [x] **PQE-08**: DEKs and ML-KEM private keys are explicitly zeroed with `ctypes.memset` on session end, logout, process exit (`atexit` handler), and after every request; a memory-scan test confirms DEK bytes are not present in process memory after `zero_dek()`.
+
 ## v2 Requirements (Deferred)
 
 - [ ] Plaid integration for automated bank data
@@ -116,6 +128,14 @@
 | CICD-01 | Phase 8 | Not Started |
 | CICD-02 | Phase 8 | Complete |
 | CICD-03 | Phase 8 | Complete |
+| PQE-01 | Phase 16 | Not Started |
+| PQE-02 | Phase 16 | Not Started |
+| PQE-03 | Phase 16 | Not Started |
+| PQE-04 | Phase 16 | Not Started |
+| PQE-05 | Phase 16 | Not Started |
+| PQE-06 | Phase 16 | Not Started |
+| PQE-07 | Phase 16 | Not Started |
+| PQE-08 | Phase 16 | Not Started |
 
 ---
 *Last updated: 2026-03-13 after completing 05-01 verification schema + handler wiring*

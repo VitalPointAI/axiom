@@ -2,14 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Executing Phase 15
-last_updated: "2026-04-11T20:28:20.346Z"
+status: Executing Phase 16
+last_updated: "2026-04-12T21:51:36Z"
 progress:
-  total_phases: 13
-  completed_phases: 12
-  total_plans: 62
-  completed_plans: 59
-  percent: 95
+  total_phases: 14
+  completed_phases: 13
+  total_plans: 76
+  completed_plans: 63
+  percent: 83
+phase_16:
+  current_plan: 2
+  total_plans: 7
+  stopped_at: "Completed 16-01-PLAN.md"
 ---
 
 # Project State
@@ -19,9 +23,19 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 **Core value:** Accurate tax reporting — every transaction correctly classified, every balance reconciled.
-**Current focus:** Phase 15 — account-block-index-integer-encoding
+**Current focus:** Phase 16 — post-quantum-encryption-at-rest
 
 ## Current Phase
+
+**Phase 16: Post-Quantum Encryption at Rest** IN PROGRESS
+
+- Plan 16-01: Crypto foundation (kyber-py, db/crypto.py, EncryptedBytes, 24 unit tests) ✅ DONE (2026-04-12)
+- Plan 16-02: Internal crypto router (pending)
+- Plan 16-03: Auth-service key custody (pending)
+- Plan 16-04: Migration 022 (pending)
+- Plan 16-05: ORM wiring (pending)
+- Plan 16-06: Pipeline gating + accountant rewrap (pending)
+- Plan 16-07: Worker key + cutover (pending)
 
 **Phase 13: Reliable Indexing** COMPLETE ✅
 
@@ -120,6 +134,10 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | 10. Remaining Concerns | **Complete** | 100% |
 | 11. Robustness & Missing Features | **Partial** | 20% (1/5 plans) |
 | 12. User Onboarding | **Complete** | 100% (3/3 plans) |
+| 13. Reliable Indexing | **Complete** | 100% (5/5 plans) |
+| 14. Marketing Frontend | **Complete** | 100% |
+| 15. Account Block Index Integer Encoding | **Complete** | 100% |
+| 16. Post-Quantum Encryption at Rest | **In Progress** | 14% (1/7 plans) |
 
 ## Accumulated Context
 
@@ -134,6 +152,15 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Phase 14 added: Marketing Frontend — public-facing marketing site with waitlist, privacy/compliance pages, Plausible analytics
 - Phase 15 added: Account Block Index Integer Encoding — reduce NEAR index from ~1.3 TB to ~260 GB via dictionary-encoded integer IDs, maintain sub-2-minute wallet lookups
 - Phase 16 added: Post-Quantum Encryption at Rest — AES-256-GCM data encryption with ML-KEM-768 (Kyber) key wrapping per user. Foundation for the "post-quantum encrypted" marketing claim; later phases (17 passkey-derived keys, 18 client-side ZK computation) will build on this.
+
+### Phase 16 Decisions (16-01)
+
+- `ContextVar` (not `threading.local`) for DEK — asyncio-safe, no cross-request leakage in FastAPI
+- `os.urandom(12)` random nonces per AES-256-GCM encryption call — T-16-08 mitigation
+- Type-tag byte prefix (`0x01`–`0x04`) for lossless Python type round-trips through EncryptedBytes
+- `kyber-py==1.2.0` pinned exactly — pure Python, no compiler in Docker, FIPS 203 compliant
+- `atexit.register(zero_dek)` + `ctypes.memset` for DEK zeroization on process exit (PQE-08)
+- All crypto ops go through `db.crypto` — single auditable module for the entire per-user data plane
 
 ## Blockers
 
