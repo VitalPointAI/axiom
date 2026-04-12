@@ -223,20 +223,31 @@ def require_admin(user: dict = Depends(get_current_user)) -> dict:
 # ---------------------------------------------------------------------------
 
 from datetime import datetime, timezone  # noqa: E402 — local import to avoid polluting auth deps
+from typing import AsyncGenerator  # noqa: E402
+
+from fastapi.concurrency import run_in_threadpool  # noqa: E402
 
 from db import crypto as _crypto  # noqa: E402 — imported here to keep Phase 16 additions together
 
 
-def get_session_dek(
+async def get_session_dek(
     neartax_session: Optional[str] = Cookie(default=None),
     pool=Depends(get_pool_dep),
-):
+) -> AsyncGenerator[bytes, None]:
     """Resolve the per-session DEK from session_dek_cache and inject into ContextVar.
 
     Reads the session_dek_cache row for the current session cookie, decrypts the
     encrypted_dek column using SESSION_DEK_WRAP_KEY (via db.crypto.unwrap_session_dek),
     sets the DEK in the request-scoped ContextVar via db.crypto.set_dek, yields, then
     zeroes the DEK in the finally block (D-15, T-16-15).
+
+    IMPORTANT: This dependency is an async generator so that set_dek() and zero_dek()
+    run in the asyncio event loop context, not a threadpool thread context.  ContextVars
+    are asyncio-task-scoped; if set_dek() were called from a sync generator running in a
+    threadpool, the ContextVar would not propagate to the endpoint handler task.
+
+    The psycopg2 pool operations (synchronous) are wrapped in run_in_threadpool() so
+    they do not block the event loop.
 
     Fails closed (HTTPException 401) when:
       - No neartax_session cookie is present.
@@ -256,19 +267,23 @@ def get_session_dek(
             detail="No session cookie — authentication required",
         )
 
-    conn = pool.getconn()
-    try:
-        cur = conn.cursor()
+    def _fetch_row():
+        """Synchronous DB fetch — runs in threadpool to avoid blocking event loop."""
+        conn = pool.getconn()
         try:
-            cur.execute(
-                "SELECT encrypted_dek, expires_at FROM session_dek_cache WHERE session_id = %s",
-                (neartax_session,),
-            )
-            row = cur.fetchone()
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "SELECT encrypted_dek, expires_at FROM session_dek_cache WHERE session_id = %s",
+                    (neartax_session,),
+                )
+                return cur.fetchone()
+            finally:
+                cur.close()
         finally:
-            cur.close()
-    finally:
-        pool.putconn(conn)
+            pool.putconn(conn)
+
+    row = await run_in_threadpool(_fetch_row)
 
     if row is None:
         raise HTTPException(
@@ -287,6 +302,8 @@ def get_session_dek(
             detail="Session DEK expired — re-authentication required",
         )
 
+    # Unwrap and set DEK in asyncio context (ContextVar is task-scoped — visible
+    # to the endpoint handler running in the same asyncio task).
     dek = _crypto.unwrap_session_dek(bytes(encrypted_dek))
     _crypto.set_dek(dek)
     try:
