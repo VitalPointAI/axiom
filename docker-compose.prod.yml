@@ -125,6 +125,7 @@ services:
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3003}
       - SESSION_SECURE=${SESSION_SECURE:-true}
       - SECRET_KEY=${SECRET_KEY}
+      - FASTNEAR_API_KEY=${FASTNEAR_API_KEY}
     depends_on:
       postgres:
         condition: service_healthy
@@ -133,7 +134,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 1G
           cpus: "1.0"
     networks:
       - axiom-net
