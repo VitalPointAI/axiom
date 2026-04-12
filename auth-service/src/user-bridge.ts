@@ -4,9 +4,15 @@
  * near-phantom-auth creates UUID-based user records in anon_users/oauth_users.
  * Axiom's existing data model uses integer serial IDs in the `users` table.
  * This bridge ensures every auth user has a corresponding Axiom user row.
+ *
+ * Phase 16 extension (D-11, D-26):
+ *   - getPool() is exported so key-custody.ts + worker-key.ts share the same pool.
+ *   - syncUser() accepts an optional sealingKeyHex; on first user creation, it calls
+ *     provisionUserKeys() to generate the ML-KEM keypair and store the three blobs.
  */
 
 import pg from 'pg';
+import { provisionUserKeys } from './key-custody.js';
 
 const { Pool } = pg;
 
@@ -16,13 +22,36 @@ export interface AxiomUserBridge {
   getAxiomUserId(authUserId: string): Promise<number | null>;
 }
 
+// ---------------------------------------------------------------------------
+// Module-level pool (exported so key-custody.ts + worker-key.ts can share it)
+// ---------------------------------------------------------------------------
+
+let _pool: InstanceType<typeof Pool> | null = null;
+
+/**
+ * Returns the shared Pool instance for the Axiom database.
+ * Throws if createAxiomUserBridge() has not been called yet.
+ */
+export function getPool(): InstanceType<typeof Pool> {
+  if (!_pool) {
+    throw new Error(
+      'getPool() called before createAxiomUserBridge() — pool not initialized',
+    );
+  }
+  return _pool;
+}
+
+// ---------------------------------------------------------------------------
+// Bridge factory
+// ---------------------------------------------------------------------------
+
 export function createAxiomUserBridge(connectionString: string): AxiomUserBridge {
-  const pool = new Pool({ connectionString });
+  _pool = new Pool({ connectionString });
 
   return {
     async initialize() {
       // Create mapping table if it doesn't exist
-      await pool.query(`
+      await _pool!.query(`
         CREATE TABLE IF NOT EXISTS auth_user_mapping (
           auth_user_id TEXT PRIMARY KEY,
           axiom_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -35,36 +64,39 @@ export function createAxiomUserBridge(connectionString: string): AxiomUserBridge
     },
 
     async syncUser(authData: Record<string, unknown>): Promise<number> {
-      const authUserId = authData.userId as string || authData.id as string;
-      const codename = authData.codename as string | undefined;
-      const email = authData.email as string | undefined;
-      const nearAccountId = authData.nearAccountId as string | undefined;
-      const username = authData.username as string | undefined;
-      const userType = authData.type as string || 'anonymous';
+      const authUserId = authData['userId'] as string || authData['id'] as string;
+      const codename = authData['codename'] as string | undefined;
+      const email = authData['email'] as string | undefined;
+      const nearAccountId = authData['nearAccountId'] as string | undefined;
+      const username = authData['username'] as string | undefined;
+      const userType = authData['type'] as string || 'anonymous';
+      // Phase 16: optional sealing key for new-user ML-KEM provisioning (D-11)
+      const sealingKeyHex = authData['sealingKeyHex'] as string | undefined;
 
       if (!authUserId) return -1;
 
-      const client = await pool.connect();
+      const client = await _pool!.connect();
       try {
         await client.query('BEGIN');
 
         // Check if mapping already exists
         const existing = await client.query(
           'SELECT axiom_user_id FROM auth_user_mapping WHERE auth_user_id = $1',
-          [authUserId]
+          [authUserId],
         );
 
         if (existing.rows.length > 0) {
           // Update Axiom user with latest info
-          const axiomUserId = existing.rows[0].axiom_user_id;
-          await client.query(`
-            UPDATE users SET
+          const axiomUserId = existing.rows[0]['axiom_user_id'] as number;
+          await client.query(
+            `UPDATE users SET
               near_account_id = COALESCE($1, near_account_id),
               email = COALESCE($2, email),
               codename = COALESCE($3, codename),
               username = COALESCE($4, username)
-            WHERE id = $5
-          `, [nearAccountId, email, codename, username, axiomUserId]);
+            WHERE id = $5`,
+            [nearAccountId, email, codename, username, axiomUserId],
+          );
 
           await client.query('COMMIT');
           return axiomUserId;
@@ -76,55 +108,79 @@ export function createAxiomUserBridge(connectionString: string): AxiomUserBridge
         if (email) {
           const byEmail = await client.query(
             'SELECT id FROM users WHERE email = $1',
-            [email]
+            [email],
           );
-          if (byEmail.rows.length > 0) axiomUserId = byEmail.rows[0].id;
+          if (byEmail.rows.length > 0) axiomUserId = byEmail.rows[0]['id'] as number;
         }
 
         if (!axiomUserId && nearAccountId) {
           const byNear = await client.query(
             'SELECT id FROM users WHERE near_account_id = $1',
-            [nearAccountId]
+            [nearAccountId],
           );
-          if (byNear.rows.length > 0) axiomUserId = byNear.rows[0].id;
+          if (byNear.rows.length > 0) axiomUserId = byNear.rows[0]['id'] as number;
         }
 
         if (!axiomUserId && codename) {
           const byCodename = await client.query(
             'SELECT id FROM users WHERE codename = $1',
-            [codename]
+            [codename],
           );
-          if (byCodename.rows.length > 0) axiomUserId = byCodename.rows[0].id;
+          if (byCodename.rows.length > 0) axiomUserId = byCodename.rows[0]['id'] as number;
         }
 
         // Create new Axiom user if not found
+        let isNewUser = false;
         if (!axiomUserId) {
-          const insert = await client.query(`
-            INSERT INTO users (near_account_id, email, codename, username)
+          const insert = await client.query(
+            `INSERT INTO users (near_account_id, email, codename, username)
             VALUES ($1, $2, $3, $4)
-            RETURNING id
-          `, [nearAccountId, email, codename, username]);
-          axiomUserId = insert.rows[0].id;
+            RETURNING id`,
+            [nearAccountId, email, codename, username],
+          );
+          axiomUserId = insert.rows[0]['id'] as number;
+          isNewUser = true;
         } else {
           // Update existing user with any new info
-          await client.query(`
-            UPDATE users SET
+          await client.query(
+            `UPDATE users SET
               near_account_id = COALESCE($1, near_account_id),
               email = COALESCE($2, email),
               codename = COALESCE($3, codename),
               username = COALESCE($4, username)
-            WHERE id = $5
-          `, [nearAccountId, email, codename, username, axiomUserId]);
+            WHERE id = $5`,
+            [nearAccountId, email, codename, username, axiomUserId],
+          );
         }
 
         // Create mapping
-        await client.query(`
-          INSERT INTO auth_user_mapping (auth_user_id, axiom_user_id, user_type)
+        await client.query(
+          `INSERT INTO auth_user_mapping (auth_user_id, axiom_user_id, user_type)
           VALUES ($1, $2, $3)
-          ON CONFLICT (auth_user_id) DO NOTHING
-        `, [authUserId, axiomUserId, userType]);
+          ON CONFLICT (auth_user_id) DO NOTHING`,
+          [authUserId, axiomUserId, userType],
+        );
 
         await client.query('COMMIT');
+
+        // Phase 16 (D-11): provision ML-KEM keypair for brand-new users
+        // Done AFTER COMMIT so the users row is durable before we write the ML-KEM blobs.
+        // Wrapped in try/catch: key provisioning failure must not fail the auth flow —
+        // the user can still log in; the missing keys will be retried on next login.
+        if (isNewUser && sealingKeyHex) {
+          const sealingKey = Buffer.from(sealingKeyHex, 'hex');
+          try {
+            await provisionUserKeys(axiomUserId!, sealingKey);
+          } catch (err) {
+            console.error(
+              `Failed to provision ML-KEM keys for user ${axiomUserId}:`,
+              err,
+            );
+          } finally {
+            sealingKey.fill(0); // zero after use (T-16-16)
+          }
+        }
+
         return axiomUserId!;
       } catch (err) {
         await client.query('ROLLBACK');
@@ -135,11 +191,11 @@ export function createAxiomUserBridge(connectionString: string): AxiomUserBridge
     },
 
     async getAxiomUserId(authUserId: string): Promise<number | null> {
-      const result = await pool.query(
+      const result = await _pool!.query(
         'SELECT axiom_user_id FROM auth_user_mapping WHERE auth_user_id = $1',
-        [authUserId]
+        [authUserId],
       );
-      return result.rows.length > 0 ? result.rows[0].axiom_user_id : null;
+      return result.rows.length > 0 ? result.rows[0]['axiom_user_id'] as number : null;
     },
   };
 }

@@ -17,6 +17,7 @@ import cookieParser from 'cookie-parser';
 import { createAnonAuth } from '@vitalpoint/near-phantom-auth/server';
 import { createMagicLinkRouter } from './magic-link.js';
 import { createAxiomUserBridge } from './user-bridge.js';
+import { resolveSessionDek, deleteSessionDekCache } from './key-custody.js';
 
 const app = express();
 const PORT = parseInt(process.env.AUTH_PORT || '3100', 10);
@@ -90,13 +91,58 @@ app.use('/auth', (req, res, next) => {
   // Store original json method to intercept responses
   const originalJson = res.json.bind(res);
   res.json = function(body: unknown) {
-    // After successful register/login, sync to Axiom users table
     if (res.statusCode >= 200 && res.statusCode < 300 && body && typeof body === 'object') {
       const data = body as Record<string, unknown>;
-      if (data.codename || data.nearAccountId || data.email) {
-        userBridge.syncUser(data).catch(err => {
+
+      // After successful register/login, sync to Axiom users table
+      if (data['codename'] || data['nearAccountId'] || data['email']) {
+        // Phase 16 (D-11): pass sealing_key_hex through to syncUser for new-user key provisioning
+        const syncData: Record<string, unknown> = { ...data };
+        if (req.body && typeof req.body === 'object') {
+          const body = req.body as Record<string, unknown>;
+          if (body['sealingKeyHex']) {
+            syncData['sealingKeyHex'] = body['sealingKeyHex'];
+          }
+        }
+        userBridge.syncUser(syncData).catch(err => {
           console.error('Failed to sync Axiom user:', err);
         });
+      }
+
+      // Phase 16 (D-26): after login, write session DEK to session_dek_cache
+      // The session ID is available in the response body from near-phantom-auth.
+      if (data['sessionId'] && req.body && typeof req.body === 'object') {
+        const body = req.body as Record<string, unknown>;
+        const userId = data['userId'] ?? data['id'];
+        const sealingKeyHex = body['sealingKeyHex'] as string | undefined;
+
+        if (sealingKeyHex && userId && typeof userId === 'number') {
+          const sessionId = data['sessionId'] as string;
+          const sealingKey = Buffer.from(sealingKeyHex, 'hex');
+          resolveSessionDek(userId, sessionId, sealingKey)
+            .catch(err => {
+              console.error('Failed to write session DEK cache:', err);
+            })
+            .finally(() => {
+              sealingKey.fill(0); // zero sealing key after IPC call (T-16-16)
+            });
+        }
+      }
+
+      // Phase 16 (D-26): on logout, delete the session DEK cache row
+      if (
+        req.path === '/logout' &&
+        data['success'] === true &&
+        req.cookies &&
+        typeof req.cookies === 'object'
+      ) {
+        // Extract session ID from the session cookie (near-phantom-auth sets 'session')
+        const sessionId = (req.cookies as Record<string, string>)['session'];
+        if (sessionId) {
+          deleteSessionDekCache(sessionId).catch(err => {
+            console.error('Failed to delete session DEK cache on logout:', err);
+          });
+        }
       }
     }
     return originalJson(body);
