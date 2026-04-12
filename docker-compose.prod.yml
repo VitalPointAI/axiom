@@ -54,10 +54,10 @@ services:
       - "3003:80"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    extra_hosts:
+      - "api-host:host-gateway"
     depends_on:
       web:
-        condition: service_healthy
-      api:
         condition: service_healthy
     networks:
       - axiom-net
@@ -111,8 +111,9 @@ services:
     build:
       context: .
       dockerfile: api/Dockerfile
+    network_mode: host
     environment:
-      - DATABASE_URL=postgresql://neartax:${POSTGRES_PASSWORD}@postgres:5432/neartax
+      - DATABASE_URL=postgresql://neartax:${POSTGRES_PASSWORD}@127.0.0.1:5433/neartax
       - RP_ID=${RP_ID:-localhost}
       - RP_NAME=${RP_NAME:-Axiom}
       - ORIGIN=${ORIGIN:-http://localhost:3003}
@@ -136,8 +137,6 @@ services:
         limits:
           memory: 1G
           cpus: "1.0"
-    networks:
-      - axiom-net
     restart: unless-stopped
     volumes:
       - uploads_data:/app/uploads
