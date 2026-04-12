@@ -212,3 +212,118 @@ def require_admin(user: dict = Depends(get_current_user)) -> dict:
             detail="Admin access required",
         )
     return user
+
+
+# ---------------------------------------------------------------------------
+# Phase 16: DEK-aware dependencies (plan 16-02)
+# ---------------------------------------------------------------------------
+# NOTE: get_session_dek reads from the session_dek_cache table which is
+# created by migration 022 in plan 16-04. Until that migration is applied,
+# any call to get_session_dek will return 401 (table does not exist).
+# ---------------------------------------------------------------------------
+
+from datetime import datetime, timezone  # noqa: E402 — local import to avoid polluting auth deps
+
+from db import crypto as _crypto  # noqa: E402 — imported here to keep Phase 16 additions together
+
+
+def get_session_dek(
+    neartax_session: Optional[str] = Cookie(default=None),
+    pool=Depends(get_pool_dep),
+):
+    """Resolve the per-session DEK from session_dek_cache and inject into ContextVar.
+
+    Reads the session_dek_cache row for the current session cookie, decrypts the
+    encrypted_dek column using SESSION_DEK_WRAP_KEY (via db.crypto.unwrap_session_dek),
+    sets the DEK in the request-scoped ContextVar via db.crypto.set_dek, yields, then
+    zeroes the DEK in the finally block (D-15, T-16-15).
+
+    Fails closed (HTTPException 401) when:
+      - No neartax_session cookie is present.
+      - No session_dek_cache row exists for the session (plan 16-04 migration 022
+        creates this table; missing → 401 until auth-service populates a row at login).
+      - The cached row has expired (auth-service sets expires_at to match session TTL).
+
+    Depends on: plan 16-04 migration 022 creating the session_dek_cache table.
+
+    Yields:
+        dek (bytes): the plaintext DEK, available inside the endpoint as
+                     db.crypto.get_dek(). Zeroed unconditionally in finally.
+    """
+    if not neartax_session:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No session cookie — authentication required",
+        )
+
+    conn = pool.getconn()
+    try:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "SELECT encrypted_dek, expires_at FROM session_dek_cache WHERE session_id = %s",
+                (neartax_session,),
+            )
+            row = cur.fetchone()
+        finally:
+            cur.close()
+    finally:
+        pool.putconn(conn)
+
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session DEK unavailable — re-authentication required",
+        )
+
+    encrypted_dek, expires_at = row
+
+    # Normalise expires_at to UTC-aware for comparison.
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at is not None and expires_at < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session DEK expired — re-authentication required",
+        )
+
+    dek = _crypto.unwrap_session_dek(bytes(encrypted_dek))
+    _crypto.set_dek(dek)
+    try:
+        yield dek
+    finally:
+        _crypto.zero_dek()
+
+
+def get_effective_user_with_dek(
+    user: dict = Depends(get_effective_user),
+    _dek: bytes = Depends(get_session_dek),
+) -> dict:
+    """Combines effective-user resolution with DEK injection.
+
+    Use this dependency (instead of get_effective_user alone) on any route that
+    reads or writes encrypted columns.  The DEK is available via db.crypto.get_dek()
+    inside the endpoint body; it will be zeroed when the request completes.
+
+    Accountant viewing mode:
+        TODO(16-06): When viewing_as_user_id is set (accountant is viewing a client),
+        plan 16-06 will replace get_session_dek with a path that resolves the client's
+        DEK from accountant_access.rewrapped_client_dek.  Until then, any accountant
+        viewing attempt raises HTTP 501 so no route silently operates under the wrong DEK.
+
+    Returns:
+        The effective user dict (same shape as get_effective_user).
+
+    Raises:
+        HTTP 401 if no valid session DEK is available.
+        HTTP 501 if viewing_as_user_id is set (accountant mode not yet wired, plan 16-06).
+    """
+    if user.get("viewing_as_user_id") is not None:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=(
+                "Accountant DEK resolution is not yet wired — "
+                "this will be implemented in plan 16-06."
+            ),
+        )
+    return user
