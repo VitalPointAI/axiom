@@ -523,6 +523,59 @@ class IndexerService:
         "verify_balances",
     ]
 
+    # How many blocks behind the chain tip the account index can be before
+    # we consider it "still backfilling" and skip downstream ACB/dedup work.
+    # ~1 day of NEAR blocks at 1 block/sec. Once inside this window the
+    # index is effectively live and cost-basis jobs are safe to run.
+    _INDEX_BACKFILL_PAUSE_BLOCKS = 86_400
+
+    def _is_index_backfilling(self) -> bool:
+        """Return True when the account block index is still filling in
+        historical data and downstream analysis would run against an
+        incomplete transaction set.
+
+        The gate can be bypassed by setting DISABLE_INDEX_BACKFILL_GATE=1
+        (for emergency recalcs or dev testing).
+        """
+        if os.environ.get("DISABLE_INDEX_BACKFILL_GATE") == "1":
+            return False
+
+        conn = self.pool.getconn()
+        try:
+            cur = conn.cursor()
+            try:
+                # Does the state table exist yet?
+                cur.execute(
+                    "SELECT last_processed_block FROM account_indexer_state WHERE id = 1"
+                )
+                row = cur.fetchone()
+            except Exception:
+                conn.rollback()
+                # Table missing — assume old setup; don't gate
+                return False
+            finally:
+                cur.close()
+
+            if not row:
+                return False
+            cursor_block = row[0] or 0
+        finally:
+            self.pool.putconn(conn)
+
+        # Get chain tip (cache shared with sync_wallet path if available)
+        try:
+            from indexers.neardata_client import NeardataClient
+            tip = NeardataClient().get_final_block_height()
+        except Exception:
+            # If we can't reach the RPC, don't block work indefinitely
+            return False
+
+        if not tip or tip <= 0:
+            return False
+
+        behind = tip - cursor_block
+        return behind > self._INDEX_BACKFILL_PAUSE_BLOCKS
+
     def _schedule_downstream_if_ready(self, completed_job_type: str, user_id: int) -> None:
         """Schedule the next downstream pipeline stage when appropriate.
 
@@ -532,7 +585,22 @@ class IndexerService:
         - A downstream job completes and the next stage isn't already queued
 
         Works for any user account, not just a specific one.
+
+        PAUSE GATE: If the account block index is still backfilling (cursor
+        more than INDEX_BACKFILL_PAUSE_BLOCKS behind the chain tip), skip the
+        downstream pipeline entirely. Cost basis calculated against a partial
+        transaction set is invalid and would just get re-run once indexing
+        completes. Set the environment variable DISABLE_INDEX_BACKFILL_GATE=1
+        to bypass this check.
         """
+        if self._is_index_backfilling():
+            logger.info(
+                "Skipping downstream pipeline for user_id=%s (%s completed) — "
+                "account block index still backfilling",
+                user_id, completed_job_type,
+            )
+            return
+
         conn = self.pool.getconn()
         try:
             cur = conn.cursor()

@@ -177,7 +177,9 @@ $SSH_CMD "$SSH_TARGET" "
   if [ -f $DEPLOY_PATH/deploy/systemd/axiom-account-indexer.service ]; then
     sudo cp $DEPLOY_PATH/deploy/systemd/axiom-account-indexer.service /etc/systemd/system/axiom-account-indexer.service
     sudo systemctl daemon-reload
-    if systemctl list-unit-files axiom-account-indexer.service | grep -q enabled; then
+    # Note: 'systemctl is-enabled' returns 'enabled' or 'disabled' on stdout.
+    # Using exact match to avoid grep matching 'disabled' as a substring of 'enabled'.
+    if [ \"\$(systemctl is-enabled axiom-account-indexer.service 2>/dev/null)\" = \"enabled\" ]; then
       sudo systemctl restart axiom-account-indexer.service
       echo 'axiom-account-indexer service restarted'
     else
