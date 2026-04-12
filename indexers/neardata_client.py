@@ -33,6 +33,9 @@ class NeardataClient:
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
         self.session.headers["User-Agent"] = "Axiom/1.0"
+        api_key = os.environ.get("FASTNEAR_API_KEY", "")
+        if api_key:
+            self.session.headers["Authorization"] = f"Bearer {api_key}"
 
     def get_final_block_height(self) -> int:
         """Get the latest finalized block height."""
