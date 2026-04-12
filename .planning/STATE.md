@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Executing Phase 16
-last_updated: "2026-04-12T23:05:00Z"
-stopped_at: "Completed 16-02-PLAN.md"
+last_updated: "2026-04-12T23:30:00Z"
+stopped_at: "Completed 16-03-PLAN.md"
 progress:
   total_phases: 14
   completed_phases: 13
   total_plans: 69
-  completed_plans: 64
-  percent: 93
+  completed_plans: 65
+  percent: 94
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 
 - Plan 16-01: Crypto foundation (kyber-py, db/crypto.py, EncryptedBytes, 24 unit tests) ✅ DONE (2026-04-12)
 - Plan 16-02: Internal crypto router ✅ DONE (2026-04-12)
-- Plan 16-03: Auth-service key custody (pending)
+- Plan 16-03: Auth-service key custody ✅ DONE (2026-04-12)
 - Plan 16-04: Migration 022 (pending)
 - Plan 16-05: ORM wiring (pending)
 - Plan 16-06: Pipeline gating + accountant rewrap (pending)
@@ -134,7 +134,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 | 13. Reliable Indexing | **Complete** | 100% (5/5 plans) |
 | 14. Marketing Frontend | **Complete** | 100% |
 | 15. Account Block Index Integer Encoding | **Complete** | 100% |
-| 16. Post-Quantum Encryption at Rest | **In Progress** | 14% (1/7 plans) |
+| 16. Post-Quantum Encryption at Rest | **In Progress** | 43% (3/7 plans) |
 
 ## Accumulated Context
 
@@ -158,6 +158,14 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - `kyber-py==1.2.0` pinned exactly — pure Python, no compiler in Docker, FIPS 203 compliant
 - `atexit.register(zero_dek)` + `ctypes.memset` for DEK zeroization on process exit (PQE-08)
 - All crypto ops go through `db.crypto` — single auditable module for the entire per-user data plane
+
+### Phase 16 Decisions (16-03)
+
+- DI factory pattern (`_createKeyCustody`, `_createWorkerKeyOps`) for ESM-compatible unit testing — no Jest or ESM module mocking needed
+- `key-custody.ts` and `worker-key.ts` each create own `pg.Pool` to break circular import with `user-bridge.ts`
+- Node 20 built-in test runner (`tsx --test`) instead of Jest — `node_modules` root-owned; `tsx` already in devDeps
+- `provisionUserKeys` in `syncUser()` wrapped in try/catch — auth succeeds even if FastAPI keygen fails (fail-soft)
+- Session DEK resolution fires asynchronously in response interceptor — does not delay auth HTTP response
 
 ## Blockers
 

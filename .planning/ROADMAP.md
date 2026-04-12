@@ -460,7 +460,7 @@ Plans:
 Plans:
 - [x] 16-01-PLAN.md — Python crypto primitives + Wave 0 test scaffolds (db/crypto.py, kyber-py==1.2.0) (Wave 1) [PQE-01, PQE-02, PQE-03, PQE-08]
 - [x] 16-02-PLAN.md — FastAPI internal crypto router + get_session_dek dependency + teardown (Wave 2) [PQE-01, PQE-02, PQE-05, PQE-08]
-- [ ] 16-03-PLAN.md — auth-service key-custody, worker-key modules, session DEK IPC (Wave 2) [PQE-01, PQE-02, PQE-06]
+- [x] 16-03-PLAN.md — auth-service key-custody, worker-key modules, session DEK IPC (Wave 2) [PQE-01, PQE-02, PQE-06] ✓ DONE
 - [ ] 16-04-PLAN.md — Alembic migration 022 (clean-slate wipe per D-20) + backup/rollback scripts + runbook (Wave 3, autonomous:false) [PQE-03, PQE-04, PQE-07]
 - [ ] 16-05-PLAN.md — ORM EncryptedBytes wiring + dedup HMAC helpers + audit log DEK gating (Wave 4) [PQE-03, PQE-04]
 - [ ] 16-06-PLAN.md — Pipeline gating + in-memory filters + accountant rewrap + migration 023 session_client_dek_cache (Wave 4) [PQE-03, PQE-05]
