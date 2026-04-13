@@ -3,6 +3,11 @@ SQLAlchemy 2.0 declarative models for Axiom/NearTax.
 
 All data tables carry user_id FK for multi-user isolation.
 chain column on wallets/transactions enables multi-chain extensibility.
+
+Phase 16: All in-scope user-sensitive columns now use EncryptedBytes TypeDecorator
+(transparent AES-256-GCM per-column encryption). Cleartext routing columns
+(id, user_id, wallet_id, chain, block_height, block_timestamp, created_at,
+updated_at, primary keys, foreign keys) remain unchanged.
 """
 
 from sqlalchemy import (
@@ -26,6 +31,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import mapped_column, relationship
 
 from db.models.base import Base
+from db.crypto import EncryptedBytes
 
 
 class User(Base):
@@ -33,41 +39,67 @@ class User(Base):
 
     Phase 7 adds: username, email, is_admin, codename columns (migration 006).
     near_account_id is now optional (nullable=True) to support email-only users.
+
+    Phase 16 (migration 022):
+    - email, near_account_id, username changed to BYTEA (EncryptedBytes)
+    - Added mlkem_ek, mlkem_sealed_dk, wrapped_dek for ML-KEM-768 envelope
+    - Added email_hmac, near_account_id_hmac for pre-session lookup (D-24)
+    - Added worker_sealed_dek, worker_key_enabled for opt-in background jobs (D-17)
     """
 
     __tablename__ = "users"
 
     id = mapped_column(Integer, primary_key=True, autoincrement=True)
-    near_account_id = mapped_column(String(128), unique=True, nullable=True)
+    # Phase 16: near_account_id encrypted; near_account_id_hmac for pre-session lookup
+    near_account_id = mapped_column(EncryptedBytes, nullable=True)
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     last_login_at = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # Phase 7 auth columns (added via migration 006)
-    username = mapped_column(String(128), unique=True, nullable=True)
-    email = mapped_column(String(256), unique=True, nullable=True)
+    # Phase 7 auth columns (added via migration 006) — now encrypted (migration 022)
+    username = mapped_column(EncryptedBytes, nullable=True)
+    email = mapped_column(EncryptedBytes, nullable=True)
     is_admin = mapped_column(Boolean, default=False, nullable=True)
     codename = mapped_column(String(64), unique=True, nullable=True)
+
+    # Phase 16: ML-KEM-768 key material (D-11, D-12)
+    mlkem_ek = mapped_column(LargeBinary, nullable=True)            # encapsulation (public) key
+    mlkem_sealed_dk = mapped_column(LargeBinary, nullable=True)     # AES-sealed decapsulation key
+    wrapped_dek = mapped_column(LargeBinary, nullable=True)         # KEM-wrapped DEK
+
+    # Phase 16: HMAC surrogates for pre-session auth lookups (D-05, D-24)
+    email_hmac = mapped_column(Text, unique=True, nullable=True, index=True)
+    near_account_id_hmac = mapped_column(Text, unique=True, nullable=True, index=True)
+
+    # Phase 16: Worker key for opt-in background processing (D-17)
+    worker_sealed_dek = mapped_column(LargeBinary, nullable=True)
+    worker_key_enabled = mapped_column(Boolean, nullable=False, default=False)
 
     wallets = relationship("Wallet", back_populates="user", cascade="all, delete-orphan")
 
 
 class Wallet(Base):
-    """Blockchain wallets/addresses tracked per user."""
+    """Blockchain wallets/addresses tracked per user.
+
+    Phase 16: account_id and label encrypted (D-06 — wallets.account_id is the
+    single biggest linkability vector). is_owned encrypted.
+    Uniqueness on (user_id, account_id, chain) was dropped in migration 022
+    because account_id is now BYTEA — uniqueness is not guaranteed by the ORM
+    constraint; callers must deduplicate in Python.
+    """
 
     __tablename__ = "wallets"
     __table_args__ = (
-        UniqueConstraint("user_id", "account_id", "chain", name="uq_wallet_user_account_chain"),
         Index("ix_wallets_user_id", "user_id"),
     )
 
     id = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
-    account_id = mapped_column(String(128), nullable=False)
+    account_id = mapped_column(EncryptedBytes, nullable=False)
     chain = mapped_column(String(20), nullable=False, default="near")
-    label = mapped_column(String(256), nullable=True)
-    is_owned = mapped_column(Boolean, default=True, nullable=False)
+    label = mapped_column(EncryptedBytes, nullable=True)
+    is_owned = mapped_column(EncryptedBytes, nullable=True)
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -81,15 +113,17 @@ class Wallet(Base):
 
 
 class Transaction(Base):
-    """Individual blockchain transactions for all supported chains."""
+    """Individual blockchain transactions for all supported chains.
+
+    Phase 16: tx_hash, receipt_id, direction, counterparty, action_type,
+    method_name, amount, fee, token_id, success, raw_data all encrypted (D-02).
+    tx_dedup_hmac (BYTEA) replaces old cleartext uniqueness constraint (D-28).
+    """
 
     __tablename__ = "transactions"
     __table_args__ = (
-        UniqueConstraint(
-            "chain", "tx_hash", "receipt_id", "wallet_id",
-            name="uq_tx_chain_hash_receipt_wallet",
-        ),
-        CheckConstraint("direction IN ('in', 'out')", name="ck_tx_direction"),
+        # Phase 16: HMAC-based dedup constraint replaces old cleartext uq (D-28)
+        UniqueConstraint("user_id", "tx_dedup_hmac", name="uq_tx_user_dedup_hmac"),
         Index("ix_transactions_user_id", "user_id"),
         Index("ix_transactions_wallet_id", "wallet_id"),
         Index("ix_transactions_chain", "chain"),
@@ -99,20 +133,23 @@ class Transaction(Base):
     id = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     wallet_id = mapped_column(Integer, ForeignKey("wallets.id"), nullable=False)
-    tx_hash = mapped_column(String(128), nullable=False)
-    receipt_id = mapped_column(String(128), nullable=True)
+    # Phase 16: encrypted columns
+    tx_hash = mapped_column(EncryptedBytes, nullable=False)
+    receipt_id = mapped_column(EncryptedBytes, nullable=True)
     chain = mapped_column(String(20), nullable=False, default="near")
-    direction = mapped_column(String(3), nullable=True)
-    counterparty = mapped_column(String(128), nullable=True)
-    action_type = mapped_column(String(64), nullable=True)
-    method_name = mapped_column(String(128), nullable=True)
-    amount = mapped_column(Numeric(40, 0), nullable=True)   # yoctoNEAR or wei
-    fee = mapped_column(Numeric(40, 0), nullable=True)
-    token_id = mapped_column(String(128), nullable=True)    # FT contract address
+    direction = mapped_column(EncryptedBytes, nullable=True)
+    counterparty = mapped_column(EncryptedBytes, nullable=True)
+    action_type = mapped_column(EncryptedBytes, nullable=True)
+    method_name = mapped_column(EncryptedBytes, nullable=True)
+    amount = mapped_column(EncryptedBytes, nullable=True)
+    fee = mapped_column(EncryptedBytes, nullable=True)
+    token_id = mapped_column(EncryptedBytes, nullable=True)
     block_height = mapped_column(BigInteger, nullable=True)
     block_timestamp = mapped_column(BigInteger, nullable=True)
-    success = mapped_column(Boolean, nullable=True)
-    raw_data = mapped_column(JSONB, nullable=True)          # JSONB, NOT TEXT
+    success = mapped_column(EncryptedBytes, nullable=True)
+    raw_data = mapped_column(EncryptedBytes, nullable=True)
+    # Phase 16: dedup HMAC (D-28) — cleartext for ON CONFLICT semantics
+    tx_dedup_hmac = mapped_column(LargeBinary, nullable=False)
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -166,14 +203,15 @@ class IndexingJob(Base):
 
 
 class StakingEvent(Base):
-    """Individual staking deposit/withdraw/reward events per validator."""
+    """Individual staking deposit/withdraw/reward events per validator.
+
+    Phase 16: validator_id, event_type, amount, amount_near, fmv_usd, fmv_cad,
+    tx_hash encrypted. epoch_id, block_timestamp, wallet_id remain cleartext.
+    """
 
     __tablename__ = "staking_events"
     __table_args__ = (
-        CheckConstraint(
-            "event_type IN ('deposit','withdraw','reward')",
-            name="ck_staking_event_type",
-        ),
+        # ck_staking_event_type dropped in migration 022 (can't validate BYTEA ciphertext)
         Index("ix_staking_events_user_id", "user_id"),
         Index("ix_staking_events_wallet_id", "wallet_id"),
         Index("ix_staking_events_block_timestamp", "block_timestamp"),
@@ -182,15 +220,16 @@ class StakingEvent(Base):
     id = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     wallet_id = mapped_column(Integer, ForeignKey("wallets.id"), nullable=False)
-    validator_id = mapped_column(String(128), nullable=False)
-    event_type = mapped_column(String(20), nullable=True)
-    amount = mapped_column(Numeric(40, 0), nullable=True)   # yoctoNEAR
-    amount_near = mapped_column(Numeric(24, 8), nullable=True)  # human-readable NEAR
-    fmv_usd = mapped_column(Numeric(18, 8), nullable=True)
-    fmv_cad = mapped_column(Numeric(18, 8), nullable=True)
+    # Phase 16: encrypted columns
+    validator_id = mapped_column(EncryptedBytes, nullable=False)
+    event_type = mapped_column(EncryptedBytes, nullable=True)
+    amount = mapped_column(EncryptedBytes, nullable=True)
+    amount_near = mapped_column(EncryptedBytes, nullable=True)
+    fmv_usd = mapped_column(EncryptedBytes, nullable=True)
+    fmv_cad = mapped_column(EncryptedBytes, nullable=True)
     epoch_id = mapped_column(BigInteger, nullable=True)
     block_timestamp = mapped_column(BigInteger, nullable=True)
-    tx_hash = mapped_column(String(128), nullable=True)
+    tx_hash = mapped_column(EncryptedBytes, nullable=True)
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -200,14 +239,16 @@ class StakingEvent(Base):
 
 
 class EpochSnapshot(Base):
-    """Per-epoch staked/unstaked balance snapshots for reward calculation."""
+    """Per-epoch staked/unstaked balance snapshots for reward calculation.
+
+    Phase 16: validator_id, staked_balance, unstaked_balance encrypted.
+    epoch_id and wallet_id remain cleartext for indexing.
+    uq_epoch_wallet_validator_epoch dropped in migration 022 (validator_id is now BYTEA).
+    """
 
     __tablename__ = "epoch_snapshots"
     __table_args__ = (
-        UniqueConstraint(
-            "wallet_id", "validator_id", "epoch_id",
-            name="uq_epoch_wallet_validator_epoch",
-        ),
+        # uq_epoch_wallet_validator_epoch dropped in migration 022
         Index("ix_epoch_snapshots_user_id", "user_id"),
         Index("ix_epoch_snapshots_wallet_id", "wallet_id"),
     )
@@ -215,10 +256,11 @@ class EpochSnapshot(Base):
     id = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     wallet_id = mapped_column(Integer, ForeignKey("wallets.id"), nullable=False)
-    validator_id = mapped_column(String(128), nullable=False)
+    # Phase 16: encrypted columns
+    validator_id = mapped_column(EncryptedBytes, nullable=False)
     epoch_id = mapped_column(BigInteger, nullable=False)
-    staked_balance = mapped_column(Numeric(40, 0), nullable=False)  # yoctoNEAR
-    unstaked_balance = mapped_column(Numeric(40, 0), nullable=False, default=0)
+    staked_balance = mapped_column(EncryptedBytes, nullable=False)
+    unstaked_balance = mapped_column(EncryptedBytes, nullable=False)
     epoch_timestamp = mapped_column(BigInteger, nullable=True)
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -249,7 +291,11 @@ class PriceCache(Base):
 
 
 class LockupEvent(Base):
-    """NEAR lockup contract events — vesting, unlocking, transfers."""
+    """NEAR lockup contract events — vesting, unlocking, transfers.
+
+    Phase 16: lockup_account_id, event_type, amount, amount_near, fmv_usd, fmv_cad,
+    tx_hash encrypted.
+    """
 
     __tablename__ = "lockup_events"
     __table_args__ = (
@@ -261,14 +307,15 @@ class LockupEvent(Base):
     id = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     wallet_id = mapped_column(Integer, ForeignKey("wallets.id"), nullable=False)
-    lockup_account_id = mapped_column(String(128), nullable=False)
-    event_type = mapped_column(String(32), nullable=False)  # "create","vest","unlock","transfer","withdraw"
-    amount = mapped_column(Numeric(40, 0), nullable=True)
-    amount_near = mapped_column(Numeric(24, 8), nullable=True)
-    fmv_usd = mapped_column(Numeric(18, 8), nullable=True)
-    fmv_cad = mapped_column(Numeric(18, 8), nullable=True)
+    # Phase 16: encrypted columns
+    lockup_account_id = mapped_column(EncryptedBytes, nullable=False)
+    event_type = mapped_column(EncryptedBytes, nullable=False)
+    amount = mapped_column(EncryptedBytes, nullable=True)
+    amount_near = mapped_column(EncryptedBytes, nullable=True)
+    fmv_usd = mapped_column(EncryptedBytes, nullable=True)
+    fmv_cad = mapped_column(EncryptedBytes, nullable=True)
     block_timestamp = mapped_column(BigInteger, nullable=True)
-    tx_hash = mapped_column(String(128), nullable=True)
+    tx_hash = mapped_column(EncryptedBytes, nullable=True)
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -284,6 +331,10 @@ class ClassificationRule(Base):
     chain-specific JSONB pattern to a TaxCategory with a confidence score.
     The uq_cr_name unique constraint enables idempotent ON CONFLICT (name) DO UPDATE
     upserts by the rule seeder.
+
+    Phase 16: System rules (user_id IS NULL) keep cleartext pattern/category/name.
+    User-scoped rules (user_id IS NOT NULL) use parallel *_enc BYTEA columns.
+    The plain columns remain for backwards compatibility with system rules.
     """
 
     __tablename__ = "classification_rules"
@@ -295,10 +346,13 @@ class ClassificationRule(Base):
     )
 
     id = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # user_id is nullable — NULL = system/global rule (not encrypted)
+    user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     name = mapped_column(String(128), nullable=False)
     chain = mapped_column(String(20), nullable=False)  # 'near', 'evm', 'exchange', 'all'
-    pattern = mapped_column(JSONB, nullable=False)  # e.g. {"method_name": "deposit_and_stake"}
-    category = mapped_column(String(50), nullable=False)  # TaxCategory enum value
+    # Cleartext columns for system rules (user_id IS NULL)
+    pattern = mapped_column(JSONB, nullable=True)   # nullable because user rules use _enc
+    category = mapped_column(String(50), nullable=True)  # nullable because user rules use _enc
     confidence = mapped_column(Numeric(4, 3), nullable=False)  # 0.000 to 1.000
     priority = mapped_column(Integer, nullable=False, default=0)  # higher = runs first
     specialist_confirmed = mapped_column(Boolean, nullable=False, default=False)
@@ -312,8 +366,13 @@ class ClassificationRule(Base):
     updated_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+    # Phase 16: parallel encrypted columns for user-scoped rules
+    pattern_enc = mapped_column(EncryptedBytes, nullable=True)
+    category_enc = mapped_column(EncryptedBytes, nullable=True)
+    name_enc = mapped_column(EncryptedBytes, nullable=True)
 
     confirmed_by_user = relationship("User", foreign_keys=[confirmed_by])
+    user = relationship("User", foreign_keys=[user_id])
 
 
 class TransactionClassification(Base):
@@ -325,6 +384,10 @@ class TransactionClassification(Base):
 
     CLASS-03: staking_event_id links staking reward income to the originating epoch event.
     CLASS-04: lockup_event_id links vest/unlock income to the lockup contract event.
+
+    Phase 16: category, confidence, classification_source, fmv_usd, fmv_cad, notes
+    encrypted. Indexes on category/classification_source dropped in migration 022
+    (can't index ciphertext). Filter in Python after fetch.
     """
 
     __tablename__ = "transaction_classifications"
@@ -333,7 +396,7 @@ class TransactionClassification(Base):
         Index("ix_tc_transaction_id", "transaction_id"),
         Index("ix_tc_exchange_transaction_id", "exchange_transaction_id"),
         Index("ix_tc_parent_id", "parent_classification_id"),
-        Index("ix_tc_category", "category"),
+        # ix_tc_category dropped in migration 022 (category is now BYTEA)
         Index("ix_tc_needs_review", "needs_review"),
         # Partial unique indexes defined in migration via op.execute() — not redeclared here
         # to avoid SQLAlchemy attempting to create them again during metadata operations.
@@ -351,20 +414,20 @@ class TransactionClassification(Base):
     leg_type = mapped_column(String(20), nullable=False, default="parent")
     # Values: 'parent', 'sell_leg', 'buy_leg', 'fee_leg'
     leg_index = mapped_column(Integer, nullable=False, default=0)
-    category = mapped_column(String(50), nullable=False)  # TaxCategory enum value
-    confidence = mapped_column(Numeric(4, 3), nullable=True)  # NULL = rule-based (certain)
-    classification_source = mapped_column(String(20), nullable=False)
-    # Values: 'rule', 'ai', 'manual', 'specialist'
+    # Phase 16: encrypted columns
+    category = mapped_column(EncryptedBytes, nullable=False)
+    confidence = mapped_column(EncryptedBytes, nullable=True)
+    classification_source = mapped_column(EncryptedBytes, nullable=False)
     rule_id = mapped_column(Integer, ForeignKey("classification_rules.id"), nullable=True)
     staking_event_id = mapped_column(Integer, ForeignKey("staking_events.id"), nullable=True)
     lockup_event_id = mapped_column(Integer, ForeignKey("lockup_events.id"), nullable=True)
-    fmv_usd = mapped_column(Numeric(18, 8), nullable=True)
-    fmv_cad = mapped_column(Numeric(18, 8), nullable=True)
+    fmv_usd = mapped_column(EncryptedBytes, nullable=True)
+    fmv_cad = mapped_column(EncryptedBytes, nullable=True)
     needs_review = mapped_column(Boolean, nullable=False, default=True)
     specialist_confirmed = mapped_column(Boolean, nullable=False, default=False)
     confirmed_by = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     confirmed_at = mapped_column(DateTime(timezone=True), nullable=True)
-    notes = mapped_column(Text, nullable=True)
+    notes = mapped_column(EncryptedBytes, nullable=True)
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -400,6 +463,9 @@ class SpamRule(Base):
       - 'dust_threshold': numeric threshold — amounts below this are spam
       - 'token_symbol': token symbol prefix/exact match
       - 'pattern': regex or glob pattern on tx fields
+
+    Phase 16: User-scoped rules use parallel encrypted columns rule_type_enc
+    and value_enc. Global rules (user_id IS NULL) keep cleartext columns.
     """
 
     __tablename__ = "spam_rules"
@@ -410,14 +476,17 @@ class SpamRule(Base):
 
     id = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=True)  # NULL = global
-    rule_type = mapped_column(String(50), nullable=False)
-    # Values: 'contract_address', 'dust_threshold', 'token_symbol', 'pattern'
-    value = mapped_column(Text, nullable=False)
+    # Cleartext columns for global rules (user_id IS NULL)
+    rule_type = mapped_column(String(50), nullable=True)
+    value = mapped_column(Text, nullable=True)
     created_by = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     is_active = mapped_column(Boolean, nullable=False, default=True)
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # Phase 16: parallel encrypted columns for user-scoped rules
+    rule_type_enc = mapped_column(EncryptedBytes, nullable=True)
+    value_enc = mapped_column(EncryptedBytes, nullable=True)
 
     user = relationship("User", foreign_keys=[user_id])
     creator = relationship("User", foreign_keys=[created_by])
@@ -435,25 +504,30 @@ class AuditLog(Base):
         'duplicate_merge', 'balance_override', 'report_generated',
         'invariant_violation', 'verification_resolved'
     actor_type values: 'system', 'user', 'specialist', 'ai'
+
+    Phase 16: old_value, new_value, notes, entity_type, action all encrypted.
+    actor_type remains cleartext (non-sensitive routing field).
     """
 
     __tablename__ = "audit_log"
     __table_args__ = (
-        Index("ix_al_entity", "entity_type", "entity_id"),
+        Index("ix_al_entity", "entity_id"),
         Index("ix_al_user_id", "user_id"),
         Index("ix_al_created_at", "created_at"),
-        Index("ix_al_action", "action"),
+        # ix_al_entity (entity_type, entity_id) and ix_al_action dropped in migration 022
+        # (entity_type and action are now BYTEA — can't index ciphertext)
     )
 
     id = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
-    entity_type = mapped_column(String(50), nullable=False)
+    # Phase 16: encrypted columns
+    entity_type = mapped_column(EncryptedBytes, nullable=False)
     entity_id = mapped_column(Integer, nullable=True)
-    action = mapped_column(String(50), nullable=False)
-    old_value = mapped_column(JSONB(astext_type=Text()), nullable=True)
-    new_value = mapped_column(JSONB(astext_type=Text()), nullable=False)
+    action = mapped_column(EncryptedBytes, nullable=False)
+    old_value = mapped_column(EncryptedBytes, nullable=True)
+    new_value = mapped_column(EncryptedBytes, nullable=False)
     actor_type = mapped_column(String(20), nullable=False)
-    notes = mapped_column(Text, nullable=True)
+    notes = mapped_column(EncryptedBytes, nullable=True)
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -473,45 +547,44 @@ class ACBSnapshot(Base):
 
     units_delta is always positive; sign is implied by event_type.
     proceeds_cad and gain_loss_cad are populated only for 'dispose' events.
+
+    Phase 16: All financial + identifying columns encrypted. acb_dedup_hmac (BYTEA)
+    replaces old cleartext uniqueness constraint (D-28).
     """
 
     __tablename__ = "acb_snapshots"
     __table_args__ = (
-        CheckConstraint(
-            "event_type IN ('acquire', 'dispose')",
-            name="ck_acb_event_type",
-        ),
-        UniqueConstraint(
-            "user_id",
-            "token_symbol",
-            "classification_id",
-            name="uq_acb_user_token_classification",
-        ),
+        # ck_acb_event_type dropped in migration 022 (event_type is now BYTEA)
+        # uq_acb_user_token_classification dropped; replaced with HMAC dedup
+        UniqueConstraint("user_id", "acb_dedup_hmac", name="uq_acb_user_dedup_hmac"),
         Index("ix_acb_user_id", "user_id"),
-        Index("ix_acb_token_symbol", "token_symbol"),
         Index("ix_acb_block_timestamp", "block_timestamp"),
+        # ix_acb_token_symbol dropped in migration 022 (token_symbol is now BYTEA)
     )
 
     id = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
-    token_symbol = mapped_column(String(32), nullable=False)
+    # Phase 16: encrypted columns
+    token_symbol = mapped_column(EncryptedBytes, nullable=False)
     classification_id = mapped_column(
         Integer, ForeignKey("transaction_classifications.id"), nullable=False
     )
     block_timestamp = mapped_column(BigInteger, nullable=False)
-    event_type = mapped_column(String(20), nullable=False)
+    event_type = mapped_column(EncryptedBytes, nullable=False)
     # positive=acquire, negative=dispose (sign implied by event_type)
-    units_delta = mapped_column(Numeric(24, 8), nullable=False)
-    units_after = mapped_column(Numeric(24, 8), nullable=False)
-    cost_cad_delta = mapped_column(Numeric(24, 8), nullable=False)
-    total_cost_cad = mapped_column(Numeric(24, 8), nullable=False)
-    acb_per_unit_cad = mapped_column(Numeric(24, 8), nullable=False)
-    proceeds_cad = mapped_column(Numeric(24, 8), nullable=True)   # dispose only
-    gain_loss_cad = mapped_column(Numeric(24, 8), nullable=True)  # dispose only
-    price_usd = mapped_column(Numeric(18, 8), nullable=True)
-    price_cad = mapped_column(Numeric(18, 8), nullable=True)
-    price_estimated = mapped_column(Boolean, nullable=False, default=False)
+    units_delta = mapped_column(EncryptedBytes, nullable=False)
+    units_after = mapped_column(EncryptedBytes, nullable=False)
+    cost_cad_delta = mapped_column(EncryptedBytes, nullable=False)
+    total_cost_cad = mapped_column(EncryptedBytes, nullable=False)
+    acb_per_unit_cad = mapped_column(EncryptedBytes, nullable=False)
+    proceeds_cad = mapped_column(EncryptedBytes, nullable=True)   # dispose only
+    gain_loss_cad = mapped_column(EncryptedBytes, nullable=True)  # dispose only
+    price_usd = mapped_column(EncryptedBytes, nullable=True)
+    price_cad = mapped_column(EncryptedBytes, nullable=True)
+    price_estimated = mapped_column(EncryptedBytes, nullable=False)
     needs_review = mapped_column(Boolean, nullable=False, default=False)
+    # Phase 16: dedup HMAC (D-28) — cleartext for ON CONFLICT semantics
+    acb_dedup_hmac = mapped_column(LargeBinary, nullable=False)
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -543,6 +616,9 @@ class CapitalGainsLedger(Base):
     in Phase 4 Plan 02.
 
     tax_year is the calendar year of disposal_date.
+
+    Phase 16: token_symbol, units_disposed, proceeds_cad, acb_used_cad, fees_cad,
+    gain_loss_cad, is_superficial_loss, denied_loss_cad encrypted.
     """
 
     __tablename__ = "capital_gains_ledger"
@@ -550,7 +626,7 @@ class CapitalGainsLedger(Base):
         UniqueConstraint("acb_snapshot_id", name="uq_cgl_acb_snapshot_id"),
         Index("ix_cgl_user_id", "user_id"),
         Index("ix_cgl_tax_year", "tax_year"),
-        Index("ix_cgl_token_symbol", "token_symbol"),
+        # ix_cgl_token_symbol dropped in migration 022 (token_symbol is now BYTEA)
     )
 
     id = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -558,16 +634,17 @@ class CapitalGainsLedger(Base):
     acb_snapshot_id = mapped_column(
         Integer, ForeignKey("acb_snapshots.id"), nullable=False
     )
-    token_symbol = mapped_column(String(32), nullable=False)
+    # Phase 16: encrypted columns
+    token_symbol = mapped_column(EncryptedBytes, nullable=False)
     disposal_date = mapped_column(Date, nullable=False)
     block_timestamp = mapped_column(BigInteger, nullable=False)
-    units_disposed = mapped_column(Numeric(24, 8), nullable=False)
-    proceeds_cad = mapped_column(Numeric(24, 8), nullable=False)
-    acb_used_cad = mapped_column(Numeric(24, 8), nullable=False)
-    fees_cad = mapped_column(Numeric(24, 8), nullable=False, default=0)
-    gain_loss_cad = mapped_column(Numeric(24, 8), nullable=False)
-    is_superficial_loss = mapped_column(Boolean, nullable=False, default=False)
-    denied_loss_cad = mapped_column(Numeric(24, 8), nullable=True)
+    units_disposed = mapped_column(EncryptedBytes, nullable=False)
+    proceeds_cad = mapped_column(EncryptedBytes, nullable=False)
+    acb_used_cad = mapped_column(EncryptedBytes, nullable=False)
+    fees_cad = mapped_column(EncryptedBytes, nullable=False)
+    gain_loss_cad = mapped_column(EncryptedBytes, nullable=False)
+    is_superficial_loss = mapped_column(EncryptedBytes, nullable=False)
+    denied_loss_cad = mapped_column(EncryptedBytes, nullable=True)
     needs_review = mapped_column(Boolean, nullable=False, default=False)
     tax_year = mapped_column(SmallInteger, nullable=False)
     created_at = mapped_column(
@@ -595,6 +672,8 @@ class IncomeLedger(Base):
     for the newly acquired units (added to the ACBSnapshot for that token).
 
     source_type values: 'staking', 'vesting', 'airdrop', 'other'
+
+    Phase 16: token_symbol, units_received, fmv_usd, fmv_cad, acb_added_cad encrypted.
     """
 
     __tablename__ = "income_ledger"
@@ -616,13 +695,14 @@ class IncomeLedger(Base):
     classification_id = mapped_column(
         Integer, ForeignKey("transaction_classifications.id"), nullable=True
     )
-    token_symbol = mapped_column(String(32), nullable=False)
+    # Phase 16: encrypted columns
+    token_symbol = mapped_column(EncryptedBytes, nullable=False)
     income_date = mapped_column(Date, nullable=False)
     block_timestamp = mapped_column(BigInteger, nullable=False)
-    units_received = mapped_column(Numeric(24, 8), nullable=False)
-    fmv_usd = mapped_column(Numeric(18, 8), nullable=False)
-    fmv_cad = mapped_column(Numeric(18, 8), nullable=False)
-    acb_added_cad = mapped_column(Numeric(24, 8), nullable=False)  # = fmv_cad
+    units_received = mapped_column(EncryptedBytes, nullable=False)
+    fmv_usd = mapped_column(EncryptedBytes, nullable=False)
+    fmv_cad = mapped_column(EncryptedBytes, nullable=False)
+    acb_added_cad = mapped_column(EncryptedBytes, nullable=False)
     tax_year = mapped_column(SmallInteger, nullable=False)
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -684,59 +764,63 @@ class VerificationResult(Base):
     diagnosis_category values: 'missing_staking_rewards', 'uncounted_fees',
         'unindexed_period', 'classification_error', 'duplicate_merged',
         'within_tolerance', 'unknown'
+
+    Phase 16: expected_balance_acb, expected_balance_replay, actual_balance,
+    manual_balance, difference, onchain_liquid, onchain_locked, onchain_staked,
+    diagnosis_detail, notes, rpc_error, diagnosis_category, diagnosis_confidence
+    all encrypted.
+    uq_vr_wallet_token dropped in migration 022 (token_symbol is BYTEA).
+    ck_vr_status dropped (status is BYTEA).
     """
 
     __tablename__ = "verification_results"
     __table_args__ = (
-        CheckConstraint(
-            "status IN ('open', 'resolved', 'accepted', 'unverified')",
-            name="ck_vr_status",
-        ),
-        UniqueConstraint("wallet_id", "token_symbol", name="uq_vr_wallet_token"),
+        # ck_vr_status and uq_vr_wallet_token dropped in migration 022
         Index("ix_vr_user_id", "user_id"),
         Index("ix_vr_wallet_id", "wallet_id"),
-        Index("ix_vr_status", "status"),
         Index("ix_vr_verified_at", "verified_at"),
+        # ix_vr_status dropped in migration 022 (status is now BYTEA)
     )
 
     id = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     wallet_id = mapped_column(Integer, ForeignKey("wallets.id"), nullable=False)
     chain = mapped_column(String(20), nullable=False)
-    token_symbol = mapped_column(String(32), nullable=False, default="NEAR")
+    # Phase 16: encrypted columns
+    token_symbol = mapped_column(EncryptedBytes, nullable=False)
 
-    # Balance components (all in human units, Decimal precision)
-    expected_balance_acb = mapped_column(Numeric(24, 8), nullable=True)
-    expected_balance_replay = mapped_column(Numeric(24, 8), nullable=True)
-    actual_balance = mapped_column(Numeric(24, 8), nullable=True)
-    manual_balance = mapped_column(Numeric(24, 8), nullable=True)
+    # Balance components (all in human units, Decimal precision) — encrypted
+    expected_balance_acb = mapped_column(EncryptedBytes, nullable=True)
+    expected_balance_replay = mapped_column(EncryptedBytes, nullable=True)
+    actual_balance = mapped_column(EncryptedBytes, nullable=True)
+    manual_balance = mapped_column(EncryptedBytes, nullable=True)
     manual_balance_date = mapped_column(DateTime(timezone=True), nullable=True)
-    difference = mapped_column(Numeric(24, 8), nullable=True)
+    difference = mapped_column(EncryptedBytes, nullable=True)
     tolerance = mapped_column(Numeric(24, 8), nullable=False, default=0.01)
 
-    # NEAR decomposed components (NULL for non-NEAR)
-    onchain_liquid = mapped_column(Numeric(24, 8), nullable=True)
-    onchain_locked = mapped_column(Numeric(24, 8), nullable=True)
-    onchain_staked = mapped_column(Numeric(24, 8), nullable=True)
+    # NEAR decomposed components (NULL for non-NEAR) — encrypted
+    onchain_liquid = mapped_column(EncryptedBytes, nullable=True)
+    onchain_locked = mapped_column(EncryptedBytes, nullable=True)
+    onchain_staked = mapped_column(EncryptedBytes, nullable=True)
 
-    # Status
-    status = mapped_column(String(20), nullable=False, default="open")
+    # Status — encrypted
+    status = mapped_column(EncryptedBytes, nullable=False)
 
-    # Diagnosis
-    diagnosis_category = mapped_column(String(50), nullable=True)
-    diagnosis_detail = mapped_column(JSONB, nullable=True)
-    diagnosis_confidence = mapped_column(Numeric(4, 3), nullable=True)
+    # Diagnosis — encrypted
+    diagnosis_category = mapped_column(EncryptedBytes, nullable=True)
+    diagnosis_detail = mapped_column(EncryptedBytes, nullable=True)
+    diagnosis_confidence = mapped_column(EncryptedBytes, nullable=True)
 
     # Resolution
     resolved_by = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     resolved_at = mapped_column(DateTime(timezone=True), nullable=True)
-    notes = mapped_column(Text, nullable=True)
+    notes = mapped_column(EncryptedBytes, nullable=True)
 
     # Verification run metadata
     verified_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    rpc_error = mapped_column(Text, nullable=True)
+    rpc_error = mapped_column(EncryptedBytes, nullable=True)
 
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -763,26 +847,26 @@ class AccountVerificationStatus(Base):
       - 'unverified': no verification results yet
 
     open_issues: count of verification_results with status='open' for this wallet.
+
+    Phase 16: notes encrypted. status encrypted (ck_avs_status dropped in migration 022).
     """
 
     __tablename__ = "account_verification_status"
     __table_args__ = (
-        CheckConstraint(
-            "status IN ('verified', 'flagged', 'unverified')",
-            name="ck_avs_status",
-        ),
+        # ck_avs_status dropped in migration 022 (status is now BYTEA)
         UniqueConstraint("wallet_id", name="uq_avs_wallet_id"),
         Index("ix_avs_user_id", "user_id"),
-        Index("ix_avs_status", "status"),
+        # ix_avs_status dropped in migration 022 (status is now BYTEA)
     )
 
     id = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     wallet_id = mapped_column(Integer, ForeignKey("wallets.id"), nullable=False)
-    status = mapped_column(String(20), nullable=False, default="unverified")
+    # Phase 16: encrypted columns
+    status = mapped_column(EncryptedBytes, nullable=False)
     last_checked_at = mapped_column(DateTime(timezone=True), nullable=True)
     open_issues = mapped_column(Integer, nullable=False, default=0)
-    notes = mapped_column(Text, nullable=True)
+    notes = mapped_column(EncryptedBytes, nullable=True)
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -924,6 +1008,9 @@ class AccountantAccess(Base):
       - 'readwrite': accountant can view and make changes (e.g., mark items reviewed)
 
     UNIQUE(accountant_user_id, client_user_id) prevents duplicate grants.
+
+    Phase 16: rewrapped_client_dek stores the client DEK re-wrapped with the
+    accountant's ML-KEM public key (D-25).
     """
 
     __tablename__ = "accountant_access"
@@ -945,9 +1032,38 @@ class AccountantAccess(Base):
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     permission_level = mapped_column(Text, nullable=False)
+    # Phase 16: client DEK re-wrapped with accountant's ML-KEM ek (D-25)
+    rewrapped_client_dek = mapped_column(LargeBinary, nullable=True)
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
     accountant = relationship("User", foreign_keys=[accountant_user_id])
     client = relationship("User", foreign_keys=[client_user_id])
+
+
+# ---------------------------------------------------------------------------
+# Phase 16: Session DEK Cache (D-26)
+# ---------------------------------------------------------------------------
+
+
+class SessionDekCache(Base):
+    """Encrypted DEK cache for IPC between auth-service and FastAPI (D-26).
+
+    auth-service writes this row after login (AES-256-GCM wrapping of the
+    plaintext DEK with SESSION_DEK_WRAP_KEY). FastAPI's get_session_dek()
+    dependency reads and decrypts it per request. On logout, auth-service
+    DELETEs the row — no FK to sessions table (auth-service owns lifecycle).
+    """
+
+    __tablename__ = "session_dek_cache"
+    __table_args__ = (
+        Index("ix_sdc_expires_at", "expires_at"),
+    )
+
+    session_id = mapped_column(Text, primary_key=True)
+    encrypted_dek = mapped_column(LargeBinary, nullable=False)
+    expires_at = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
