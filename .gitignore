@@ -64,3 +64,4 @@ output/
 .credentials/
 *.json.bak
 indexers/account-indexer-rs/target/
+.planning/phases/16-post-quantum-encryption-at-rest/backups/
