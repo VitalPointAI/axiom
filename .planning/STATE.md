@@ -3,14 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Executing Phase 16
-last_updated: "2026-04-12T23:30:00Z"
-stopped_at: "Completed 16-03-PLAN.md"
+last_updated: "2026-04-13T09:57:40.530Z"
 progress:
   total_phases: 14
   completed_phases: 13
   total_plans: 69
-  completed_plans: 65
-  percent: 94
+  completed_plans: 66
+  percent: 96
 ---
 
 # Project State
@@ -29,7 +28,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Plan 16-01: Crypto foundation (kyber-py, db/crypto.py, EncryptedBytes, 24 unit tests) ✅ DONE (2026-04-12)
 - Plan 16-02: Internal crypto router ✅ DONE (2026-04-12)
 - Plan 16-03: Auth-service key custody ✅ DONE (2026-04-12)
-- Plan 16-04: Migration 022 (pending)
+- Plan 16-04: Migration 022 schema + backup/rollback scripts + tests ⏸ CHECKPOINT (2026-04-13)
 - Plan 16-05: ORM wiring (pending)
 - Plan 16-06: Pipeline gating + accountant rewrap (pending)
 - Plan 16-07: Worker key + cutover (pending)
