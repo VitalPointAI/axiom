@@ -36,6 +36,13 @@ services:
     command: ["alembic", "-c", "db/migrations/alembic.ini", "upgrade", "head"]
     environment:
       - DATABASE_URL=postgresql://neartax:${POSTGRES_PASSWORD}@postgres:5432/neartax
+      # Phase 16 HMAC keys — required by migration 022 to backfill surrogate columns
+      # and by every subsequent migration that touches encrypted columns.
+      - EMAIL_HMAC_KEY=${EMAIL_HMAC_KEY}
+      - NEAR_ACCOUNT_HMAC_KEY=${NEAR_ACCOUNT_HMAC_KEY}
+      - TX_DEDUP_KEY=${TX_DEDUP_KEY}
+      - ACB_DEDUP_KEY=${ACB_DEDUP_KEY}
+      - SESSION_DEK_WRAP_KEY=${SESSION_DEK_WRAP_KEY}
     depends_on:
       postgres:
         condition: service_healthy
