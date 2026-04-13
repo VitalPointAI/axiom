@@ -254,8 +254,8 @@ def upgrade() -> None:
     truncate_list = ", ".join(_TABLES_TO_TRUNCATE)
     op.execute(f"TRUNCATE TABLE {truncate_list} RESTART IDENTITY CASCADE;")
 
-    # User-scoped classification/spam rules are also wiped (system rules kept)
-    op.execute("DELETE FROM classification_rules WHERE user_id IS NOT NULL;")
+    # User-scoped spam rules are wiped; classification_rules is system-wide
+    # (no user_id column) so it is left intact.
     op.execute("DELETE FROM spam_rules WHERE user_id IS NOT NULL;")
 
     # ------------------------------------------------------------------ #
