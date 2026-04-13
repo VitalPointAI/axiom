@@ -260,3 +260,78 @@ psql $DATABASE_URL -c "SELECT column_name FROM information_schema.columns WHERE 
 *Phase: 16-post-quantum-encryption-at-rest*  
 *Completed (Tasks 1-3): 2026-04-13*  
 *Paused at Task 4 checkpoint*
+
+---
+
+## Cutover Addendum (applied 2026-04-13)
+
+The migration was applied to the production DB on the deploy server (the
+only DB in this environment) with explicit user approval to wipe and
+re-populate.
+
+### Runtime fixes committed during cutover
+
+The original plan deliverables were correct in intent but several things
+needed to be reconciled with the real live schema and the CI/CD pipeline:
+
+- [2fb5739] `fix(16-04): pass Phase 16 HMAC keys to migrate container` —
+  the `migrate` service in `docker-compose.prod.yml` only declared
+  `DATABASE_URL`; without forwarding the new HMAC keys the migration
+  aborted fail-closed in `_compute_email_hmac` before touching data.
+- [988160c] `fix(16-04): use live DB constraint name uq_users_near_account_id` —
+  the plan assumed the postgres-default constraint name
+  `users_near_account_id_key` but the live DB had the alembic-generated
+  name `uq_users_near_account_id`.
+- [ddef1ac] `fix(16-04): drop classification_rules user_id DELETE` —
+  `classification_rules` is system-wide on this deployment; it has no
+  `user_id` column. The DELETE was removed; system rules are intact.
+- [901d503] `fix(16-04): wire Phase 16 HMAC secrets into CI-managed .env` —
+  `.github/workflows/deploy.yml` regenerates `/home/deploy/Axiom/.env`
+  from GitHub Secrets on every push. Without the HMAC keys in that
+  step, every CI deploy silently wiped manual edits. Added 6 new GitHub
+  Secrets (`EMAIL_HMAC_KEY`, `NEAR_ACCOUNT_HMAC_KEY`, `TX_DEDUP_KEY`,
+  `ACB_DEDUP_KEY`, `SESSION_DEK_WRAP_KEY`, `INTERNAL_SERVICE_TOKEN`) and
+  forward them in the workflow.
+- [fd5d6f8] `fix(16-04): tolerate auto-dropped constraints/indexes after column swaps` —
+  `_swap_columns` drops and re-adds columns; Postgres cascades the drop
+  to any UNIQUE/CHECK constraints and indexes referencing those columns.
+  Subsequent explicit `op.drop_constraint`/`op.drop_index` calls were
+  hitting `UndefinedObject`. Converted all post-swap drops to raw SQL
+  with `IF EXISTS`.
+
+Also [7c51316] `test(16-02): restore config module after pollution in test_config_validation`
+was required to unblock CI: tests in `test_config_validation.py` reload
+`config` under `patch.dict` scopes; patch restores env vars but reloaded
+module state leaked across files and caused
+`test_internal_crypto.py::test_keygen_missing_token` to error on
+`DB_POOL_MIN must be > 0`.
+
+### Cutover sequence
+
+1. `pre_pqe_backup.sh` produced `pre_pqe_20260413_102706.dump` (1.1G) on
+   the deploy server before any destructive operation.
+2. CI-managed `.env` regenerated with all 6 Phase 16 secrets.
+3. `docker compose -f docker-compose.prod.yml build migrate` rebuilt the
+   migrate container with the latest migration code.
+4. `alembic upgrade head` completed successfully via the `migrate` compose
+   service (run by `scripts/deploy.sh` on every successful CI deploy).
+
+### Post-cutover verification (live DB)
+
+| Check | Expected | Actual |
+|-------|----------|--------|
+| `alembic_version.version_num` | `022` | `022` ✓ |
+| Users preserved (D-22) | >0 | `2` ✓ |
+| `transactions` wiped (D-20) | `0` | `0` ✓ |
+| `wallets` wiped (D-21) | `0` | `0` ✓ |
+| `users.near_account_id` column type | `bytea` | `bytea` ✓ |
+| `session_dek_cache` table exists (D-26) | yes | yes ✓ |
+| New HMAC/PQE columns on `users` | 6 | `6` ✓ |
+| `accountant_access.rewrapped_client_dek` (D-25) | yes | yes ✓ |
+
+### Remaining scope for downstream plans
+
+- 16-05 will populate `BYTEA` columns via `EncryptedBytes` TypeDecorator on write
+- 16-06 will gate per-user pipelines on `get_session_dek`
+- 16-07 will ship the worker process, nginx ACL, onboarding UI, and E2E test
+- Data re-import (D-20): users will re-run indexing after the phase 16-07 cutover completes
