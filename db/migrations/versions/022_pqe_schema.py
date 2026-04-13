@@ -189,7 +189,9 @@ def upgrade() -> None:
     # Using try/except approach via if_exists=True to be defensive across envs
     op.drop_index("ix_users_email", table_name="users", if_exists=True)
     op.drop_constraint("users_email_key", "users", type_="unique")
-    op.drop_constraint("users_near_account_id_key", "users", type_="unique")
+    # Live DB names this constraint uq_users_near_account_id (alembic-generated),
+    # not the postgres-default users_near_account_id_key.
+    op.drop_constraint("uq_users_near_account_id", "users", type_="unique")
 
     # Add UNIQUE constraints on the HMAC surrogate columns (D-24)
     op.create_unique_constraint("uq_users_email_hmac", "users", ["email_hmac"])
@@ -786,6 +788,8 @@ def downgrade() -> None:
     op.add_column("users", sa.Column("near_account_id", sa.String(128), nullable=True))
     op.add_column("users", sa.Column("username", sa.String(128), nullable=True))
     op.create_unique_constraint("users_email_key", "users", ["email"])
-    op.create_unique_constraint("users_near_account_id_key", "users", ["near_account_id"])
+    op.create_unique_constraint(
+        "uq_users_near_account_id", "users", ["near_account_id"]
+    )
     op.create_unique_constraint("users_username_key", "users", ["username"])
     op.create_index("ix_users_email", "users", ["email"])
