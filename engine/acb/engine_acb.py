@@ -16,6 +16,7 @@ import logging
 from engine.acb.pool import ACBPool, check_acb_pool_invariants
 from engine.acb.symbols import resolve_token_symbol, normalize_timestamp, to_human_units
 from db.audit import write_audit
+from db.dedup_hmac_helpers import insert_acb_snapshot_with_dedup
 
 logger = logging.getLogger(__name__)
 
@@ -1017,22 +1018,31 @@ class ACBEngine:
     def _persist_snapshot(self, conn, user_id, symbol, classification_id, block_timestamp,
                           snap, proceeds_cad, gain_loss_cad, price_usd, price_cad,
                           is_estimated=False, needs_review=False) -> Optional[int]:
-        """INSERT acb_snapshots row (ON CONFLICT DO UPDATE). Returns snapshot id."""
+        """INSERT acb_snapshots row via insert_acb_snapshot_with_dedup. Returns snapshot id.
+
+        Phase 16: delegates to insert_acb_snapshot_with_dedup() which computes
+        acb_dedup_hmac and encrypts all in-scope columns. DEK must be in context.
+        """
         try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    _SNAPSHOT_UPSERT_SQL,
-                    (
-                        user_id, symbol, classification_id, block_timestamp,
-                        snap["event_type"], snap["units_delta"], snap["total_units"],
-                        snap.get("cost_cad_delta") or snap.get("acb_used_cad") or Decimal("0"),
-                        snap["total_cost_cad"], snap["acb_per_unit"],
-                        proceeds_cad, gain_loss_cad, price_usd, price_cad,
-                        is_estimated, needs_review,
-                    ),
-                )
-                row = cur.fetchone()
-                return row[0] if row else None
+            return insert_acb_snapshot_with_dedup(
+                conn,
+                user_id=user_id,
+                token_symbol=symbol,
+                classification_id=classification_id,
+                block_timestamp=block_timestamp,
+                event_type=snap["event_type"],
+                units_delta=snap["units_delta"],
+                units_after=snap["total_units"],
+                cost_cad_delta=snap.get("cost_cad_delta") or snap.get("acb_used_cad") or Decimal("0"),
+                total_cost_cad=snap["total_cost_cad"],
+                acb_per_unit_cad=snap["acb_per_unit"],
+                proceeds_cad=proceeds_cad,
+                gain_loss_cad=gain_loss_cad,
+                price_usd=price_usd,
+                price_cad=price_cad,
+                price_estimated=is_estimated,
+                needs_review=needs_review,
+            )
         except Exception as exc:
             logger.error(
                 "Failed to persist snapshot for user=%s symbol=%s class=%s: %s",

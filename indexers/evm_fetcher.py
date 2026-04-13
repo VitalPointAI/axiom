@@ -11,15 +11,14 @@ Migrated from evm_indexer.py (SQLite + EVMIndexer) to:
 - Etherscan V2 pagination (10000 per page)
 """
 
-import json
 import logging
 import os
 import time
 from typing import Any, Dict, List, Optional
 
 import requests
-from psycopg2.extras import execute_values
 
+from db.dedup_hmac_helpers import insert_transaction_with_dedup
 from indexers.chain_plugin import ChainFetcher
 
 logger = logging.getLogger(__name__)
@@ -481,56 +480,39 @@ class EVMFetcher(ChainFetcher):
 
     def _batch_upsert(self, rows: List[dict]) -> None:
         """
-        Batch-upsert transformed transaction rows using ON CONFLICT DO NOTHING.
+        Batch-upsert transformed transaction rows via dedup HMAC helper.
 
-        The unique constraint (chain, tx_hash, receipt_id, wallet_id) prevents
-        duplicate inserts on re-runs.
+        Phase 16: replaces direct SQL INSERT with insert_transaction_with_dedup()
+        which computes tx_dedup_hmac and encrypts all in-scope columns.
+        The DEK must be set in context via db.crypto.set_dek() before calling
+        (wired by plan 16-06 pipeline gating).
         """
         if not rows:
             return
 
-        columns = [
-            "user_id", "wallet_id", "tx_hash", "receipt_id", "chain",
-            "direction", "counterparty", "action_type", "method_name",
-            "amount", "fee", "token_id", "block_height", "block_timestamp",
-            "success", "raw_data",
-        ]
-
-        values = []
-        for r in rows:
-            raw_data = r.get("raw_data")
-            values.append((
-                r["user_id"],
-                r["wallet_id"],
-                r["tx_hash"],
-                r["receipt_id"],
-                r["chain"],
-                r["direction"],
-                r["counterparty"],
-                r["action_type"],
-                r.get("method_name"),
-                r.get("amount"),
-                r.get("fee"),
-                r.get("token_id"),
-                r.get("block_height"),
-                r.get("block_timestamp"),
-                r.get("success", True),
-                json.dumps(raw_data) if raw_data is not None else None,
-            ))
-
-        col_str = ", ".join(columns)
-        sql = f"""
-            INSERT INTO transactions ({col_str})
-            VALUES %s
-            ON CONFLICT (chain, tx_hash, receipt_id, wallet_id) DO NOTHING
-        """
-
         conn = self.pool.getconn()
         try:
-            cur = conn.cursor()
-            execute_values(cur, sql, values)
+            for r in rows:
+                insert_transaction_with_dedup(
+                    conn,
+                    user_id=r["user_id"],
+                    wallet_id=r["wallet_id"],
+                    tx_hash=r.get("tx_hash"),
+                    receipt_id=r.get("receipt_id"),
+                    chain=r["chain"],
+                    direction=r.get("direction"),
+                    counterparty=r.get("counterparty"),
+                    action_type=r.get("action_type"),
+                    method_name=r.get("method_name"),
+                    amount=r.get("amount"),
+                    fee=r.get("fee"),
+                    token_id=r.get("token_id"),
+                    block_height=r.get("block_height"),
+                    block_timestamp=r.get("block_timestamp"),
+                    success=r.get("success", True),
+                    raw_data=r.get("raw_data"),
+                )
             conn.commit()
-            cur.close()
         except Exception:
             conn.rollback()
             raise

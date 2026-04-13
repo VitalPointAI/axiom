@@ -24,6 +24,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
 from config import FASTNEAR_RPC, FASTNEAR_ARCHIVAL_RPC
+from db.dedup_hmac_helpers import insert_transaction_with_dedup
 from indexers.neardata_client import NeardataClient
 
 logger = logging.getLogger(__name__)
@@ -660,63 +661,39 @@ class NearFetcher:
 
     def _batch_insert(self, rows: list) -> None:
         """
-        Batch-insert parsed transactions using ON CONFLICT DO NOTHING.
+        Batch-insert parsed transactions using ON CONFLICT DO UPDATE via dedup HMAC.
 
-        The unique constraint (chain, tx_hash, receipt_id, wallet_id) ensures
-        that re-processed transactions from cursor resume don't cause duplicates.
+        Phase 16: replaces direct SQL INSERT with insert_transaction_with_dedup()
+        which computes tx_dedup_hmac and encrypts all in-scope columns.
+        The DEK must be set in context via db.crypto.set_dek() before calling
+        (wired by plan 16-06 pipeline gating).
         """
         if not rows:
             return
 
-        columns = [
-            "user_id", "wallet_id", "tx_hash", "receipt_id", "chain",
-            "direction", "counterparty", "action_type", "method_name",
-            "amount", "fee", "token_id", "block_height", "block_timestamp",
-            "success", "raw_data",
-        ]
-
-        values = [
-            (
-                r["user_id"],
-                r["wallet_id"],
-                r["tx_hash"],
-                r["receipt_id"],
-                r["chain"],
-                r["direction"],
-                r["counterparty"],
-                r["action_type"],
-                r["method_name"],
-                r["amount"],
-                r["fee"],
-                r["token_id"],
-                r["block_height"],
-                r["block_timestamp"],
-                r["success"],
-                json.dumps(r["raw_data"]) if r["raw_data"] is not None else None,
-            )
-            for r in rows
-        ]
-
-        col_str = ", ".join(columns)
-        placeholders = "(" + ", ".join(["%s"] * len(columns)) + ")"
-
-        sql = f"""
-            INSERT INTO transactions ({col_str})
-            VALUES {placeholders}
-            ON CONFLICT (chain, tx_hash, receipt_id, wallet_id) DO UPDATE SET
-                token_id = EXCLUDED.token_id,
-                amount = EXCLUDED.amount,
-                counterparty = EXCLUDED.counterparty
-        """
-
         conn = self.db_pool.getconn()
         try:
-            cur = conn.cursor()
-            # Use executemany for batch insert with ON CONFLICT
-            for row_vals in values:
-                cur.execute(sql, row_vals)
+            for r in rows:
+                insert_transaction_with_dedup(
+                    conn,
+                    user_id=r["user_id"],
+                    wallet_id=r["wallet_id"],
+                    tx_hash=r.get("tx_hash"),
+                    receipt_id=r.get("receipt_id"),
+                    chain=r["chain"],
+                    direction=r.get("direction"),
+                    counterparty=r.get("counterparty"),
+                    action_type=r.get("action_type"),
+                    method_name=r.get("method_name"),
+                    amount=r.get("amount"),
+                    fee=r.get("fee"),
+                    token_id=r.get("token_id"),
+                    block_height=r.get("block_height"),
+                    block_timestamp=r.get("block_timestamp"),
+                    success=r.get("success"),
+                    raw_data=r.get("raw_data"),
+                )
             conn.commit()
-            cur.close()
         except Exception:
             conn.rollback()
             raise

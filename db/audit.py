@@ -2,10 +2,18 @@
 
 All mutation points import write_audit() to insert audit_log rows.
 Must be called within the caller's transaction boundary (same conn).
+
+Phase 16: write_audit() now requires a DEK to be set in context before writing.
+This is a deliberate fail-closed invariant: audit_log columns (entity_type, action,
+old_value, new_value, notes) are all EncryptedBytes per migration 022. Writing
+without a DEK would either raise at the DB level or silently store corrupted data.
+The preflight get_dek() call surfaces this as a clear RuntimeError early.
 """
 
 import json
 import logging
+
+import db.crypto as _c
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +52,20 @@ def write_audit(
         actor_type: Who initiated the action: 'system', 'user', 'specialist', 'ai'.
         notes: Optional free-text notes for specialist review context.
     """
+    # Preflight DEK check — fail closed (T-16-30).
+    # The audit_log columns (entity_type, action, old_value, new_value, notes)
+    # are all EncryptedBytes after migration 022. A missing DEK means the INSERT
+    # would fail anyway; raise here with a clear message rather than a cryptic
+    # DB error.
+    try:
+        _c.get_dek()
+    except RuntimeError:
+        raise RuntimeError(
+            "audit_log write attempted without a DEK in context. "
+            "Audit writes must happen inside a request that resolved "
+            "get_effective_user_with_dek."
+        )
+
     if conn is None:
         return
     try:
