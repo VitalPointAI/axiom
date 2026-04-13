@@ -119,6 +119,13 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           NEAR_AI_API_KEY: ${{ secrets.NEAR_AI_API_KEY }}
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          # Phase 16 post-quantum encryption secrets
+          EMAIL_HMAC_KEY: ${{ secrets.EMAIL_HMAC_KEY }}
+          NEAR_ACCOUNT_HMAC_KEY: ${{ secrets.NEAR_ACCOUNT_HMAC_KEY }}
+          TX_DEDUP_KEY: ${{ secrets.TX_DEDUP_KEY }}
+          ACB_DEDUP_KEY: ${{ secrets.ACB_DEDUP_KEY }}
+          SESSION_DEK_WRAP_KEY: ${{ secrets.SESSION_DEK_WRAP_KEY }}
+          INTERNAL_SERVICE_TOKEN: ${{ secrets.INTERNAL_SERVICE_TOKEN }}
           WEB_IMAGE: ${{ steps.webimg.outputs.tag }}
         run: |
           ENV_CONTENT="POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
@@ -148,6 +155,12 @@ jobs:
           AWS_SES_FROM_EMAIL=axiom@vitalpoint.ai
           NEAR_AI_API_KEY=${NEAR_AI_API_KEY}
           NEAR_NETWORK=mainnet
+          EMAIL_HMAC_KEY=${EMAIL_HMAC_KEY}
+          NEAR_ACCOUNT_HMAC_KEY=${NEAR_ACCOUNT_HMAC_KEY}
+          TX_DEDUP_KEY=${TX_DEDUP_KEY}
+          ACB_DEDUP_KEY=${ACB_DEDUP_KEY}
+          SESSION_DEK_WRAP_KEY=${SESSION_DEK_WRAP_KEY}
+          INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN}
           WEB_IMAGE=${WEB_IMAGE}"
           echo "$ENV_CONTENT" | ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             ${DEPLOY_USER}@${DEPLOY_HOST} "cat > ${DEPLOY_PATH}/.env"
