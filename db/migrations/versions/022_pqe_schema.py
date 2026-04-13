@@ -291,8 +291,11 @@ def upgrade() -> None:
         ),
     )
     op.alter_column("transactions", "tx_dedup_hmac", server_default=None)
-    op.drop_constraint(
-        "uq_tx_chain_hash_receipt_wallet", "transactions", type_="unique"
+    # Postgres auto-drops the UNIQUE constraint when its member columns are
+    # dropped by _swap_columns above. Use IF EXISTS so this is a no-op in
+    # that case (and still a safe drop if the cascade didn't fire).
+    op.execute(
+        "ALTER TABLE transactions DROP CONSTRAINT IF EXISTS uq_tx_chain_hash_receipt_wallet"
     )
     op.create_unique_constraint(
         "uq_tx_user_dedup_hmac", "transactions", ["user_id", "tx_dedup_hmac"]
@@ -307,9 +310,10 @@ def upgrade() -> None:
             ("is_owned", sa.Boolean),
         ],
     )
-    # Drop the uq_wallet_user_account_chain constraint (cleartext account_id gone)
-    op.drop_constraint(
-        "uq_wallet_user_account_chain", "wallets", type_="unique"
+    # Drop the uq_wallet_user_account_chain constraint (cleartext account_id gone).
+    # May already be auto-dropped by the _swap_columns cascade above.
+    op.execute(
+        "ALTER TABLE wallets DROP CONSTRAINT IF EXISTS uq_wallet_user_account_chain"
     )
 
     # staking_events
@@ -325,8 +329,11 @@ def upgrade() -> None:
             ("tx_hash", sa.String(128)),
         ],
     )
-    # Drop staking_events check constraint that references cleartext event_type
-    op.drop_constraint("ck_staking_event_type", "staking_events", type_="check")
+    # Drop staking_events check constraint that references cleartext event_type.
+    # May already be auto-dropped by the _swap_columns cascade above.
+    op.execute(
+        "ALTER TABLE staking_events DROP CONSTRAINT IF EXISTS ck_staking_event_type"
+    )
 
     # epoch_snapshots
     _swap_columns(
@@ -337,9 +344,10 @@ def upgrade() -> None:
             ("unstaked_balance", sa.Numeric(40, 0)),
         ],
     )
-    # Drop unique constraint that references cleartext validator_id
-    op.drop_constraint(
-        "uq_epoch_wallet_validator_epoch", "epoch_snapshots", type_="unique"
+    # Drop unique constraint that references cleartext validator_id.
+    # May already be auto-dropped by the _swap_columns cascade above.
+    op.execute(
+        "ALTER TABLE epoch_snapshots DROP CONSTRAINT IF EXISTS uq_epoch_wallet_validator_epoch"
     )
 
     # lockup_events
@@ -370,8 +378,9 @@ def upgrade() -> None:
     )
     # Drop check constraint referencing cleartext category / leg_type values
     # (category column is now BYTEA; leg_type stays cleartext and its check stands)
-    op.drop_index("ix_tc_category", table_name="transaction_classifications")
-    op.drop_index("ix_tc_needs_review", table_name="transaction_classifications")
+    # Indexes on swapped columns may be auto-dropped with the columns.
+    op.execute("DROP INDEX IF EXISTS ix_tc_category")
+    op.execute("DROP INDEX IF EXISTS ix_tc_needs_review")
 
     # acb_snapshots
     _swap_columns(
@@ -392,7 +401,7 @@ def upgrade() -> None:
         ],
     )
     # Drop ACB check constraint and old unique constraint (cleartext columns gone)
-    op.drop_constraint("ck_acb_event_type", "acb_snapshots", type_="check")
+    op.execute("ALTER TABLE acb_snapshots DROP CONSTRAINT IF EXISTS ck_acb_event_type")
     op.add_column(
         "acb_snapshots",
         sa.Column(
@@ -403,10 +412,11 @@ def upgrade() -> None:
         ),
     )
     op.alter_column("acb_snapshots", "acb_dedup_hmac", server_default=None)
-    op.drop_constraint(
-        "uq_acb_user_token_classification", "acb_snapshots", type_="unique"
+    # Constraint and index on swapped columns may be auto-dropped.
+    op.execute(
+        "ALTER TABLE acb_snapshots DROP CONSTRAINT IF EXISTS uq_acb_user_token_classification"
     )
-    op.drop_index("ix_acb_token_symbol", table_name="acb_snapshots")
+    op.execute("DROP INDEX IF EXISTS ix_acb_token_symbol")
     op.create_unique_constraint(
         "uq_acb_user_dedup", "acb_snapshots", ["user_id", "acb_dedup_hmac"]
     )
@@ -425,7 +435,7 @@ def upgrade() -> None:
             ("denied_loss_cad", sa.Numeric(24, 8)),
         ],
     )
-    op.drop_index("ix_cgl_token_symbol", table_name="capital_gains_ledger")
+    op.execute("DROP INDEX IF EXISTS ix_cgl_token_symbol")
 
     # income_ledger
     _swap_columns(
@@ -458,13 +468,19 @@ def upgrade() -> None:
             ("diagnosis_confidence", sa.Numeric(4, 3)),
         ],
     )
-    # Drop unique constraint referencing cleartext token_symbol (from uq_vr_wallet_token)
-    op.drop_constraint("uq_vr_wallet_token", "verification_results", type_="unique")
-    op.drop_index("ix_vr_status", table_name="verification_results")
+    # Drop unique constraint referencing cleartext token_symbol (from uq_vr_wallet_token).
+    # May already be auto-dropped with its member columns.
+    op.execute(
+        "ALTER TABLE verification_results DROP CONSTRAINT IF EXISTS uq_vr_wallet_token"
+    )
+    op.execute("DROP INDEX IF EXISTS ix_vr_status")
 
     # account_verification_status
     _swap_columns("account_verification_status", [("notes", sa.Text)])
-    op.drop_constraint("ck_avs_status", "account_verification_status", type_="check")
+    # status column is not swapped, so this check constraint should still exist
+    op.execute(
+        "ALTER TABLE account_verification_status DROP CONSTRAINT IF EXISTS ck_avs_status"
+    )
 
     # audit_log — fully encrypted per phase 16 privacy stance
     _swap_columns(
@@ -477,9 +493,9 @@ def upgrade() -> None:
             ("action", sa.String(50)),
         ],
     )
-    # Drop indexes referencing cleartext entity_type / action columns
-    op.drop_index("ix_al_entity", table_name="audit_log")
-    op.drop_index("ix_al_action", table_name="audit_log")
+    # Indexes on swapped entity_type/action columns may be auto-dropped.
+    op.execute("DROP INDEX IF EXISTS ix_al_entity")
+    op.execute("DROP INDEX IF EXISTS ix_al_action")
 
     # ------------------------------------------------------------------ #
     # 6. classification_rules + spam_rules — parallel BYTEA columns        #
