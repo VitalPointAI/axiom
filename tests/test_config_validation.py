@@ -10,6 +10,19 @@ import logging
 import os
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _restore_config_after_test():
+    # Tests in this file reload config under patch.dict env scopes. patch.dict
+    # restores os.environ on exit, but the reloaded module keeps the polluted
+    # constants. Re-reload under the real env after every test so other test
+    # files (e.g. test_internal_crypto.py) don't inherit DB_POOL_MIN=0.
+    yield
+    import config
+    importlib.reload(config)
+
 
 class TestEnvValidation:
     """Verify validate_env() enforces required environment variables."""
