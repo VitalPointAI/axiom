@@ -12,9 +12,24 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # Ensure project root is on path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
+
+
+@pytest.fixture(autouse=True)
+def _near_test_dek():
+    # sync_wallet → _batch_insert → insert_transaction_with_dedup encrypts
+    # and requires a DEK in the ContextVar. Provide a stub for every test.
+    from db.crypto import set_dek, zero_dek
+
+    set_dek(b"\x00" * 32)
+    try:
+        yield
+    finally:
+        zero_dek()
 
 
 # ---------------------------------------------------------------------------
