@@ -1,0 +1,6 @@
+date,person,phase,hours,notes
+# SR&ED labour log — log SR&ED hours here weekly (or end of each session).
+# Columns: ISO date (YYYY-MM-DD), person name, phase number (e.g. "16" or "16.06"),
+#          decimal hours (e.g. 3.5), free-text notes. Use "EST" in notes if estimated.
+# Example: 2026-04-14,Aaron Luhning,16,4.5,Wired accountant DEK rewrap path
+# Only log SR&ED-eligible work. Phases marked NO in PROJECTS.md should not appear here.
