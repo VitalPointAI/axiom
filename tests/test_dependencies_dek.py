@@ -1,4 +1,4 @@
-"""Tests for Phase 16 DEK-aware FastAPI dependencies (plan 16-02).
+"""Tests for Phase 16 DEK-aware FastAPI dependencies (plan 16-02, updated 16-06).
 
 Coverage:
   - test_get_session_dek_missing_cookie: no cookie → 401
@@ -6,12 +6,14 @@ Coverage:
   - test_get_session_dek_expired: expired row → 401
   - test_get_session_dek_happy_path: valid row → endpoint succeeds, DEK available
   - test_zero_dek_after_request: after request completes, get_dek() raises RuntimeError
-  - test_accountant_viewing_returns_501: viewing_as_user_id set → 501
+  - test_accountant_viewing_no_cache_row: viewing_as_user_id set, no cache row → 503
+  - test_accountant_viewing_cache_hit: viewing_as_user_id set, valid cache row → 200
 
-NOTE: The session_dek_cache table is created in migration 022 (plan 16-04).  Tests
-that exercise the DB query mock the pool connection rather than requiring a real table.
+NOTE: The session_dek_cache table is created in migration 022 (plan 16-04).  The
+session_client_dek_cache table is created in migration 023 (plan 16-06).  Tests that
+exercise the DB query mock the pool connection rather than requiring a real table.
 Tests that would require the actual table are marked xfail with reason referencing
-plan 16-04 so CI stays green with documented intent.
+the relevant plan so CI stays green with documented intent.
 
 Pool API used by get_session_dek:
   psycopg2 SimpleConnectionPool — pool.getconn() / pool.putconn(conn)
@@ -233,41 +235,86 @@ def test_zero_dek_after_request(mock_pool):
 
 
 # ---------------------------------------------------------------------------
-# test_accountant_viewing_returns_501
+# test_accountant_viewing_no_cache_row (plan 16-06 D-25)
 # ---------------------------------------------------------------------------
 
 
-def test_accountant_viewing_returns_501(mock_pool):
-    """get_effective_user_with_dek raises 501 when viewing_as_user_id is set."""
-    from db.crypto import wrap_session_dek, DEK_LEN
-    import os
+def test_accountant_viewing_no_cache_row(mock_pool):
+    """get_effective_user_with_dek returns 503 when no session_client_dek_cache row exists.
 
-    original_dek = os.urandom(DEK_LEN)
-    encrypted_dek = wrap_session_dek(original_dek)
-    future_expiry = datetime.now(timezone.utc) + timedelta(hours=1)
-
-    # User in accountant viewing mode.
-    accountant_user = {
-        "user_id": 99,
-        "near_account_id": "accountant.near",
+    Plan 16-06 replaced the 501 stub with a real lookup of session_client_dek_cache.
+    When the accountant session has not been materialized (or has expired), the
+    dependency must fail closed with 503.
+    """
+    # User in accountant viewing mode — viewing_as_user_id is the accountant's real user_id.
+    # After get_effective_user resolves, user["user_id"] is the CLIENT's user_id.
+    client_user = {
+        "user_id": 42,
+        "near_account_id": "client.near",
         "is_admin": False,
-        "email": "acct@example.com",
-        "username": "acct",
+        "email": "client@example.com",
+        "username": "client",
         "codename": None,
-        "viewing_as_user_id": 42,   # <-- non-None triggers the 501 guard
+        "viewing_as_user_id": 99,   # <-- accountant is user 99 viewing client 42
         "permission_level": "read",
     }
 
+    # session_row=None → no session_client_dek_cache row for this client
     app = _make_effective_user_dek_app(
-        mock_pool, user_dict=accountant_user, session_row=(encrypted_dek, future_expiry)
+        mock_pool, user_dict=client_user, session_row=None
     )
     with TestClient(app, raise_server_exceptions=False) as client:
         r = client.get(
             "/test-user-dek",
             cookies={"neartax_session": "session-accountant"},
         )
-    assert r.status_code == 501, f"Expected 501, got {r.status_code}: {r.text}"
-    assert "16-06" in r.json().get("detail", "")
+    assert r.status_code == 503, f"Expected 503, got {r.status_code}: {r.text}"
+    assert "session cache" in r.json().get("detail", "").lower()
+
+
+# ---------------------------------------------------------------------------
+# test_accountant_viewing_cache_hit (plan 16-06 D-25)
+# ---------------------------------------------------------------------------
+
+
+def test_accountant_viewing_cache_hit(mock_pool):
+    """get_effective_user_with_dek resolves client DEK from session_client_dek_cache → 200.
+
+    When session_client_dek_cache has a valid, non-expired row for the
+    (session_id, client_user_id) pair, the dependency unwraps the client DEK and
+    injects it into the ContextVar, returning the client user dict.
+    """
+    from db.crypto import wrap_session_dek, DEK_LEN
+    import os
+
+    # Wrap a fresh DEK as if the materialize endpoint stored it
+    client_dek = os.urandom(DEK_LEN)
+    encrypted_client_dek = wrap_session_dek(client_dek)
+    future_expiry = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    # User in accountant viewing mode — user_id is the CLIENT's id
+    client_user = {
+        "user_id": 42,
+        "near_account_id": "client.near",
+        "is_admin": False,
+        "email": "client@example.com",
+        "username": "client",
+        "codename": None,
+        "viewing_as_user_id": 99,   # accountant is user 99
+        "permission_level": "read",
+    }
+
+    app = _make_effective_user_dek_app(
+        mock_pool, user_dict=client_user,
+        session_row=(encrypted_client_dek, future_expiry)
+    )
+    with TestClient(app, raise_server_exceptions=False) as client:
+        r = client.get(
+            "/test-user-dek",
+            cookies={"neartax_session": "session-accountant"},
+        )
+    assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
+    assert r.json()["user_id"] == 42
 
 
 # ---------------------------------------------------------------------------

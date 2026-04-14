@@ -312,35 +312,136 @@ async def get_session_dek(
         _crypto.zero_dek()
 
 
-def get_effective_user_with_dek(
+async def get_effective_user_with_dek(
     user: dict = Depends(get_effective_user),
-    _dek: bytes = Depends(get_session_dek),
-) -> dict:
+    neartax_session: Optional[str] = Cookie(default=None),
+    pool=Depends(get_pool_dep),
+):
     """Combines effective-user resolution with DEK injection.
+
+    This is an async generator dependency so that zero_dek() fires in the asyncio
+    task context (not a threadpool) on request teardown — matching D-15 / T-16-15.
 
     Use this dependency (instead of get_effective_user alone) on any route that
     reads or writes encrypted columns.  The DEK is available via db.crypto.get_dek()
-    inside the endpoint body; it will be zeroed when the request completes.
+    inside the endpoint body; it will be zeroed in the finally block.
 
-    Accountant viewing mode:
-        TODO(16-06): When viewing_as_user_id is set (accountant is viewing a client),
-        plan 16-06 will replace get_session_dek with a path that resolves the client's
-        DEK from accountant_access.rewrapped_client_dek.  Until then, any accountant
-        viewing attempt raises HTTP 501 so no route silently operates under the wrong DEK.
+    Normal mode (no accountant viewing):
+        Falls through to the session DEK path — reads session_dek_cache for the
+        current session cookie and injects the user's own DEK into the ContextVar.
 
-    Returns:
+    Accountant viewing mode (viewing_as_user_id is set):
+        Resolves the *client's* DEK from session_client_dek_cache.  That table is
+        populated by POST /api/accountant/sessions/materialize at login time (D-25).
+        Raises HTTP 503 if no row exists (accountant session not yet materialized).
+
+    Yields:
         The effective user dict (same shape as get_effective_user).
 
     Raises:
-        HTTP 401 if no valid session DEK is available.
-        HTTP 501 if viewing_as_user_id is set (accountant mode not yet wired, plan 16-06).
+        HTTP 401 if no valid session DEK is available (normal mode).
+        HTTP 503 if the accountant session cache row is missing (accountant mode).
     """
-    if user.get("viewing_as_user_id") is not None:
+    if not neartax_session:
         raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=(
-                "Accountant DEK resolution is not yet wired — "
-                "this will be implemented in plan 16-06."
-            ),
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No session cookie — authentication required",
         )
-    return user
+
+    if user.get("viewing_as_user_id") is not None:
+        # Accountant viewing mode: load client's DEK from session_client_dek_cache.
+        # The materialize endpoint (called at login) pre-populates this table.
+        client_user_id = user["user_id"]  # user dict is already the client's user dict
+
+        def _fetch_client_dek_row():
+            conn = pool.getconn()
+            try:
+                cur = conn.cursor()
+                try:
+                    cur.execute(
+                        """
+                        SELECT encrypted_client_dek, expires_at
+                        FROM session_client_dek_cache
+                        WHERE session_id = %s AND client_user_id = %s
+                        """,
+                        (neartax_session, client_user_id),
+                    )
+                    return cur.fetchone()
+                finally:
+                    cur.close()
+            finally:
+                pool.putconn(conn)
+
+        row = await run_in_threadpool(_fetch_client_dek_row)
+
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Accountant session cache is unavailable for this client. "
+                    "The session may have expired or not yet been materialized."
+                ),
+            )
+
+        encrypted_client_dek, expires_at = row
+
+        if expires_at is not None:
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at < datetime.now(timezone.utc):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Accountant session DEK expired — re-authentication required",
+                )
+
+        client_dek = _crypto.unwrap_session_dek(bytes(encrypted_client_dek))
+        _crypto.set_dek(client_dek)
+        try:
+            yield user
+        finally:
+            _crypto.zero_dek()
+        return
+
+    # Normal mode: fall through to session DEK path.
+    # get_session_dek is not used as a sub-dependency here to avoid double
+    # cookie reads; replicate its DB fetch inline.
+    def _fetch_session_dek_row():
+        conn = pool.getconn()
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "SELECT encrypted_dek, expires_at FROM session_dek_cache WHERE session_id = %s",
+                    (neartax_session,),
+                )
+                return cur.fetchone()
+            finally:
+                cur.close()
+        finally:
+            pool.putconn(conn)
+
+    row = await run_in_threadpool(_fetch_session_dek_row)
+
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session DEK unavailable — re-authentication required",
+        )
+
+    encrypted_dek, expires_at = row
+
+    if expires_at is not None:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session DEK expired — re-authentication required",
+            )
+
+    dek = _crypto.unwrap_session_dek(bytes(encrypted_dek))
+    _crypto.set_dek(dek)
+    try:
+        yield user
+    finally:
+        _crypto.zero_dek()
