@@ -469,11 +469,27 @@ class TestNearFetcherSyncWallet:
 class TestDuplicateHandling:
 
     def test_on_conflict_clause_present(self):
-        """Verify that near_fetcher.py uses ON CONFLICT for inserts."""
+        """Verify duplicate handling is wired through the dedup HMAC helper.
+
+        Phase 16 refactored the raw INSERT SQL out of near_fetcher.py and into
+        db.dedup_hmac_helpers.insert_transaction_with_dedup(). Check that
+        near_fetcher imports it and that the helper's SQL still carries
+        ON CONFLICT for idempotent upserts.
+        """
         near_fetcher_path = os.path.join(PROJECT_ROOT, "indexers", "near_fetcher.py")
+        helper_path = os.path.join(PROJECT_ROOT, "db", "dedup_hmac_helpers.py")
+
         with open(near_fetcher_path) as f:
-            source = f.read()
-        assert "ON CONFLICT" in source.upper(), "Missing ON CONFLICT clause for duplicate handling"
+            near_src = f.read()
+        assert "insert_transaction_with_dedup" in near_src, (
+            "near_fetcher.py must use insert_transaction_with_dedup for duplicate handling"
+        )
+
+        with open(helper_path) as f:
+            helper_src = f.read()
+        assert "ON CONFLICT" in helper_src.upper(), (
+            "dedup helper must carry ON CONFLICT clause for duplicate handling"
+        )
 
 
 # ---------------------------------------------------------------------------

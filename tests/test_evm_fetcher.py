@@ -15,6 +15,8 @@ import sys
 import os
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # Ensure project root is on path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
@@ -28,6 +30,19 @@ from tests.fixtures.etherscan_responses import (
     make_page,
 )
 from indexers.evm_fetcher import EVMFetcher, CHAIN_CONFIG
+
+
+@pytest.fixture(autouse=True)
+def _evm_test_dek():
+    # _batch_upsert -> insert_transaction_with_dedup encrypts columns
+    # and requires a DEK in the ContextVar. Provide a stub for every test.
+    from db.crypto import set_dek, zero_dek
+
+    set_dek(b"\x00" * 32)
+    try:
+        yield
+    finally:
+        zero_dek()
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -69,46 +84,45 @@ def make_mock_pool():
 class TestSyncWalletNormalTx:
     """sync_wallet() with mocked Etherscan API inserts normal transactions."""
 
-    def test_sync_wallet_calls_execute_values(self):
-        """Verify that sync_wallet calls psycopg2 execute_values with INSERT."""
+    def test_sync_wallet_calls_insert_helper(self):
+        """Verify that sync_wallet writes transactions via insert_transaction_with_dedup."""
         mock_pool, mock_conn, mock_cursor = make_mock_pool()
         fetcher = EVMFetcher(pool=mock_pool)
 
         # Mock _fetch_paginated to return one normal tx and empty for others
         with patch.object(fetcher, "_fetch_paginated") as mock_fetch, \
-             patch("indexers.evm_fetcher.execute_values") as mock_exec_values:
+             patch("indexers.evm_fetcher.insert_transaction_with_dedup") as mock_insert:
 
             # normal, internal, erc20, nft -> one normal tx, rest empty
             mock_fetch.side_effect = [[NORMAL_TX], [], [], []]
 
             fetcher.sync_wallet(make_job())
 
-            # execute_values should have been called at least once
-            assert mock_exec_values.called
+            # insert helper should have been called at least once
+            assert mock_insert.called
 
     def test_sync_wallet_passes_correct_columns(self):
-        """Verify that the rows passed to execute_values match transactions schema."""
+        """Verify that insert_transaction_with_dedup is called with transactions-shape kwargs."""
         mock_pool, mock_conn, mock_cursor = make_mock_pool()
         fetcher = EVMFetcher(pool=mock_pool)
 
-        captured_rows = []
-
-        def capture_execute_values(cur, sql, rows, **kwargs):
-            captured_rows.extend(rows)
-
         with patch.object(fetcher, "_fetch_paginated") as mock_fetch, \
-             patch("indexers.evm_fetcher.execute_values", side_effect=capture_execute_values):
+             patch("indexers.evm_fetcher.insert_transaction_with_dedup") as mock_insert:
 
             mock_fetch.side_effect = [[NORMAL_TX], [], [], []]
             fetcher.sync_wallet(make_job())
 
-        assert len(captured_rows) == 1
-        row = captured_rows[0]
-        # Row should be a tuple with correct number of columns
-        # columns: user_id, wallet_id, tx_hash, receipt_id, chain, direction,
-        #          counterparty, action_type, method_name, amount, fee,
-        #          token_id, block_height, block_timestamp, success, raw_data
-        assert len(row) == 16
+        # One normal tx → one helper call
+        assert mock_insert.call_count == 1
+        call_kwargs = mock_insert.call_args.kwargs
+        # Every required transactions column is forwarded as a keyword arg
+        expected_keys = {
+            "user_id", "wallet_id", "tx_hash", "receipt_id", "chain", "direction",
+            "counterparty", "action_type", "method_name", "amount", "fee",
+            "token_id", "block_height", "block_timestamp", "success", "raw_data",
+        }
+        missing = expected_keys - set(call_kwargs.keys())
+        assert not missing, f"Missing expected kwargs: {missing}"
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +249,7 @@ class TestCursorUpdate:
                              hash="0x" + "b" * 64)
 
         with patch.object(fetcher, "_fetch_paginated") as mock_fetch, \
-             patch("indexers.evm_fetcher.execute_values"):
+             patch("indexers.evm_fetcher.insert_transaction_with_dedup"):
 
             mock_fetch.side_effect = [[tx_low_block, tx_high_block], [], [], []]
             fetcher.sync_wallet(make_job())
