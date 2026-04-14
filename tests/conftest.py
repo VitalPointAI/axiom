@@ -18,6 +18,18 @@ import os
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/test")
 os.environ.setdefault("DB_POOL_MIN", "1")
 
+# Phase 16 HMAC keys — stable test values so functions that compute dedup
+# surrogates (compute_tx_dedup_hmac, compute_acb_dedup_hmac, etc.) don't
+# KeyError when tests exercise them. These are deterministic zero-padded
+# values, not secrets. Production values live in GitHub Secrets and the
+# server .env (see deploy.yml).
+os.environ.setdefault("EMAIL_HMAC_KEY", "00" * 32)
+os.environ.setdefault("NEAR_ACCOUNT_HMAC_KEY", "11" * 32)
+os.environ.setdefault("TX_DEDUP_KEY", "22" * 32)
+os.environ.setdefault("ACB_DEDUP_KEY", "33" * 32)
+os.environ.setdefault("SESSION_DEK_WRAP_KEY", "44" * 32)
+os.environ.setdefault("INTERNAL_SERVICE_TOKEN", "test-token-" + "x" * 40)
+
 from unittest.mock import MagicMock, patch
 
 import pytest
