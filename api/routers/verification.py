@@ -19,7 +19,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.concurrency import run_in_threadpool
 
-from api.dependencies import get_effective_user, get_pool_dep
+import db.crypto as _crypto
+from api.dependencies import get_effective_user_with_dek, get_pool_dep
 from db.audit import write_audit
 from api.schemas.verification import (
     IssueGroup,
@@ -69,13 +70,29 @@ _CATEGORY_META = {
 # ---------------------------------------------------------------------------
 
 
+def _dec_str(raw) -> Optional[str]:
+    """Decrypt raw BYTEA from psycopg2 using the current context DEK.
+
+    If raw is already a str (e.g. in tests where mocks return plaintext),
+    return it unchanged — EncryptedBytes.process_result_value() operates on bytes only.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return raw
+    v = _crypto.EncryptedBytes().process_result_value(bytes(raw), None)
+    return str(v) if v is not None else None
+
+
 @router.get("/summary", response_model=VerificationSummary)
 async def get_verification_summary(
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Return verification issue counts grouped by diagnosis_category.
 
+    D-07: diagnosis_category is encrypted. SQL fetches all open rows; Python groups by
+    decrypted category value.
     Only includes issues for the authenticated user's wallets.
     Also counts needs_review rows in transaction_classifications and capital_gains_ledger.
     """
@@ -84,24 +101,20 @@ async def get_verification_summary(
     def _query(conn):
         cur = conn.cursor()
         try:
-            # Counts per diagnosis_category in verification_results for user's wallets
+            # D-07: Remove GROUP BY diagnosis_category (encrypted) — group in Python after decrypt
             cur.execute(
                 """
-                SELECT
-                    vr.diagnosis_category,
-                    COUNT(*) AS cnt
+                SELECT vr.diagnosis_category
                 FROM verification_results vr
                 JOIN wallets w ON w.id = vr.wallet_id
                 WHERE w.user_id = %s
                   AND vr.status = 'open'
-                GROUP BY vr.diagnosis_category
-                ORDER BY cnt DESC
                 """,
                 (user_id,),
             )
             category_rows = cur.fetchall()
 
-            # needs_review count in transaction_classifications
+            # needs_review count in transaction_classifications (needs_review is Boolean — cleartext)
             cur.execute(
                 """
                 SELECT COUNT(*) FROM transaction_classifications tc
@@ -111,7 +124,7 @@ async def get_verification_summary(
             )
             tc_count = (cur.fetchone() or (0,))[0]
 
-            # needs_review count in capital_gains_ledger
+            # needs_review count in capital_gains_ledger (needs_review is Boolean — cleartext)
             cur.execute(
                 """
                 SELECT COUNT(*) FROM capital_gains_ledger
@@ -131,10 +144,16 @@ async def get_verification_summary(
     finally:
         pool.putconn(conn)
 
+    # Group by decrypted category in Python (D-07)
+    from collections import Counter
+    cat_counts: Counter = Counter()
+    for (cat_raw,) in category_rows:
+        cat = _dec_str(cat_raw) or "unknown"
+        cat_counts[cat] += 1
+
     groups = []
     total = 0
-    for row in category_rows:
-        cat, cnt = row[0], int(row[1])
+    for cat, cnt in cat_counts.most_common():
         meta = _CATEGORY_META.get(
             cat,
             ("low", f"Issues in category: {cat}", "Review flagged items"),
@@ -142,7 +161,7 @@ async def get_verification_summary(
         severity, description, suggested_action = meta
         groups.append(
             IssueGroup(
-                category=cat or "unknown",
+                category=cat,
                 count=cnt,
                 severity=severity,
                 description=description,
@@ -168,12 +187,13 @@ async def get_verification_summary(
 @router.get("/issues", response_model=List[VerificationIssue])
 async def get_verification_issues(
     category: Optional[str] = Query(default=None),
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Return detailed verification issues for the user's wallets.
 
-    Optional ?category= filter to narrow by diagnosis_category.
+    D-07: diagnosis_category is encrypted. ?category= filter is applied in Python
+    after decryption. SQL always fetches all rows for the user.
     Returns wallet account_id via JOIN.
     """
     user_id = user["user_id"]
@@ -181,55 +201,30 @@ async def get_verification_issues(
     def _query(conn):
         cur = conn.cursor()
         try:
-            if category:
-                cur.execute(
-                    """
-                    SELECT
-                        vr.id,
-                        vr.wallet_id,
-                        w.account_id,
-                        vr.token_symbol,
-                        vr.chain AS verification_type,
-                        vr.status,
-                        COALESCE(vr.expected_balance_replay, vr.expected_balance_acb)::text AS expected_balance,
-                        vr.actual_balance::text,
-                        vr.difference::text AS discrepancy,
-                        vr.diagnosis_category,
-                        vr.diagnosis_detail,
-                        (vr.status = 'open') AS needs_review,
-                        vr.created_at::text
-                    FROM verification_results vr
-                    JOIN wallets w ON w.id = vr.wallet_id
-                    WHERE w.user_id = %s
-                      AND vr.diagnosis_category = %s
-                    ORDER BY vr.created_at DESC
-                    """,
-                    (user_id, category),
-                )
-            else:
-                cur.execute(
-                    """
-                    SELECT
-                        vr.id,
-                        vr.wallet_id,
-                        w.account_id,
-                        vr.token_symbol,
-                        vr.chain AS verification_type,
-                        vr.status,
-                        COALESCE(vr.expected_balance_replay, vr.expected_balance_acb)::text AS expected_balance,
-                        vr.actual_balance::text,
-                        vr.difference::text AS discrepancy,
-                        vr.diagnosis_category,
-                        vr.diagnosis_detail,
-                        (vr.status = 'open') AS needs_review,
-                        vr.created_at::text
-                    FROM verification_results vr
-                    JOIN wallets w ON w.id = vr.wallet_id
-                    WHERE w.user_id = %s
-                    ORDER BY vr.created_at DESC
-                    """,
-                    (user_id,),
-                )
+            # D-07: Remove diagnosis_category = %s SQL filter (encrypted) — apply in Python
+            cur.execute(
+                """
+                SELECT
+                    vr.id,
+                    vr.wallet_id,
+                    w.account_id,
+                    vr.token_symbol,
+                    vr.chain AS verification_type,
+                    vr.status,
+                    COALESCE(vr.expected_balance_replay, vr.expected_balance_acb)::text AS expected_balance,
+                    vr.actual_balance::text,
+                    vr.difference::text AS discrepancy,
+                    vr.diagnosis_category,
+                    vr.diagnosis_detail,
+                    (vr.status = 'open') AS needs_review,
+                    vr.created_at::text
+                FROM verification_results vr
+                JOIN wallets w ON w.id = vr.wallet_id
+                WHERE w.user_id = %s
+                ORDER BY vr.created_at DESC
+                """,
+                (user_id,),
+            )
             return cur.fetchall()
         finally:
             cur.close()
@@ -243,16 +238,31 @@ async def get_verification_issues(
     result = []
     for row in rows:
         (
-            issue_id, wallet_id, account_id, token_symbol, verification_type,
-            issue_status, expected_balance, actual_balance, discrepancy,
-            diagnosis_category, diagnosis_detail, needs_review, created_at,
+            issue_id, wallet_id, account_id_raw, token_symbol_raw, verification_type,
+            issue_status, expected_balance_raw, actual_balance_raw, discrepancy_raw,
+            diagnosis_category_raw, diagnosis_detail_raw, needs_review, created_at,
         ) = row
+
+        # Decrypt encrypted columns
+        account_id = _dec_str(account_id_raw)
+        token_symbol = _dec_str(token_symbol_raw)
+        expected_balance = _dec_str(expected_balance_raw) if isinstance(expected_balance_raw, (bytes, memoryview)) else (str(expected_balance_raw) if expected_balance_raw is not None else None)
+        actual_balance = _dec_str(actual_balance_raw) if isinstance(actual_balance_raw, (bytes, memoryview)) else (str(actual_balance_raw) if actual_balance_raw is not None else None)
+        discrepancy = _dec_str(discrepancy_raw) if isinstance(discrepancy_raw, (bytes, memoryview)) else (str(discrepancy_raw) if discrepancy_raw is not None else None)
+        diagnosis_category = _dec_str(diagnosis_category_raw)
+        diagnosis_detail_dec = _dec_str(diagnosis_detail_raw) if isinstance(diagnosis_detail_raw, (bytes, memoryview)) else diagnosis_detail_raw
+
+        # In-memory category filter (D-07)
+        if category and (diagnosis_category or "").lower() != category.lower():
+            continue
+
         # diagnosis_detail may be a dict (psycopg2 JSONB auto-parse) or None
-        if isinstance(diagnosis_detail, str):
+        if isinstance(diagnosis_detail_dec, str):
             try:
-                diagnosis_detail = json.loads(diagnosis_detail)
+                diagnosis_detail_dec = json.loads(diagnosis_detail_dec)
             except (ValueError, TypeError):
-                diagnosis_detail = None
+                diagnosis_detail_dec = None
+
         result.append(
             VerificationIssue(
                 id=issue_id,
@@ -265,7 +275,7 @@ async def get_verification_issues(
                 actual_balance=actual_balance,
                 discrepancy=discrepancy,
                 diagnosis_category=diagnosis_category,
-                diagnosis_detail=diagnosis_detail,
+                diagnosis_detail=diagnosis_detail_dec,
                 needs_review=bool(needs_review),
                 created_at=str(created_at) if created_at else "",
             )
@@ -282,7 +292,7 @@ async def get_verification_issues(
 async def resolve_verification_issue(
     issue_id: int,
     body: ResolveRequest,
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Mark a verification issue as resolved.
@@ -291,8 +301,14 @@ async def resolve_verification_issue(
     Sets needs_review=False and status='resolved'.
     """
     user_id = user["user_id"]
+    # Capture the DEK in the async context before entering the thread pool.
+    # anyio threads do NOT automatically copy ContextVar values, so write_audit()
+    # (which calls get_dek()) would raise without capturing it here first.
+    _dek_for_thread = _crypto.get_dek()
 
     def _resolve(conn):
+        # Re-inject DEK into this thread's ContextVar context so write_audit() works.
+        _crypto.set_dek(_dek_for_thread)
         cur = conn.cursor()
         try:
             # Verify ownership and fetch info for audit row
@@ -376,7 +392,7 @@ _RESYNC_JOB_MAP = {
 @router.post("/resync/{issue_id}")
 async def resync_verification_issue(
     issue_id: int,
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Queue a re-sync job for the wallet associated with a verification issue.
@@ -454,7 +470,7 @@ async def resync_verification_issue(
 
 @router.get("/needs-review-count", response_model=NeedsReviewCountResponse)
 async def get_needs_review_count(
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Return total count of unresolved needs_review items across all relevant tables."""

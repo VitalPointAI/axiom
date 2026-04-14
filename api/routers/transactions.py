@@ -6,24 +6,25 @@ Endpoints:
   PATCH  /api/transactions/{tx_hash}/classification — edit tax_category, notes, mark reviewed
   POST   /api/transactions/apply-changes          — stage ACB recalculation for affected tokens
 
-All endpoints use get_effective_user so accountants transparently query client data.
+All endpoints use get_effective_user_with_dek so DEK is available for encrypted column decryption.
 All DB calls use run_in_threadpool() to avoid blocking the async event loop.
 
-UNION ALL query pattern:
-  - On-chain: transactions table JOIN wallets (filter by wallet.user_id)
-  - Exchange: exchange_transactions JOIN transaction_classifications (filter by user_id)
-  - LEFT JOIN transaction_classifications for tax classification data on on-chain side
-  - Window function COUNT(*) OVER() for total count in a single query pass
+D-07 in-memory filter strategy:
+  SQL only filters on cleartext columns (user_id, wallet_id, block_timestamp, chain, needs_review).
+  Encrypted columns (tx_hash, counterparty, direction, action_type, token_id, amount, category)
+  are decrypted in Python after fetch, then filtered in-memory before pagination is applied.
 """
 
 import json
 import math
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.concurrency import run_in_threadpool
 
-from api.dependencies import get_effective_user, get_pool_dep
+import db.crypto as _crypto
+from api.dependencies import get_effective_user_with_dek, get_pool_dep
 from api.rate_limit import limiter
 from db.audit import write_audit
 from api.schemas.transactions import (
@@ -40,52 +41,123 @@ router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 # Whitelist prevents SQL injection via user-supplied field names in dynamic UPDATE statements.
 ALLOWED_UPDATE_FIELDS = {"category", "notes", "needs_review"}
 
+# Divisors for raw on-chain amount -> human-readable
+_NEAR_DIVISOR = Decimal("1" + "0" * 24)
+_EVM_DIVISOR = Decimal("1" + "0" * 18)
+
 
 # ---------------------------------------------------------------------------
-# Helpers — row parsing
+# Helpers — decryption and row parsing
 # ---------------------------------------------------------------------------
 
 
-def _row_to_tx(row) -> TransactionResponse:
-    """Convert a UNION ALL query row into a TransactionResponse.
+def _dec(raw) -> Optional[str]:
+    """Decrypt a raw BYTEA value from psycopg2 using the current context DEK.
 
-    Row columns (0-indexed):
-      0  tx_hash
-      1  chain
-      2  timestamp_iso
-      3  sender
-      4  receiver
-      5  amount_str
-      6  token_symbol
-      7  action_type
-      8  tax_category
-      9  sub_category
-      10 confidence_score
-      11 needs_review
-      12 reviewer_notes
-      13 source
-      14 total_count  (COUNT(*) OVER() — not included in response)
+    Returns None if raw is None.  The EncryptedBytes TypeDecorator is used at the
+    SQLAlchemy ORM layer; here we call process_result_value() directly against the
+    raw memoryview/bytes returned by psycopg2.
+
+    If raw is already a str (e.g. in tests where mocks return plaintext),
+    return it unchanged — EncryptedBytes.process_result_value() operates on bytes only.
     """
-    (
-        tx_hash, chain, timestamp_iso, sender, receiver, amount_str,
-        token_symbol, action_type, tax_category, sub_category,
-        confidence_score, needs_review, reviewer_notes, source, _total,
-    ) = row
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return raw
+    v = _crypto.EncryptedBytes().process_result_value(bytes(raw), None)
+    if v is None:
+        return None
+    return str(v)
+
+
+def _amount_str(raw_amount, chain: str) -> Optional[str]:
+    """Decrypt and convert raw amount to human units based on chain."""
+    raw = _dec(raw_amount)
+    if raw is None:
+        return None
+    try:
+        divisor = _NEAR_DIVISOR if (chain or "near").lower() == "near" else _EVM_DIVISOR
+        return str(Decimal(raw) / divisor)
+    except Exception:
+        return raw
+
+
+def _make_onchain_tx(
+    t_id: int, chain: str, block_ts,
+    tx_hash_raw, direction_raw, counterparty_raw, amount_raw, token_id_raw, action_type_raw,
+    tc_category_raw, tc_confidence, tc_needs_review, tc_notes_raw,
+    source: str = "on_chain",
+) -> dict:
+    """Build a transaction dict from raw psycopg2 row with in-Python decryption."""
+    tx_hash = _dec(tx_hash_raw) or ""
+    direction = _dec(direction_raw) or ""
+    counterparty = _dec(counterparty_raw) or ""
+    amount = _amount_str(amount_raw, chain)
+    token_symbol = _dec(token_id_raw)
+    action_type = _dec(action_type_raw)
+    category = _dec(tc_category_raw)
+    reviewer_notes = _dec(tc_notes_raw)
+
+    # Compute sender/receiver from direction
+    if direction == "out":
+        sender = ""
+        receiver = counterparty
+    else:
+        sender = counterparty
+        receiver = ""
+
+    # Timestamp from nanoseconds → ISO string
+    if block_ts is not None:
+        import datetime
+        try:
+            ts_sec = block_ts / 1_000_000_000.0
+            dt = datetime.datetime.utcfromtimestamp(ts_sec)
+            timestamp_iso = dt.strftime("%Y-%m-%dT%H:%M:%S")
+        except Exception:
+            timestamp_iso = None
+    else:
+        timestamp_iso = None
+
+    return {
+        "id": t_id,
+        "tx_hash": tx_hash,
+        "chain": chain or "",
+        "timestamp": timestamp_iso,
+        "sender": sender or None,
+        "receiver": receiver or None,
+        "amount": amount,
+        "token_symbol": token_symbol,
+        "action_type": action_type,
+        "tax_category": category,
+        "sub_category": None,
+        "confidence_score": float(tc_confidence) if tc_confidence is not None else None,
+        "needs_review": bool(tc_needs_review) if tc_needs_review is not None else False,
+        "reviewer_notes": reviewer_notes,
+        "source": source,
+        # raw values for in-memory filtering (not exposed in response)
+        "_direction": direction,
+        "_token_symbol": token_symbol,
+    }
+
+
+def _dict_to_tx_response(d: dict) -> TransactionResponse:
+    """Convert our internal dict to a TransactionResponse."""
     return TransactionResponse(
-        tx_hash=str(tx_hash) if tx_hash is not None else "",
-        chain=str(chain) if chain is not None else "",
-        timestamp=timestamp_iso if timestamp_iso is not None else None,
-        sender=sender if sender is not None else None,
-        receiver=receiver if receiver is not None else None,
-        amount=str(amount_str) if amount_str is not None else None,
-        token_symbol=token_symbol if token_symbol is not None else None,
-        action_type=action_type if action_type is not None else None,
-        tax_category=tax_category if tax_category is not None else None,
-        sub_category=sub_category if sub_category is not None else None,
-        confidence_score=float(confidence_score) if confidence_score is not None else None,
-        needs_review=bool(needs_review) if needs_review is not None else False,
-        reviewer_notes=reviewer_notes if reviewer_notes is not None else None,
-        source=str(source) if source is not None else "on_chain",
+        tx_hash=d["tx_hash"],
+        chain=d["chain"],
+        timestamp=d["timestamp"],
+        sender=d["sender"],
+        receiver=d["receiver"],
+        amount=d["amount"],
+        token_symbol=d["token_symbol"],
+        action_type=d["action_type"],
+        tax_category=d["tax_category"],
+        sub_category=d["sub_category"],
+        confidence_score=d["confidence_score"],
+        needs_review=d["needs_review"],
+        reviewer_notes=d["reviewer_notes"],
+        source=d["source"],
     )
 
 
@@ -96,7 +168,7 @@ def _row_to_tx(row) -> TransactionResponse:
 
 @router.get("/review", response_model=ReviewQueueResponse)
 async def get_review_queue(
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Return all transactions flagged for review (needs_review=true).
@@ -106,6 +178,10 @@ async def get_review_queue(
 
     NOTE: This route must be registered BEFORE /{tx_hash}/classification to
     prevent FastAPI from interpreting "review" as a tx_hash path parameter.
+
+    D-07: SQL filters only on cleartext columns (user_id, wallet_id, needs_review=Boolean).
+    All encrypted columns (tx_hash, counterparty, direction, category, notes, amount) are
+    decrypted in Python after fetch.
     """
     user_id = user["user_id"]
 
@@ -120,114 +196,97 @@ async def get_review_queue(
             wallet_rows = cur.fetchall()
             wallet_ids = [r[0] for r in wallet_rows]
 
-            # Build on-chain side (only if user has wallets)
-            onchain_sql = ""
-            onchain_params: list = []
+            onchain_rows = []
             if wallet_ids:
                 placeholders = ",".join(["%s"] * len(wallet_ids))
-                onchain_sql = f"""
+                # D-07: Only cleartext columns in WHERE. needs_review is Boolean (cleartext).
+                # Encrypted columns (tx_hash, direction, counterparty, amount, token_id,
+                # action_type, category, notes) fetched as raw BYTEA, decrypted in Python.
+                cur.execute(
+                    f"""
                     SELECT
-                        COALESCE(t.tx_hash, '') AS tx_hash,
-                        t.chain,
-                        TO_CHAR(
-                            TO_TIMESTAMP(t.block_timestamp / 1000000000.0),
-                            'YYYY-MM-DD"T"HH24:MI:SS'
-                        ) AS timestamp_iso,
-                        CASE WHEN t.direction = 'out' THEN '' ELSE COALESCE(t.counterparty, '') END AS sender,
-                        CASE WHEN t.direction = 'in' THEN '' ELSE COALESCE(t.counterparty, '') END AS receiver,
-                        CASE
-                            WHEN t.chain = 'near' THEN CAST(t.amount / 1e24 AS NUMERIC(30,8))::TEXT
-                            ELSE CAST(t.amount / 1e18 AS NUMERIC(30,8))::TEXT
-                        END AS amount_str,
-                        COALESCE(t.token_id, '') AS token_symbol,
-                        COALESCE(t.action_type, '') AS action_type,
-                        COALESCE(tc.category, '') AS tax_category,
-                        NULL AS sub_category,
-                        tc.confidence AS confidence_score,
-                        COALESCE(tc.needs_review, FALSE) AS needs_review,
-                        tc.notes AS reviewer_notes,
-                        'on_chain' AS source,
-                        t.block_timestamp AS sort_ts
+                        t.id, t.chain, t.block_timestamp,
+                        t.tx_hash, t.direction, t.counterparty, t.amount, t.token_id, t.action_type,
+                        tc.category, tc.confidence, tc.needs_review, tc.notes
                     FROM transactions t
-                    LEFT JOIN transaction_classifications tc
-                        ON tc.transaction_id = t.id
+                    LEFT JOIN transaction_classifications tc ON tc.transaction_id = t.id
                     WHERE t.wallet_id IN ({placeholders})
                       AND tc.needs_review = TRUE
-                """
-                onchain_params = list(wallet_ids)
+                    ORDER BY tc.confidence ASC NULLS LAST, t.block_timestamp ASC
+                    """,
+                    list(wallet_ids),
+                )
+                onchain_rows = cur.fetchall()
 
-            # Exchange side
-            exchange_sql = """
+            # Exchange side — category/notes are encrypted; needs_review is cleartext
+            cur.execute(
+                """
                 SELECT
-                    COALESCE(et.tx_id, '') AS tx_hash,
-                    'exchange' AS chain,
-                    TO_CHAR(et.tx_date, 'YYYY-MM-DD"T"HH24:MI:SS') AS timestamp_iso,
-                    et.exchange AS sender,
-                    NULL AS receiver,
-                    CAST(et.quantity AS TEXT) AS amount_str,
-                    COALESCE(et.asset, '') AS token_symbol,
-                    COALESCE(et.tx_type, '') AS action_type,
-                    COALESCE(tc.category, '') AS tax_category,
-                    NULL AS sub_category,
-                    tc.confidence AS confidence_score,
-                    COALESCE(tc.needs_review, FALSE) AS needs_review,
-                    tc.notes AS reviewer_notes,
-                    'exchange' AS source,
-                    EXTRACT(EPOCH FROM et.tx_date)::BIGINT * 1000000000 AS sort_ts
+                    et.id, et.tx_date, et.tx_id, et.exchange, et.quantity, et.asset, et.tx_type,
+                    tc.category, tc.confidence, tc.needs_review, tc.notes
                 FROM transaction_classifications tc
                 JOIN exchange_transactions et ON tc.exchange_transaction_id = et.id
                 WHERE tc.user_id = %s
                   AND tc.needs_review = TRUE
                   AND tc.exchange_transaction_id IS NOT NULL
-            """
-            exchange_params = [user_id]
-
-            # Build UNION ALL (or just exchange if no wallets)
-            if onchain_sql:
-                full_sql = f"""
-                    SELECT
-                        tx_hash, chain, timestamp_iso, sender, receiver,
-                        amount_str, token_symbol, action_type, tax_category,
-                        sub_category, confidence_score, needs_review,
-                        reviewer_notes, source,
-                        COUNT(*) OVER() AS total_count
-                    FROM (
-                        {onchain_sql}
-                        UNION ALL
-                        {exchange_sql}
-                    ) combined
-                    ORDER BY confidence_score ASC NULLS LAST, sort_ts ASC
-                """
-                all_params = onchain_params + exchange_params
-            else:
-                full_sql = f"""
-                    SELECT
-                        tx_hash, chain, timestamp_iso, sender, receiver,
-                        amount_str, token_symbol, action_type, tax_category,
-                        sub_category, confidence_score, needs_review,
-                        reviewer_notes, source,
-                        COUNT(*) OVER() AS total_count
-                    FROM (
-                        {exchange_sql}
-                    ) combined
-                    ORDER BY confidence_score ASC NULLS LAST, sort_ts ASC
-                """
-                all_params = exchange_params
-
-            cur.execute(full_sql, all_params)
-            rows = cur.fetchall()
-            return rows
+                ORDER BY tc.confidence ASC NULLS LAST, et.tx_date ASC
+                """,
+                (user_id,),
+            )
+            exchange_rows = cur.fetchall()
+            return onchain_rows, exchange_rows
         finally:
             cur.close()
 
     conn = pool.getconn()
     try:
-        rows = await run_in_threadpool(_query, conn)
+        onchain_rows, exchange_rows = await run_in_threadpool(_query, conn)
     finally:
         pool.putconn(conn)
 
-    items = [_row_to_tx(r) for r in rows]
-    total = rows[0][14] if rows else 0
+    # Decrypt and build response items
+    items = []
+
+    for row in onchain_rows:
+        (t_id, chain, block_ts,
+         tx_hash_raw, direction_raw, counterparty_raw, amount_raw, token_id_raw, action_type_raw,
+         tc_category_raw, tc_confidence, tc_needs_review, tc_notes_raw) = row
+        d = _make_onchain_tx(
+            t_id=t_id, chain=chain, block_ts=block_ts,
+            tx_hash_raw=tx_hash_raw, direction_raw=direction_raw,
+            counterparty_raw=counterparty_raw, amount_raw=amount_raw,
+            token_id_raw=token_id_raw, action_type_raw=action_type_raw,
+            tc_category_raw=tc_category_raw, tc_confidence=tc_confidence,
+            tc_needs_review=tc_needs_review, tc_notes_raw=tc_notes_raw,
+            source="on_chain",
+        )
+        items.append(_dict_to_tx_response(d))
+
+    for row in exchange_rows:
+        (et_id, tx_date, tx_id, exchange, quantity, asset, tx_type,
+         tc_category_raw, tc_confidence, tc_needs_review, tc_notes_raw) = row
+        # Exchange transactions: category/notes are encrypted; tx_id, exchange, asset, tx_type cleartext
+        category = _dec(tc_category_raw)
+        reviewer_notes = _dec(tc_notes_raw)
+        timestamp_iso = tx_date.strftime("%Y-%m-%dT%H:%M:%S") if tx_date else None
+        items.append(TransactionResponse(
+            tx_hash=str(tx_id) if tx_id else "",
+            chain="exchange",
+            timestamp=timestamp_iso,
+            sender=str(exchange) if exchange else None,
+            receiver=None,
+            amount=str(quantity) if quantity is not None else None,
+            token_symbol=str(asset) if asset else None,
+            action_type=str(tx_type) if tx_type else None,
+            tax_category=category,
+            sub_category=None,
+            confidence_score=float(tc_confidence) if tc_confidence is not None else None,
+            needs_review=bool(tc_needs_review) if tc_needs_review is not None else False,
+            reviewer_notes=reviewer_notes,
+            source="exchange",
+        ))
+
+    total = len(items)
 
     # Build counts_by_category
     counts_by_category: dict = {}
@@ -246,7 +305,7 @@ async def get_review_queue(
 @limiter.limit("60/minute")
 async def list_transactions(
     request: Request,
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
@@ -260,16 +319,14 @@ async def list_transactions(
 ):
     """Return paginated transaction ledger for the authenticated user.
 
-    Queries:
-      - NEAR/EVM transactions joined with transaction_classifications
-      - exchange_transactions joined with transaction_classifications
-      Both sides via UNION ALL, ordered by timestamp DESC.
-
-    Filters applied as WHERE clauses on the combined result.
-    Total count returned via COUNT(*) OVER() window function.
+    D-07 in-memory filter strategy:
+      SQL only filters on cleartext columns: user_id, wallet_id, block_timestamp (for dates),
+      chain (cleartext String), needs_review (Boolean cleartext).
+      Encrypted columns (tx_hash, counterparty, direction, action_type, token_id, amount,
+      category, notes) are decrypted in Python then filtered in-memory.
+      Pagination is applied AFTER in-memory filtering.
     """
     user_id = user["user_id"]
-    offset = (page - 1) * per_page
 
     def _query(conn):
         cur = conn.cursor()
@@ -283,7 +340,7 @@ async def list_transactions(
             wallet_ids = [r[0] for r in wallet_rows]
 
             # ----------------------------------------------------------------
-            # Build on-chain side
+            # Build on-chain side (D-07: only cleartext column filters in SQL)
             # ----------------------------------------------------------------
             onchain_where_clauses = []
             onchain_extra_params: list = []
@@ -298,63 +355,40 @@ async def list_transactions(
                     "TO_TIMESTAMP(t.block_timestamp / 1000000000.0) <= %s::TIMESTAMPTZ"
                 )
                 onchain_extra_params.append(end_date)
-            if tax_category:
-                onchain_where_clauses.append("tc.category = %s")
-                onchain_extra_params.append(tax_category)
-            if asset:
-                onchain_where_clauses.append("t.token_id ILIKE %s")
-                onchain_extra_params.append(f"%{asset}%")
-            if chain:
+            # chain is cleartext — kept in SQL
+            if chain and chain.lower() != "exchange":
                 onchain_where_clauses.append("t.chain ILIKE %s")
                 onchain_extra_params.append(chain)
+            # needs_review is Boolean (cleartext) — kept in SQL
             if needs_review is not None:
                 onchain_where_clauses.append("COALESCE(tc.needs_review, FALSE) = %s")
                 onchain_extra_params.append(needs_review)
-            if search:
-                onchain_where_clauses.append(
-                    "(t.tx_hash ILIKE %s OR t.counterparty ILIKE %s OR t.counterparty ILIKE %s)"
-                )
-                search_pat = f"%{search}%"
-                onchain_extra_params.extend([search_pat, search_pat, search_pat])
+            # REMOVED: tax_category (tc.category is EncryptedBytes) — filter in Python
+            # REMOVED: asset (t.token_id is EncryptedBytes) — filter in Python
+            # REMOVED: search on tx_hash / counterparty (EncryptedBytes) — filter in Python
 
-            onchain_sql = ""
-            onchain_params: list = []
+            onchain_rows = []
             if wallet_ids:
                 placeholders = ",".join(["%s"] * len(wallet_ids))
                 extra_where = ""
                 if onchain_where_clauses:
                     extra_where = "AND " + " AND ".join(onchain_where_clauses)
 
+                # Fetch raw encrypted columns — decrypted in Python below
                 onchain_sql = f"""
                     SELECT
-                        COALESCE(t.tx_hash, '') AS tx_hash,
-                        t.chain,
-                        TO_CHAR(
-                            TO_TIMESTAMP(t.block_timestamp / 1000000000.0),
-                            'YYYY-MM-DD"T"HH24:MI:SS'
-                        ) AS timestamp_iso,
-                        CASE WHEN t.direction = 'out' THEN '' ELSE COALESCE(t.counterparty, '') END AS sender,
-                        CASE WHEN t.direction = 'in' THEN '' ELSE COALESCE(t.counterparty, '') END AS receiver,
-                        CASE
-                            WHEN t.chain = 'near' THEN CAST(t.amount / 1e24 AS NUMERIC(30,8))::TEXT
-                            ELSE CAST(t.amount / 1e18 AS NUMERIC(30,8))::TEXT
-                        END AS amount_str,
-                        COALESCE(t.token_id, '') AS token_symbol,
-                        COALESCE(t.action_type, '') AS action_type,
-                        COALESCE(tc.category, '') AS tax_category,
-                        NULL AS sub_category,
-                        tc.confidence AS confidence_score,
-                        COALESCE(tc.needs_review, FALSE) AS needs_review,
-                        tc.notes AS reviewer_notes,
-                        'on_chain' AS source,
-                        t.block_timestamp AS sort_ts
+                        t.id, t.chain, t.block_timestamp,
+                        t.tx_hash, t.direction, t.counterparty, t.amount, t.token_id, t.action_type,
+                        tc.category, tc.confidence, tc.needs_review, tc.notes
                     FROM transactions t
                     LEFT JOIN transaction_classifications tc
                         ON tc.transaction_id = t.id
                     WHERE t.wallet_id IN ({placeholders})
                     {extra_where}
+                    ORDER BY t.block_timestamp DESC NULLS LAST
                 """
-                onchain_params = list(wallet_ids) + onchain_extra_params
+                cur.execute(onchain_sql, list(wallet_ids) + onchain_extra_params)
+                onchain_rows = cur.fetchall()
 
             # ----------------------------------------------------------------
             # Build exchange side
@@ -368,86 +402,137 @@ async def list_transactions(
             if end_date:
                 exchange_where_clauses.append("et.tx_date <= %s::DATE")
                 exchange_params.append(end_date)
-            if tax_category:
-                exchange_where_clauses.append("tc.category = %s")
-                exchange_params.append(tax_category)
-            if asset:
-                exchange_where_clauses.append("et.asset ILIKE %s")
-                exchange_params.append(f"%{asset}%")
-            if chain:
-                # Exchange transactions are only returned when chain filter is 'exchange'
-                exchange_where_clauses.append("'exchange' ILIKE %s")
-                exchange_params.append(f"%{chain}%")
+            # needs_review is cleartext — kept in SQL
             if needs_review is not None:
                 exchange_where_clauses.append("COALESCE(tc.needs_review, FALSE) = %s")
                 exchange_params.append(needs_review)
-            if search:
-                exchange_where_clauses.append(
-                    "(et.tx_id ILIKE %s OR et.exchange ILIKE %s)"
-                )
-                search_pat = f"%{search}%"
-                exchange_params.extend([search_pat, search_pat])
+            # REMOVED: tax_category/asset/search on encrypted columns — filter in Python
 
             exchange_where = " AND ".join(exchange_where_clauses)
             exchange_sql = f"""
                 SELECT
-                    COALESCE(et.tx_id, '') AS tx_hash,
-                    'exchange' AS chain,
-                    TO_CHAR(et.tx_date, 'YYYY-MM-DD"T"HH24:MI:SS') AS timestamp_iso,
-                    et.exchange AS sender,
-                    NULL AS receiver,
-                    CAST(et.quantity AS TEXT) AS amount_str,
-                    COALESCE(et.asset, '') AS token_symbol,
-                    COALESCE(et.tx_type, '') AS action_type,
-                    COALESCE(tc.category, '') AS tax_category,
-                    NULL AS sub_category,
-                    tc.confidence AS confidence_score,
-                    COALESCE(tc.needs_review, FALSE) AS needs_review,
-                    tc.notes AS reviewer_notes,
-                    'exchange' AS source,
-                    EXTRACT(EPOCH FROM et.tx_date)::BIGINT * 1000000000 AS sort_ts
+                    et.id, et.tx_date, et.tx_id, et.exchange, et.quantity, et.asset, et.tx_type,
+                    tc.category, tc.confidence, tc.needs_review, tc.notes
                 FROM transaction_classifications tc
                 JOIN exchange_transactions et ON tc.exchange_transaction_id = et.id
                 WHERE {exchange_where}
+                ORDER BY et.tx_date DESC NULLS LAST
             """
-
-            # ----------------------------------------------------------------
-            # Combine: UNION ALL + window count + pagination
-            # ----------------------------------------------------------------
-            if onchain_sql:
-                inner_sql = f"({onchain_sql} UNION ALL {exchange_sql}) combined"
-                all_params = onchain_params + exchange_params
-            else:
-                inner_sql = f"({exchange_sql}) combined"
-                all_params = exchange_params
-
-            full_sql = f"""
-                SELECT
-                    tx_hash, chain, timestamp_iso, sender, receiver,
-                    amount_str, token_symbol, action_type, tax_category,
-                    sub_category, confidence_score, needs_review,
-                    reviewer_notes, source,
-                    COUNT(*) OVER() AS total_count
-                FROM {inner_sql}
-                ORDER BY sort_ts DESC NULLS LAST
-                LIMIT %s OFFSET %s
-            """
-            all_params = all_params + [per_page, offset]
-
-            cur.execute(full_sql, all_params)
-            rows = cur.fetchall()
-            return rows
+            cur.execute(exchange_sql, exchange_params)
+            exchange_rows = cur.fetchall()
+            return onchain_rows, exchange_rows
         finally:
             cur.close()
 
     conn = pool.getconn()
     try:
-        rows = await run_in_threadpool(_query, conn)
+        onchain_rows, exchange_rows = await run_in_threadpool(_query, conn)
     finally:
         pool.putconn(conn)
 
-    total = rows[0][14] if rows else 0
-    transactions = [_row_to_tx(r) for r in rows]
+    # ----------------------------------------------------------------
+    # Decrypt and build candidate list
+    # ----------------------------------------------------------------
+    candidates = []
+
+    for row in onchain_rows:
+        (t_id, t_chain, block_ts,
+         tx_hash_raw, direction_raw, counterparty_raw, amount_raw, token_id_raw, action_type_raw,
+         tc_category_raw, tc_confidence, tc_needs_review, tc_notes_raw) = row
+        d = _make_onchain_tx(
+            t_id=t_id, chain=t_chain, block_ts=block_ts,
+            tx_hash_raw=tx_hash_raw, direction_raw=direction_raw,
+            counterparty_raw=counterparty_raw, amount_raw=amount_raw,
+            token_id_raw=token_id_raw, action_type_raw=action_type_raw,
+            tc_category_raw=tc_category_raw, tc_confidence=tc_confidence,
+            tc_needs_review=tc_needs_review, tc_notes_raw=tc_notes_raw,
+            source="on_chain",
+        )
+        d["_sort_ts"] = block_ts or 0
+        candidates.append(d)
+
+    for row in exchange_rows:
+        (et_id, tx_date, tx_id, exchange, quantity, asset, tx_type,
+         tc_category_raw, tc_confidence, tc_needs_review, tc_notes_raw) = row
+        category = _dec(tc_category_raw)
+        reviewer_notes = _dec(tc_notes_raw)
+        timestamp_iso = tx_date.strftime("%Y-%m-%dT%H:%M:%S") if tx_date else None
+        sort_ts = int(tx_date.timestamp() * 1_000_000_000) if tx_date else 0
+        candidates.append({
+            "id": et_id,
+            "tx_hash": str(tx_id) if tx_id else "",
+            "chain": "exchange",
+            "timestamp": timestamp_iso,
+            "sender": str(exchange) if exchange else None,
+            "receiver": None,
+            "amount": str(quantity) if quantity is not None else None,
+            "token_symbol": str(asset) if asset else None,
+            "action_type": str(tx_type) if tx_type else None,
+            "tax_category": category,
+            "sub_category": None,
+            "confidence_score": float(tc_confidence) if tc_confidence is not None else None,
+            "needs_review": bool(tc_needs_review) if tc_needs_review is not None else False,
+            "reviewer_notes": reviewer_notes,
+            "source": "exchange",
+            "_direction": "",
+            "_token_symbol": str(asset) if asset else None,
+            "_sort_ts": sort_ts,
+        })
+
+    # ----------------------------------------------------------------
+    # In-memory filters for encrypted-column predicates (D-07)
+    # ----------------------------------------------------------------
+    if chain and chain.lower() == "exchange":
+        candidates = [c for c in candidates if c["chain"] == "exchange"]
+    elif chain:
+        candidates = [c for c in candidates if c["chain"] != "exchange"]
+
+    if tax_category:
+        candidates = [c for c in candidates if (c.get("tax_category") or "").lower() == tax_category.lower()]
+
+    if asset:
+        candidates = [
+            c for c in candidates
+            if (c.get("_token_symbol") or "").lower() == asset.lower()
+            or asset.lower() in (c.get("_token_symbol") or "").lower()
+        ]
+
+    if search:
+        s = search.lower()
+        candidates = [
+            c for c in candidates
+            if s in (c.get("tx_hash") or "").lower()
+            or s in (c.get("sender") or "").lower()
+            or s in (c.get("receiver") or "").lower()
+        ]
+
+    # Sort by timestamp DESC
+    candidates.sort(key=lambda c: -(c.get("_sort_ts") or 0))
+
+    # Apply pagination AFTER in-memory filtering
+    total = len(candidates)
+    offset = (page - 1) * per_page
+    page_candidates = candidates[offset: offset + per_page]
+
+    transactions = []
+    for c in page_candidates:
+        transactions.append(TransactionResponse(
+            tx_hash=c["tx_hash"],
+            chain=c["chain"],
+            timestamp=c["timestamp"],
+            sender=c["sender"],
+            receiver=c["receiver"],
+            amount=c["amount"],
+            token_symbol=c["token_symbol"],
+            action_type=c["action_type"],
+            tax_category=c["tax_category"],
+            sub_category=c["sub_category"],
+            confidence_score=c["confidence_score"],
+            needs_review=c["needs_review"],
+            reviewer_notes=c["reviewer_notes"],
+            source=c["source"],
+        ))
+
     pages = math.ceil(total / per_page) if total > 0 else 0
 
     return TransactionListResponse(
@@ -468,7 +553,7 @@ async def list_transactions(
 async def patch_classification(
     tx_hash: str,
     body: ClassificationUpdate,
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Update the classification for a transaction.
@@ -484,8 +569,14 @@ async def patch_classification(
     Returns 404 if the transaction is not found for the user.
     """
     user_id = user["user_id"]
+    # Capture the DEK in the async context before entering the thread pool.
+    # anyio threads do NOT automatically copy ContextVar values from the calling
+    # coroutine, so write_audit() (which calls get_dek()) would raise without this.
+    _dek_for_thread = _crypto.get_dek()
 
     def _update(conn):
+        # Re-inject DEK into this thread's ContextVar context so write_audit() works.
+        _crypto.set_dek(_dek_for_thread)
         cur = conn.cursor()
         try:
             # Verify ownership and fetch old classification values for audit
@@ -590,7 +681,7 @@ async def patch_classification(
 @router.post("/apply-changes", response_model=ApplyChangesResponse)
 async def apply_changes(
     body: ApplyChangesRequest,
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Stage ACB recalculation for affected tokens.

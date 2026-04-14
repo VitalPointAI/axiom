@@ -29,7 +29,7 @@ _progress_hwm: dict[int, tuple[int, float]] = {}
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 
-from api.dependencies import get_effective_user, get_pool_dep
+from api.dependencies import get_effective_user_with_dek, get_pool_dep
 from api.schemas.jobs import ActiveJobsResponse, JobStatusResponse
 
 logger = logging.getLogger(__name__)
@@ -326,7 +326,7 @@ def _active_row_to_job_status(row: tuple) -> JobStatusResponse:
 
 @router.get("/active", response_model=ActiveJobsResponse)
 async def get_active_jobs(
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Return all active (queued/running/retrying) jobs for the user.
@@ -433,7 +433,7 @@ async def get_active_jobs(
 
 @router.post("/notify-when-done")
 async def notify_when_done(
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Set notify_on_complete flag so user gets emailed when indexing finishes."""
@@ -544,7 +544,7 @@ def _check_and_send_completion_email(pool, user_id: int) -> None:
 @router.get("/{job_id}/status", response_model=JobStatusResponse)
 async def get_job_status(
     job_id: int,
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Return status, progress, and error for a single job.
@@ -597,6 +597,6 @@ async def get_job_status(
 
 
 @router.get("")
-async def list_jobs_stub(user=Depends(get_effective_user)):
+async def list_jobs_stub(user=Depends(get_effective_user_with_dek)):
     """Stub root endpoint — enforces auth so unauthenticated returns 401."""
     return []

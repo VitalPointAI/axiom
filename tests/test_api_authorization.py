@@ -9,7 +9,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from api.dependencies import get_current_user, get_effective_user, get_pool_dep
+from api.dependencies import (
+    get_current_user,
+    get_effective_user,
+    get_effective_user_with_dek,
+    get_pool_dep,
+)
 from api.main import create_app
 
 
@@ -57,6 +62,23 @@ def mock_other_user():
     }
 
 
+_TEST_DEK = b"\x00" * 32
+
+
+def _dek_override(user_dict):
+    """Return dep override for get_effective_user_with_dek that injects a test DEK.
+
+    Must be async so ContextVar writes are visible to the async route handler.
+    """
+    from db.crypto import set_dek
+
+    async def _override():
+        set_dek(_TEST_DEK)
+        return user_dict
+
+    return _override
+
+
 @pytest.fixture
 def other_user_client(mock_pool, mock_other_user):
     """TestClient authenticated as user 999 (not the data owner)."""
@@ -64,6 +86,8 @@ def other_user_client(mock_pool, mock_other_user):
     app.dependency_overrides[get_pool_dep] = lambda: mock_pool
     app.dependency_overrides[get_current_user] = lambda: mock_other_user
     app.dependency_overrides[get_effective_user] = lambda: mock_other_user
+    # Phase 16: routers use get_effective_user_with_dek — inject a test DEK
+    app.dependency_overrides[get_effective_user_with_dek] = _dek_override(mock_other_user)
     with patch("indexers.db.get_pool", return_value=mock_pool), \
          patch("indexers.db.close_pool"):
         with TestClient(app, raise_server_exceptions=False) as client:

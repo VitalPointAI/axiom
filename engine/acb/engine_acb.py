@@ -20,6 +20,31 @@ from db.dedup_hmac_helpers import insert_acb_snapshot_with_dedup
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# D-07: Decrypt encrypted NamedTupleCursor row fields in-Python
+# ---------------------------------------------------------------------------
+
+def _dec_field(raw) -> Optional[str]:
+    """Decrypt a single encrypted column value from a psycopg2 NamedTupleCursor row.
+
+    NamedTupleCursor returns raw BYTEA as bytes/memoryview. If raw is None or already
+    a str (e.g. exchange asset from a non-encrypted column), return as-is.
+
+    D-07: category, token_id, direction, and leg_type are EncryptedBytes columns.
+    They must be decrypted before being compared to plaintext strings.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return raw
+    try:
+        from db.crypto import EncryptedBytes
+        v = EncryptedBytes().process_result_value(bytes(raw), None)
+        return str(v) if v is not None else None
+    except Exception:
+        return None
+
 # Map uppercase token symbols to CoinGecko coin IDs for price lookups.
 # Tokens not in this map are looked up as symbol.lower() (works for "NEAR" → "near").
 _SYMBOL_TO_COINGECKO: dict[str, str] = {
@@ -112,9 +137,12 @@ LEFT JOIN exchange_transactions et ON tc.exchange_transaction_id = et.id
 LEFT JOIN staking_events se ON tc.staking_event_id = se.id
 LEFT JOIN lockup_events le ON tc.lockup_event_id = le.id
 WHERE tc.user_id = %s
-  AND tc.category NOT IN ('spam', 'transfer', 'internal_transfer')
 ORDER BY COALESCE(t.block_timestamp, EXTRACT(EPOCH FROM et.tx_date)::BIGINT) ASC, tc.id ASC
 """
+# D-07: tc.category is encrypted (EncryptedBytes). The former
+# "AND tc.category NOT IN ('spam', 'transfer', 'internal_transfer')" SQL filter
+# has been removed — ciphertext cannot be compared to plaintext strings.
+# Rows with those categories are now skipped in _process_row after decryption.
 
 _SNAPSHOT_UPSERT_SQL = """
 INSERT INTO acb_snapshots (
@@ -180,7 +208,8 @@ class ACBEngine:
         token_dates: dict[str, set] = {}
         for row in rows:
             chain = row.chain or "near"
-            symbol = resolve_token_symbol(row.token_id, chain, asset=row.asset)
+            # D-07: token_id is EncryptedBytes — decrypt before passing to resolver
+            symbol = resolve_token_symbol(_dec_field(row.token_id), chain, asset=row.asset)
             coin_id = _symbol_to_coin_id(symbol)
             if coin_id is None:
                 continue  # Skip fiat currencies and unknown tokens
@@ -245,8 +274,10 @@ class ACBEngine:
         minute_requests: list[tuple[str, int]] = []
 
         for row in rows:
+            # D-07: category is EncryptedBytes — decrypt before comparison
+            category_dec = _dec_field(row.category)
             # Only process dispositions and fees that might be large
-            if row.category not in ("sell", "capital_gain", "capital_loss", "trade", "fee"):
+            if category_dec not in ("sell", "capital_gain", "capital_loss", "trade", "fee"):
                 continue
 
             if row.parent_classification_id is not None:
@@ -254,7 +285,8 @@ class ACBEngine:
 
             chain = row.chain or "near"
             from engine.acb.symbols import resolve_token_symbol, normalize_timestamp, to_human_units
-            symbol = resolve_token_symbol(row.token_id, chain, asset=row.asset)
+            # D-07: token_id is EncryptedBytes — decrypt before passing to resolver
+            symbol = resolve_token_symbol(_dec_field(row.token_id), chain, asset=row.asset)
             coin_id = _symbol_to_coin_id(symbol)
             if coin_id is None:
                 continue
@@ -397,24 +429,40 @@ class ACBEngine:
         For each token_symbol, finds the snapshot with the highest classification_id
         and restores total_units (units_after) and total_cost_cad.
 
+        D-07: token_symbol is encrypted (EncryptedBytes). DISTINCT ON and ORDER BY
+        token_symbol are impossible with per-row ciphertext. Instead, fetch all rows
+        ordered by classification_id DESC and find the latest per token in Python.
+
         Returns dict of symbol -> ACBPool with restored state.
         """
+        import db.crypto as _crypto
+
         cur = conn.cursor()
         try:
             cur.execute(
-                """SELECT DISTINCT ON (token_symbol)
-                       token_symbol, units_after, total_cost_cad
+                """SELECT token_symbol, units_after, total_cost_cad, classification_id
                    FROM acb_snapshots
                    WHERE user_id = %s
-                   ORDER BY token_symbol, classification_id DESC""",
+                   ORDER BY classification_id DESC""",
                 (user_id,),
             )
             rows = cur.fetchall()
         finally:
             cur.close()
 
+        # D-07: Decrypt token_symbol in Python; first occurrence per symbol is latest
+        # (rows are ordered by classification_id DESC so highest ID comes first).
         pools: dict[str, ACBPool] = {}
-        for symbol, units_after, total_cost_cad in rows:
+        for symbol_raw, units_after, total_cost_cad, _cls_id in rows:
+            if isinstance(symbol_raw, (bytes, memoryview)):
+                symbol = _crypto.EncryptedBytes().process_result_value(bytes(symbol_raw), None)
+                symbol = str(symbol) if symbol is not None else None
+            else:
+                symbol = str(symbol_raw) if symbol_raw is not None else None
+            if symbol is None:
+                continue
+            if symbol in pools:
+                continue  # Already have the latest (highest classification_id)
             pool = ACBPool(symbol)
             pool.total_units = Decimal(str(units_after))
             pool.total_cost_cad = Decimal(str(total_cost_cad))
@@ -704,8 +752,21 @@ class ACBEngine:
             return None, None, True
 
     def _process_row(self, row, child_map, pools, conn, gains, user_id, stats):
-        """Process a single parent classification row."""
-        category = row.category
+        """Process a single parent classification row.
+
+        D-07: category, token_id, direction, and leg_type are EncryptedBytes columns
+        returned as raw BYTEA by psycopg2's NamedTupleCursor. They must be decrypted
+        before string comparison. _dec_field() handles this transparently.
+        """
+        # Decrypt encrypted fields before use (D-07)
+        category = _dec_field(row.category)
+        token_id_dec = _dec_field(row.token_id)
+        direction_dec = _dec_field(getattr(row, "direction", None))
+
+        # Skip categories filtered in the old SQL WHERE (now done in Python — D-07)
+        if category in ("spam", "transfer", "internal_transfer"):
+            return
+
         chain = row.chain or "near"
         raw_ts = row.t_block_timestamp
         if raw_ts is None and row.et_timestamp is not None:
@@ -717,7 +778,8 @@ class ACBEngine:
         else:
             unix_ts = normalize_timestamp(raw_ts or 0, chain)
 
-        symbol = resolve_token_symbol(row.token_id, chain, asset=row.asset)
+        # resolve_token_symbol expects cleartext token_id string
+        symbol = resolve_token_symbol(token_id_dec, chain, asset=row.asset)
         stats["tokens_processed"].add(symbol)
         pool = self._get_pool(pools, symbol)
 
@@ -749,9 +811,10 @@ class ACBEngine:
         # -----------------------------------------------------------
         elif category in ("sell", "capital_gain", "capital_loss"):
             children = child_map.get(row.id, [])
-            sell_leg = next((c for c in children if c.leg_type == "sell_leg"), None)
-            buy_leg = next((c for c in children if c.leg_type == "buy_leg"), None)
-            fee_leg = next((c for c in children if c.leg_type == "fee_leg"), None)
+            # D-07: leg_type is EncryptedBytes — decrypt before comparison
+            sell_leg = next((c for c in children if _dec_field(c.leg_type) == "sell_leg"), None)
+            buy_leg = next((c for c in children if _dec_field(c.leg_type) == "buy_leg"), None)
+            fee_leg = next((c for c in children if _dec_field(c.leg_type) == "fee_leg"), None)
             if sell_leg and buy_leg:
                 self._handle_swap(parent_row=row, sell_leg=sell_leg, buy_leg=buy_leg,
                                   fee_leg=fee_leg, pools=pools, conn=conn, gains=gains,
@@ -767,9 +830,10 @@ class ACBEngine:
         # -----------------------------------------------------------
         elif category == "trade":
             children = child_map.get(row.id, [])
-            sell_leg = next((c for c in children if c.leg_type == "sell_leg"), None)
-            buy_leg = next((c for c in children if c.leg_type == "buy_leg"), None)
-            fee_leg = next((c for c in children if c.leg_type == "fee_leg"), None)
+            # D-07: leg_type is EncryptedBytes — decrypt before comparison
+            sell_leg = next((c for c in children if _dec_field(c.leg_type) == "sell_leg"), None)
+            buy_leg = next((c for c in children if _dec_field(c.leg_type) == "buy_leg"), None)
+            fee_leg = next((c for c in children if _dec_field(c.leg_type) == "fee_leg"), None)
             if sell_leg and buy_leg:
                 self._handle_swap(parent_row=row, sell_leg=sell_leg, buy_leg=buy_leg,
                                   fee_leg=fee_leg, pools=pools, conn=conn, gains=gains,
@@ -777,9 +841,8 @@ class ACBEngine:
                                   chain=chain, stats=stats)
             else:
                 # Trade without decomposed legs — treat as acquisition if direction=in,
-                # disposal if direction=out
-                direction = getattr(row, "direction", None)
-                if direction == "out" or (row.amount and int(row.amount) < 0):
+                # disposal if direction=out. direction_dec is already decrypted above.
+                if direction_dec == "out" or (row.amount and int(row.amount) < 0):
                     self._handle_disposal(row=row, pool=pool, symbol=symbol, units=abs(units),
                                           fee_human=fee_human, unix_ts=unix_ts, raw_ts=raw_ts or 0,
                                           chain=chain, conn=conn, gains=gains, user_id=user_id, stats=stats)
@@ -940,9 +1003,13 @@ class ACBEngine:
 
     def _handle_swap(self, parent_row, sell_leg, buy_leg, fee_leg, pools, conn, gains,
                      user_id, unix_ts, raw_ts, chain, stats):
-        """Handle a multi-leg swap: dispose sell token, acquire buy token."""
+        """Handle a multi-leg swap: dispose sell token, acquire buy token.
+
+        D-07: token_id is EncryptedBytes on each leg row. Decrypt before resolving symbol.
+        """
         # --- Sell leg ---
-        sell_symbol = resolve_token_symbol(sell_leg.token_id, chain, asset=sell_leg.asset)
+        # D-07: sell_leg.token_id is EncryptedBytes raw bytes — decrypt first
+        sell_symbol = resolve_token_symbol(_dec_field(sell_leg.token_id), chain, asset=sell_leg.asset)
         sell_pool = self._get_pool(pools, sell_symbol)
         if sell_leg.exchange_transaction_id is not None and sell_leg.quantity is not None:
             sell_units = Decimal(str(sell_leg.quantity))
@@ -982,7 +1049,8 @@ class ACBEngine:
         # --- Fee leg (added to buy ACB) ---
         fee_cad = Decimal("0")
         if fee_leg is not None:
-            fee_symbol = resolve_token_symbol(fee_leg.token_id, chain, asset=fee_leg.asset)
+            # D-07: fee_leg.token_id is EncryptedBytes — decrypt first
+            fee_symbol = resolve_token_symbol(_dec_field(fee_leg.token_id), chain, asset=fee_leg.asset)
             _, fee_price_cad, _ = self._resolve_fmv_cad(fee_leg, unix_ts, fee_symbol)
             if fee_leg.exchange_transaction_id is not None and fee_leg.quantity is not None:
                 fee_units = Decimal(str(fee_leg.quantity))
@@ -993,7 +1061,8 @@ class ACBEngine:
             fee_cad = fee_units * (fee_price_cad or Decimal("0"))
 
         # --- Buy leg ---
-        buy_symbol = resolve_token_symbol(buy_leg.token_id, chain, asset=buy_leg.asset)
+        # D-07: buy_leg.token_id is EncryptedBytes — decrypt first
+        buy_symbol = resolve_token_symbol(_dec_field(buy_leg.token_id), chain, asset=buy_leg.asset)
         buy_pool = self._get_pool(pools, buy_symbol)
         if buy_leg.exchange_transaction_id is not None and buy_leg.quantity is not None:
             buy_units = Decimal(str(buy_leg.quantity))

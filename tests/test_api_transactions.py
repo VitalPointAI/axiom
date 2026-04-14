@@ -14,8 +14,24 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from api.dependencies import get_current_user, get_pool_dep
+from api.dependencies import get_current_user, get_effective_user_with_dek, get_pool_dep
 from api.main import create_app
+
+_TEST_DEK = b"\x00" * 32
+
+
+def _make_dek_override(user_dict):
+    """Return a dep override for get_effective_user_with_dek that injects a test DEK.
+
+    Must be async so ContextVar writes are visible to the async route handler.
+    """
+    from db.crypto import set_dek
+
+    async def _override():
+        set_dek(_TEST_DEK)
+        return user_dict
+
+    return _override
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +95,8 @@ def make_client(mock_pool, mock_user):
     app = create_app()
     app.dependency_overrides[get_pool_dep] = lambda: mock_pool
     app.dependency_overrides[get_current_user] = lambda: mock_user
+    # Phase 16: transactions router uses get_effective_user_with_dek — inject a test DEK
+    app.dependency_overrides[get_effective_user_with_dek] = _make_dek_override(mock_user)
     with patch("indexers.db.get_pool", return_value=mock_pool), \
          patch("indexers.db.close_pool"):
         with TestClient(app, raise_server_exceptions=True) as client:
@@ -96,11 +114,40 @@ def auth_client(mock_pool, mock_user):
 # Sample transaction row helpers
 # ---------------------------------------------------------------------------
 
-# Columns returned by the UNION ALL query:
-# tx_hash, chain, timestamp_iso, sender, receiver, amount_str, token_symbol,
-# action_type, tax_category, sub_category, confidence_score, needs_review,
-# reviewer_notes, source, total_count
-# (15 columns + window total at position 14)
+# Phase 16 D-07 refactor: on-chain query now fetches raw encrypted columns.
+# Columns returned by the on-chain SELECT:
+# (t.id, t.chain, t.block_timestamp, tx_hash, direction, counterparty,
+#  amount, token_id, action_type, tc.category, tc.confidence, tc.needs_review, tc.notes)
+# = 13 columns
+def _onchain_row(
+    t_id=1,
+    chain="NEAR",
+    block_ts=1717228800000000000,  # 2024-06-01 in nanoseconds
+    tx_hash="abc123",
+    direction="out",
+    counterparty="bob.near",
+    amount="100.0",
+    token_id="NEAR",
+    action_type="TRANSFER",
+    category="income",
+    confidence=0.95,
+    needs_review=False,
+    notes=None,
+):
+    return (
+        t_id, chain, block_ts,
+        tx_hash, direction, counterparty, amount, token_id, action_type,
+        category, confidence, needs_review, notes,
+    )
+
+
+def _wallet_rows():
+    """Wallet ID rows for the first fetchall() call."""
+    return [(1,)]  # wallet_id=1
+
+
+# Legacy alias used in some tests — returns a formatted response dict that
+# the test can use to verify response shape without unpacking raw DB rows.
 def _tx_row(
     tx_hash="abc123",
     chain="NEAR",
@@ -118,10 +165,19 @@ def _tx_row(
     source="on_chain",
     total_count=1,
 ):
-    return (
-        tx_hash, chain, timestamp_iso, sender, receiver, amount_str, token_symbol,
-        action_type, tax_category, sub_category, confidence_score, needs_review,
-        reviewer_notes, source, total_count,
+    """Build an on-chain DB row for the D-07 refactored transactions query."""
+    return _onchain_row(
+        tx_hash=tx_hash,
+        chain=chain,
+        direction=sender or "out",
+        counterparty=receiver or "",
+        amount=amount_str,
+        token_id=token_symbol,
+        action_type=action_type,
+        category=tax_category,
+        confidence=confidence_score,
+        needs_review=needs_review,
+        notes=reviewer_notes,
     )
 
 
@@ -135,9 +191,11 @@ class TestTransactionList:
 
     def test_list_transactions(self, mock_pool, mock_conn, mock_cursor, mock_user):
         """GET /api/transactions returns paginated results with total count."""
-        mock_cursor.fetchall.return_value = [_tx_row()]
+        # fetchall called in sequence: (1) wallet ids, (2) onchain rows, (3) exchange rows
+        mock_cursor.fetchall.side_effect = [_wallet_rows(), [_tx_row()], []]
 
         for client in make_client(mock_pool, mock_user):
+            mock_cursor.fetchall.side_effect = [_wallet_rows(), [_tx_row()], []]
             resp = client.get("/api/transactions")
             assert resp.status_code == 200, resp.json()
             body = resp.json()
@@ -152,9 +210,10 @@ class TestTransactionList:
 
     def test_filter_by_date(self, mock_pool, mock_conn, mock_cursor, mock_user):
         """?start_date=2025-01-01&end_date=2025-12-31 filters correctly."""
-        mock_cursor.fetchall.return_value = [_tx_row()]
+        mock_cursor.fetchall.side_effect = [_wallet_rows(), [_tx_row()], []]
 
         for client in make_client(mock_pool, mock_user):
+            mock_cursor.fetchall.side_effect = [_wallet_rows(), [_tx_row()], []]
             resp = client.get(
                 "/api/transactions",
                 params={"start_date": "2025-01-01", "end_date": "2025-12-31"},
@@ -167,9 +226,10 @@ class TestTransactionList:
 
     def test_filter_by_type(self, mock_pool, mock_conn, mock_cursor, mock_user):
         """?tax_category=income returns only income transactions."""
-        mock_cursor.fetchall.return_value = [_tx_row(tax_category="income")]
+        mock_cursor.fetchall.side_effect = [_wallet_rows(), [_tx_row(tax_category="income")], []]
 
         for client in make_client(mock_pool, mock_user):
+            mock_cursor.fetchall.side_effect = [_wallet_rows(), [_tx_row(tax_category="income")], []]
             resp = client.get("/api/transactions", params={"tax_category": "income"})
             assert resp.status_code == 200, resp.json()
             body = resp.json()
@@ -178,9 +238,10 @@ class TestTransactionList:
 
     def test_filter_by_asset(self, mock_pool, mock_conn, mock_cursor, mock_user):
         """?asset=NEAR filters by token symbol."""
-        mock_cursor.fetchall.return_value = [_tx_row(token_symbol="NEAR")]
+        mock_cursor.fetchall.side_effect = [_wallet_rows(), [_tx_row(token_symbol="NEAR")], []]
 
         for client in make_client(mock_pool, mock_user):
+            mock_cursor.fetchall.side_effect = [_wallet_rows(), [_tx_row(token_symbol="NEAR")], []]
             resp = client.get("/api/transactions", params={"asset": "NEAR"})
             assert resp.status_code == 200, resp.json()
             # Route accepted the filter without error
@@ -188,9 +249,10 @@ class TestTransactionList:
 
     def test_filter_by_chain(self, mock_pool, mock_conn, mock_cursor, mock_user):
         """?chain=NEAR filters by chain."""
-        mock_cursor.fetchall.return_value = [_tx_row(chain="NEAR")]
+        mock_cursor.fetchall.side_effect = [_wallet_rows(), [_tx_row(chain="NEAR")], []]
 
         for client in make_client(mock_pool, mock_user):
+            mock_cursor.fetchall.side_effect = [_wallet_rows(), [_tx_row(chain="NEAR")], []]
             resp = client.get("/api/transactions", params={"chain": "NEAR"})
             assert resp.status_code == 200, resp.json()
             body = resp.json()
@@ -199,9 +261,10 @@ class TestTransactionList:
 
     def test_filter_needs_review(self, mock_pool, mock_conn, mock_cursor, mock_user):
         """?needs_review=true returns flagged transactions."""
-        mock_cursor.fetchall.return_value = [_tx_row(needs_review=True, total_count=1)]
+        mock_cursor.fetchall.side_effect = [_wallet_rows(), [_tx_row(needs_review=True)], []]
 
         for client in make_client(mock_pool, mock_user):
+            mock_cursor.fetchall.side_effect = [_wallet_rows(), [_tx_row(needs_review=True)], []]
             resp = client.get("/api/transactions", params={"needs_review": "true"})
             assert resp.status_code == 200, resp.json()
             body = resp.json()
@@ -210,9 +273,10 @@ class TestTransactionList:
 
     def test_search(self, mock_pool, mock_conn, mock_cursor, mock_user):
         """?search=swap searches tx_hash, sender, receiver."""
-        mock_cursor.fetchall.return_value = [_tx_row(tx_hash="swap_abc")]
+        mock_cursor.fetchall.side_effect = [_wallet_rows(), [_tx_row(tx_hash="swap_abc")], []]
 
         for client in make_client(mock_pool, mock_user):
+            mock_cursor.fetchall.side_effect = [_wallet_rows(), [_tx_row(tx_hash="swap_abc")], []]
             resp = client.get("/api/transactions", params={"search": "swap"})
             assert resp.status_code == 200, resp.json()
             # Route accepted the search param
@@ -220,9 +284,10 @@ class TestTransactionList:
 
     def test_pagination(self, mock_pool, mock_conn, mock_cursor, mock_user):
         """?page=2&per_page=50 returns correct page with offset."""
-        mock_cursor.fetchall.return_value = []  # page 2 empty
+        mock_cursor.fetchall.side_effect = [[], [], []]  # no wallets, no rows
 
         for client in make_client(mock_pool, mock_user):
+            mock_cursor.fetchall.side_effect = [[], [], []]
             resp = client.get("/api/transactions", params={"page": 2, "per_page": 50})
             assert resp.status_code == 200, resp.json()
             body = resp.json()
@@ -231,9 +296,10 @@ class TestTransactionList:
 
     def test_user_isolation(self, mock_pool, mock_conn, mock_cursor, mock_user):
         """Returns only effective_user's transactions."""
-        mock_cursor.fetchall.return_value = []
+        mock_cursor.fetchall.side_effect = [[], [], []]
 
         for client in make_client(mock_pool, mock_user):
+            mock_cursor.fetchall.side_effect = [[], [], []]
             resp = client.get("/api/transactions")
             assert resp.status_code == 200
             body = resp.json()
@@ -246,9 +312,10 @@ class TestTransactionList:
 
     def test_empty_results(self, mock_pool, mock_conn, mock_cursor, mock_user):
         """Returns empty list with total=0 when no transactions match."""
-        mock_cursor.fetchall.return_value = []
+        mock_cursor.fetchall.side_effect = [[], [], []]
 
         for client in make_client(mock_pool, mock_user):
+            mock_cursor.fetchall.side_effect = [[], [], []]
             resp = client.get("/api/transactions")
             assert resp.status_code == 200, resp.json()
             body = resp.json()
@@ -326,17 +393,15 @@ class TestReviewQueue:
 
     def test_review_queue(self, mock_pool, mock_conn, mock_cursor, mock_user):
         """GET /api/transactions/review returns all needs_review=true items."""
-        mock_cursor.fetchall.return_value = [
-            _tx_row(needs_review=True, tax_category="income", total_count=2),
-            _tx_row(
-                tx_hash="def456",
-                needs_review=True,
-                tax_category="capital_gain",
-                total_count=2,
-            ),
+        # fetchall called: (1) wallet ids, (2) onchain rows, (3) exchange rows
+        onchain_rows = [
+            _tx_row(needs_review=True, tax_category="income"),
+            _tx_row(tx_hash="def456", needs_review=True, tax_category="capital_gain"),
         ]
+        mock_cursor.fetchall.side_effect = [_wallet_rows(), onchain_rows, []]
 
         for client in make_client(mock_pool, mock_user):
+            mock_cursor.fetchall.side_effect = [_wallet_rows(), onchain_rows, []]
             resp = client.get("/api/transactions/review")
             assert resp.status_code == 200, resp.json()
             body = resp.json()
@@ -348,9 +413,10 @@ class TestReviewQueue:
 
     def test_review_queue_empty(self, mock_pool, mock_conn, mock_cursor, mock_user):
         """GET /api/transactions/review returns empty items when no flagged transactions."""
-        mock_cursor.fetchall.return_value = []
+        mock_cursor.fetchall.side_effect = [[], [], []]
 
         for client in make_client(mock_pool, mock_user):
+            mock_cursor.fetchall.side_effect = [[], [], []]
             resp = client.get("/api/transactions/review")
             assert resp.status_code == 200, resp.json()
             body = resp.json()
@@ -359,13 +425,15 @@ class TestReviewQueue:
 
     def test_review_queue_counts_by_category(self, mock_pool, mock_conn, mock_cursor, mock_user):
         """counts_by_category groups review items by tax_category."""
-        mock_cursor.fetchall.return_value = [
-            _tx_row(needs_review=True, tax_category="income", total_count=3),
-            _tx_row(tx_hash="d2", needs_review=True, tax_category="income", total_count=3),
-            _tx_row(tx_hash="d3", needs_review=True, tax_category="capital_gain", total_count=3),
+        onchain_rows = [
+            _tx_row(needs_review=True, tax_category="income"),
+            _tx_row(tx_hash="d2", needs_review=True, tax_category="income"),
+            _tx_row(tx_hash="d3", needs_review=True, tax_category="capital_gain"),
         ]
+        mock_cursor.fetchall.side_effect = [_wallet_rows(), onchain_rows, []]
 
         for client in make_client(mock_pool, mock_user):
+            mock_cursor.fetchall.side_effect = [_wallet_rows(), onchain_rows, []]
             resp = client.get("/api/transactions/review")
             assert resp.status_code == 200, resp.json()
             body = resp.json()

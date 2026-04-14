@@ -24,7 +24,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.main import create_app
-from api.dependencies import get_current_user, get_pool_dep
+from api.dependencies import get_current_user, get_effective_user_with_dek, get_pool_dep
 
 
 # ---------------------------------------------------------------------------
@@ -45,6 +45,35 @@ def _zero_dek_between_tests():
         zero_dek()
     except Exception:
         pass
+
+
+# Test DEK: 32-byte zero key used in all test fixtures. Real DEK is per-user;
+# tests use this stub so set_dek() is satisfied without a real session_dek_cache row.
+_TEST_DEK = b"\x00" * 32
+
+
+def _make_dek_override(user_dict: dict):
+    """Return a dependency override for get_effective_user_with_dek.
+
+    Injects a dummy DEK into the request ContextVar so endpoints that call
+    get_dek() don't raise RuntimeError("No DEK in context") during tests.
+
+    The inner function MUST be async so FastAPI runs it in the same event-loop
+    context as the route handler.  A sync dependency override runs in a thread
+    pool where ContextVar writes are NOT visible to the async handler — making
+    get_dek() raise even though set_dek() was called in the dependency.
+    """
+    from db.crypto import set_dek, zero_dek
+
+    async def _override():
+        set_dek(_TEST_DEK)
+        try:
+            return user_dict
+        except Exception:
+            zero_dek()
+            raise
+
+    return _override
 
 
 # ---------------------------------------------------------------------------
@@ -144,10 +173,14 @@ def auth_client(mock_pool, mock_user):
 
     get_current_user is overridden to return mock_user, simulating a
     logged-in non-admin user without a real session cookie.
+
+    get_effective_user_with_dek is also overridden to inject a test DEK
+    into the request ContextVar so encrypted-column routes work in tests.
     """
     app = create_app()
     app.dependency_overrides[get_pool_dep] = lambda: mock_pool
     app.dependency_overrides[get_current_user] = lambda: mock_user
+    app.dependency_overrides[get_effective_user_with_dek] = _make_dek_override(mock_user)
     with patch("indexers.db.get_pool", return_value=mock_pool), \
          patch("indexers.db.close_pool"):
         with TestClient(app, raise_server_exceptions=True) as client:
@@ -161,6 +194,7 @@ def admin_client(mock_pool, mock_admin):
     app = create_app()
     app.dependency_overrides[get_pool_dep] = lambda: mock_pool
     app.dependency_overrides[get_current_user] = lambda: mock_admin
+    app.dependency_overrides[get_effective_user_with_dek] = _make_dek_override(mock_admin)
     with patch("indexers.db.get_pool", return_value=mock_pool), \
          patch("indexers.db.close_pool"):
         with TestClient(app, raise_server_exceptions=True) as client:

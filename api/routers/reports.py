@@ -30,7 +30,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
-from api.dependencies import get_effective_user, get_pool_dep
+from api.dependencies import get_effective_user_with_dek, get_pool_dep
 from api.rate_limit import limiter
 from api.schemas.reports import (
     ExchangeImportResponse,
@@ -125,7 +125,7 @@ def _check_staleness(output_dir: str, conn, user_id: int):
 async def generate_report(
     request: Request,
     body: ReportGenerateRequest,
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Queue a generate_reports job for the given year.
@@ -187,7 +187,7 @@ async def generate_report(
 @router.get("/preview/{report_type}", response_model=ReportPreviewResponse)
 async def preview_report(
     report_type: str,
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Return up to 50 rows of inline preview data for the given report type.
@@ -375,7 +375,7 @@ async def preview_report(
 @router.get("/download/{year}", response_model=ReportFileResponse)
 async def list_report_files(
     year: int,
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """List all files in the output/{year}_tax_package/ directory.
@@ -435,7 +435,7 @@ async def list_report_files(
 async def download_report_file(
     year: int,
     filename: str,
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
 ):
     """Serve a report file from the output/{year}_tax_package/ directory.
 
@@ -484,7 +484,7 @@ async def download_report_file(
 @router.get("/status", response_model=ReportStatusResponse)
 async def report_status(
     year: int = Query(..., ge=1900, le=2200),
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
 ):
     """Check whether a generated tax package exists for the given year."""
     output_root = _get_output_dir()
@@ -505,7 +505,7 @@ async def report_status(
 @exchanges_router.post("/import", response_model=ExchangeImportResponse)
 async def import_exchange_file(
     file: UploadFile = File(...),
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Accept a CSV exchange file upload, record it in file_imports, and queue a file_import job.
@@ -606,7 +606,7 @@ async def import_exchange_file(
 
 @exchanges_router.get("", response_model=List[SupportedExchange])
 async def list_exchanges(
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Return all supported exchanges from the supported_exchanges table."""

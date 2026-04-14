@@ -1845,6 +1845,12 @@ class TestPackageBuilder(unittest.TestCase):
         pdf_patcher.start()
         patchers['_pdf'] = (pdf_patcher, None)
 
+        # Phase 16: write_audit() requires a DEK in context; patch it out since
+        # PackageBuilder tests don't test audit write behaviour.
+        audit_patcher = patch('reports.generate.write_audit')
+        audit_patcher.start()
+        patchers['_audit'] = (audit_patcher, None)
+
         try:
             builder = PackageBuilder(pool, specialist_override=specialist_override)
             manifest = builder.build(
@@ -2407,10 +2413,19 @@ class TestStaleDetection(unittest.TestCase):
         """Build a FastAPI test app with dependency overrides for reports router."""
         from fastapi import FastAPI
         from api.routers.reports import router
-        from api.dependencies import get_effective_user, get_pool_dep
+        from api.dependencies import get_effective_user_with_dek, get_pool_dep
+        from db.crypto import set_dek
+        _TEST_DEK = b"\x00" * 32
+
+        async def _dek_override():
+            # Must be async so ContextVar write is visible to the async route handler.
+            set_dek(_TEST_DEK)
+            return mock_user
+
         app = FastAPI()
         app.include_router(router)
-        app.dependency_overrides[get_effective_user] = lambda: mock_user
+        # Phase 16: reports router uses get_effective_user_with_dek — inject a test DEK
+        app.dependency_overrides[get_effective_user_with_dek] = _dek_override
         app.dependency_overrides[get_pool_dep] = lambda: pool
         return app
 

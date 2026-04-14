@@ -16,7 +16,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from fastapi.concurrency import run_in_threadpool
 
-from api.dependencies import get_effective_user, get_pool_dep
+import db.crypto as _crypto
+from api.dependencies import get_effective_user_with_dek, get_pool_dep
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,20 @@ CHAIN_NAMES = {
 }
 
 
+def _dec_str(raw) -> Optional[str]:
+    """Decrypt raw BYTEA from psycopg2 using the current context DEK.
+
+    If raw is already a str (e.g. in tests where mocks return plaintext),
+    return it unchanged — EncryptedBytes.process_result_value() operates on bytes only.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return raw
+    v = _crypto.EncryptedBytes().process_result_value(bytes(raw), None)
+    return str(v) if v is not None else None
+
+
 @router.get("")
 async def get_assets(
     chain: Optional[str] = Query(default=None),
@@ -41,7 +56,7 @@ async def get_assets(
     date: Optional[str] = Query(default=None),
     hideSmall: bool = Query(default=True),
     includeSpam: bool = Query(default=False),
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Return token holdings with wallet breakdown and filters.
@@ -55,27 +70,20 @@ async def get_assets(
     def _query(conn):
         cur = conn.cursor()
         try:
-            # Latest ACB snapshot per token
+            # D-07: acb_snapshots.token_symbol and units_after are encrypted.
+            # Fetch all rows for user, decrypt in Python, then find latest per token.
             cur.execute(
                 """
-                SELECT token_symbol, units_after, acb_per_unit_cad, total_cost_cad
-                FROM (
-                    SELECT token_symbol, units_after, acb_per_unit_cad, total_cost_cad,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY token_symbol
-                               ORDER BY block_timestamp DESC
-                           ) AS rn
-                    FROM acb_snapshots
-                    WHERE user_id = %s
-                ) ranked
-                WHERE rn = 1 AND units_after > 0
-                ORDER BY token_symbol
+                SELECT token_symbol, units_after, acb_per_unit_cad, total_cost_cad, block_timestamp
+                FROM acb_snapshots
+                WHERE user_id = %s
+                ORDER BY block_timestamp DESC
                 """,
                 (user_id,),
             )
-            acb_rows = cur.fetchall()
+            acb_rows_raw = cur.fetchall()
 
-            # Get latest USD prices from price_cache
+            # Get latest USD prices from price_cache (public data — cleartext)
             cur.execute(
                 """
                 SELECT DISTINCT ON (coin_id)
@@ -90,76 +98,26 @@ async def get_assets(
             for coin_id, price, _ in price_rows:
                 prices[coin_id] = float(price) if price else 0.0
 
-            # Get wallets for this user
+            # Get wallets for this user — account_id is encrypted
             cur.execute(
                 "SELECT id, account_id, chain, label FROM wallets WHERE user_id = %s",
                 (user_id,),
             )
             wallet_rows = cur.fetchall()
-            wallets_by_id = {}
-            for wid, account_id, w_chain, label in wallet_rows:
-                wallets_by_id[wid] = {
-                    "id": wid,
-                    "address": account_id,
-                    "chain": (w_chain or "").lower(),
-                    "label": label or "",
-                }
 
-            # Per-wallet native balance from transaction replay (NEAR/ETH)
+            # D-07: Per-wallet native balance from transaction replay (NEAR/ETH).
+            # direction and amount are encrypted — fetch raw rows, aggregate in Python.
             cur.execute(
                 """
-                SELECT t.wallet_id,
-                       CASE
-                           WHEN LOWER(t.chain) = 'near' THEN 'NEAR'
-                           WHEN LOWER(t.chain) IN ('ethereum','polygon','optimism','cronos') THEN 'ETH'
-                           ELSE 'UNKNOWN'
-                       END AS token,
-                       LOWER(t.chain) AS chain,
-                       SUM(CASE WHEN t.direction = 'in' THEN t.amount ELSE 0 END) AS total_in,
-                       SUM(CASE WHEN t.direction = 'out' THEN t.amount ELSE 0 END) AS total_out,
-                       SUM(CASE WHEN t.direction = 'out' THEN COALESCE(t.fee, 0) ELSE 0 END) AS total_fees
+                SELECT t.wallet_id, LOWER(t.chain) AS chain, t.direction, t.amount, t.fee, t.token_id
                 FROM transactions t
-                WHERE t.user_id = %s AND t.token_id IS NULL
-                GROUP BY t.wallet_id, token, LOWER(t.chain)
+                WHERE t.user_id = %s
                 """,
                 (user_id,),
             )
-            wallet_balance_rows = cur.fetchall()
+            tx_raw_rows = cur.fetchall()
 
-            # Distinct FT tokens the user has interacted with
-            cur.execute(
-                "SELECT EXISTS(SELECT 1 FROM information_schema.tables "
-                "WHERE table_name = 'token_metadata')"
-            )
-            has_token_metadata = cur.fetchone()[0]
-
-            if has_token_metadata:
-                cur.execute(
-                    """
-                    SELECT DISTINCT
-                        COALESCE(tm.symbol, UPPER(t.token_id)) AS token,
-                        t.token_id,
-                        tm.name,
-                        tm.icon_url
-                    FROM transactions t
-                    LEFT JOIN token_metadata tm ON LOWER(t.token_id) = tm.contract_id
-                    WHERE t.user_id = %s AND t.token_id IS NOT NULL
-                    """,
-                    (user_id,),
-                )
-            else:
-                cur.execute(
-                    """
-                    SELECT DISTINCT UPPER(t.token_id) AS token, t.token_id,
-                           NULL AS name, NULL AS icon_url
-                    FROM transactions t
-                    WHERE t.user_id = %s AND t.token_id IS NOT NULL
-                    """,
-                    (user_id,),
-                )
-            ft_token_rows = cur.fetchall()
-
-            # Available snapshot dates
+            # Available snapshot dates (block_timestamp is cleartext)
             cur.execute(
                 """
                 SELECT DISTINCT DATE(TO_TIMESTAMP(block_timestamp / 1e9))
@@ -176,24 +134,130 @@ async def get_assets(
             )
             snapshot_dates = [str(r[0]) for r in cur.fetchall() if r[0]]
 
-            # Spam tokens (rule_type='token_symbol', value=symbol)
+            # D-07: Spam rules. User-scoped rules use rule_type_enc and value_enc (encrypted).
+            # Fetch all active user spam rules, decrypt in Python.
             cur.execute(
-                """SELECT DISTINCT value FROM spam_rules
-                   WHERE user_id = %s AND rule_type = 'token_symbol' AND is_active = TRUE""",
+                """SELECT rule_type_enc, value_enc FROM spam_rules
+                   WHERE user_id = %s AND is_active = TRUE""",
                 (user_id,),
             )
-            spam_tokens = {r[0] for r in cur.fetchall()}
+            spam_rows = cur.fetchall()
 
-            return acb_rows, prices, wallets_by_id, wallet_balance_rows, snapshot_dates, spam_tokens, ft_token_rows
+            return acb_rows_raw, prices, wallet_rows, tx_raw_rows, snapshot_dates, spam_rows
         finally:
             cur.close()
 
     conn = pool.getconn()
     try:
-        (acb_rows, prices, wallets_by_id, wallet_balance_rows,
-         snapshot_dates, spam_tokens, ft_token_rows) = await run_in_threadpool(_query, conn)
+        acb_rows_raw, prices, wallet_rows, tx_raw_rows, snapshot_dates, spam_rows = await run_in_threadpool(_query, conn)
     finally:
         pool.putconn(conn)
+
+    # Decrypt wallets
+    wallets_by_id = {}
+    for wid, account_id_raw, w_chain, label in wallet_rows:
+        account_id = _dec_str(account_id_raw) if isinstance(account_id_raw, (bytes, memoryview)) else (str(account_id_raw) if account_id_raw else "")
+        wallets_by_id[wid] = {
+            "id": wid,
+            "address": account_id,
+            "chain": (w_chain or "").lower(),
+            "label": label or "",
+        }
+
+    # Decrypt spam rules (user-scoped)
+    spam_tokens: set = set()
+    for rt_raw, val_raw in spam_rows:
+        rt = _dec_str(rt_raw)
+        val = _dec_str(val_raw)
+        if rt == "token_symbol" and val:
+            spam_tokens.add(val)
+
+    # D-07: Aggregate wallet balances from raw transaction rows after decryption
+    from collections import defaultdict as _defaultdict
+    wallet_token_in: dict = _defaultdict(lambda: _defaultdict(Decimal))
+    wallet_token_out: dict = _defaultdict(lambda: _defaultdict(Decimal))
+    wallet_token_fee: dict = _defaultdict(lambda: _defaultdict(Decimal))
+    wallet_chain: dict = {}  # wallet_id -> chain string
+
+    chain_divisors = {
+        "near": Decimal("1" + "0" * 24),
+        "ethereum": Decimal("1" + "0" * 18),
+        "polygon": Decimal("1" + "0" * 18),
+        "optimism": Decimal("1" + "0" * 18),
+        "cronos": Decimal("1" + "0" * 18),
+    }
+
+    for wid, t_chain, direction_raw, amount_raw, fee_raw, token_id_raw in tx_raw_rows:
+        direction = _dec_str(direction_raw)
+        amount_str = _dec_str(amount_raw)
+        fee_str = _dec_str(fee_raw)
+        token_id = _dec_str(token_id_raw)
+
+        if not amount_str:
+            continue
+        try:
+            amount_dec = Decimal(amount_str)
+        except Exception:
+            continue
+
+        wallet_chain[wid] = t_chain or "near"
+
+        # Native token (token_id IS NULL) or FT token
+        if token_id is None:
+            # Native balance tracking per wallet
+            token_key = "NEAR" if (t_chain or "near").lower() == "near" else "ETH"
+            if direction == "in":
+                wallet_token_in[token_key][wid] += amount_dec
+            elif direction == "out":
+                wallet_token_out[token_key][wid] += amount_dec
+                if fee_str:
+                    try:
+                        wallet_token_fee[token_key][wid] += Decimal(fee_str)
+                    except Exception:
+                        pass
+
+    # Build wallet_token_balances from native tx replay
+    wallet_token_balances: dict[str, dict[int, float]] = {}
+    for token_key in set(list(wallet_token_in.keys()) + list(wallet_token_out.keys())):
+        for wid in set(list(wallet_token_in[token_key].keys()) + list(wallet_token_out[token_key].keys())):
+            t_chain = wallet_chain.get(wid, "near")
+            divisor = chain_divisors.get(t_chain, Decimal("1" + "0" * 24))
+            bal_in = wallet_token_in[token_key][wid]
+            bal_out = wallet_token_out[token_key][wid]
+            bal_fee = wallet_token_fee[token_key].get(wid, Decimal(0))
+            balance = float((bal_in - bal_out - bal_fee) / divisor)
+            if balance > 0.000001:
+                wallet_token_balances.setdefault(token_key, {})[wid] = balance
+
+    # D-07: Decrypt ACB snapshot rows and find latest per token
+    acb_by_token: dict = {}  # token_symbol -> (units_after, acb_per_unit_cad, total_cost_cad)
+    for symbol_raw, units_raw, acb_raw, cost_raw, block_ts in acb_rows_raw:
+        symbol = _dec_str(symbol_raw)
+        if symbol is None:
+            continue
+        units_str = _dec_str(units_raw)
+        acb_str = _dec_str(acb_raw)
+        cost_str = _dec_str(cost_raw)
+        # Since rows are ordered by block_timestamp DESC, first occurrence is latest
+        if symbol not in acb_by_token:
+            try:
+                units = Decimal(units_str) if units_str else Decimal(0)
+                acb_per = Decimal(acb_str) if acb_str else Decimal(0)
+                total_cost = Decimal(cost_str) if cost_str else Decimal(0)
+                acb_by_token[symbol] = (units, acb_per, total_cost)
+            except Exception:
+                pass
+
+    acb_rows = [(sym, data[0], data[1], data[2]) for sym, data in acb_by_token.items()]
+
+    # FT token list from tx_raw_rows (decrypt token_id)
+    ft_token_set: set = set()
+    for _, _, _, _, _, token_id_raw in tx_raw_rows:
+        token_id = _dec_str(token_id_raw)
+        if token_id:
+            ft_token_set.add(token_id)
+
+    ft_token_rows = [(t.upper(), t, None, None) for t in ft_token_set]
 
     # Symbol -> CoinGecko ID mapping for price lookups
     symbol_to_coin = {
@@ -204,26 +268,6 @@ async def get_assets(
         "UNI": "uniswap", "MANA": "decentraland", "GTC": "gitcoin",
         "AKT": "akash-network", "SKL": "skale",
     }
-
-    # Chain divisors for raw -> human units
-    chain_divisors = {
-        "near": Decimal("1" + "0" * 24),
-        "ethereum": Decimal("1" + "0" * 18),
-        "polygon": Decimal("1" + "0" * 18),
-        "optimism": Decimal("1" + "0" * 18),
-        "cronos": Decimal("1" + "0" * 18),
-    }
-
-    # Build per-wallet token balances
-    wallet_token_balances: dict[str, dict[int, float]] = {}  # token -> {wallet_id: balance}
-    for wid, token, w_chain, total_in, total_out, total_fees in wallet_balance_rows:
-        divisor = chain_divisors.get(w_chain, Decimal("1" + "0" * 24))
-        bal_in = Decimal(str(total_in or 0)) / divisor
-        bal_out = Decimal(str(total_out or 0)) / divisor
-        bal_fees = Decimal(str(total_fees or 0)) / divisor
-        balance = float(bal_in - bal_out - bal_fees)
-        if balance > 0.000001:
-            wallet_token_balances.setdefault(token, {})[wid] = balance
 
     # Build asset list from ACB snapshots + wallet balances.
     # ACB snapshots are authoritative when available; for tokens only in
@@ -372,22 +416,30 @@ async def get_assets(
 @router.post("/spam")
 async def mark_as_spam(
     body: dict,
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
-    """Mark a token as spam for this user."""
+    """Mark a token as spam for this user.
+
+    D-07: User-scoped spam rules use encrypted columns rule_type_enc and value_enc.
+    """
     user_id = user["user_id"]
     token_symbol = body.get("token_symbol", "")
     reason = body.get("reason", "User marked")
+
+    # Encrypt rule_type and value for user-scoped rule
+    from db.crypto import EncryptedBytes
+    rule_type_enc = EncryptedBytes().process_bind_param("token_symbol", None)
+    value_enc = EncryptedBytes().process_bind_param(token_symbol, None)
 
     def _insert(conn):
         cur = conn.cursor()
         try:
             cur.execute(
-                """INSERT INTO spam_rules (user_id, rule_type, value, created_by, is_active, created_at)
-                   VALUES (%s, 'token_symbol', %s, %s, TRUE, NOW())
+                """INSERT INTO spam_rules (user_id, rule_type_enc, value_enc, created_by, is_active, created_at)
+                   VALUES (%s, %s, %s, %s, TRUE, NOW())
                    ON CONFLICT DO NOTHING""",
-                (user_id, token_symbol, reason),
+                (user_id, rule_type_enc, value_enc, reason),
             )
             conn.commit()
         finally:
@@ -405,27 +457,44 @@ async def mark_as_spam(
 @router.delete("/spam")
 async def unmark_spam(
     token_symbol: str = Query(...),
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
-    """Remove spam flag for a token."""
+    """Remove spam flag for a token.
+
+    D-07: User-scoped spam rules use encrypted columns. We fetch all active rules,
+    decrypt value_enc in Python, and disable the matching one.
+    """
     user_id = user["user_id"]
 
-    def _delete(conn):
+    def _fetch_and_disable(conn):
         cur = conn.cursor()
         try:
             cur.execute(
-                """UPDATE spam_rules SET is_active = FALSE
-                   WHERE user_id = %s AND rule_type = 'token_symbol' AND value = %s""",
-                (user_id, token_symbol),
+                """SELECT id, rule_type_enc, value_enc FROM spam_rules
+                   WHERE user_id = %s AND is_active = TRUE""",
+                (user_id,),
             )
-            conn.commit()
+            rows = cur.fetchall()
+            ids_to_disable = []
+            for row_id, rt_raw, val_raw in rows:
+                rt = _dec_str(rt_raw)
+                val = _dec_str(val_raw)
+                if rt == "token_symbol" and val == token_symbol:
+                    ids_to_disable.append(row_id)
+
+            if ids_to_disable:
+                cur.execute(
+                    "UPDATE spam_rules SET is_active = FALSE WHERE id = ANY(%s)",
+                    (ids_to_disable,),
+                )
+                conn.commit()
         finally:
             cur.close()
 
     conn = pool.getconn()
     try:
-        await run_in_threadpool(_delete, conn)
+        await run_in_threadpool(_fetch_and_disable, conn)
     finally:
         pool.putconn(conn)
 

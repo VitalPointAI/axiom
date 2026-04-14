@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 from api.main import create_app
-from api.dependencies import get_current_user, get_pool_dep
+from api.dependencies import get_current_user, get_effective_user_with_dek, get_pool_dep
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +47,23 @@ def _make_audit_row(
     )
 
 
+_TEST_DEK = b"\x00" * 32
+
+
+def _make_dek_override(user_dict):
+    """Return a dep override for get_effective_user_with_dek that injects a test DEK.
+
+    Must be async so ContextVar writes are visible to the async route handler.
+    """
+    from db.crypto import set_dek
+
+    async def _override():
+        set_dek(_TEST_DEK)
+        return user_dict
+
+    return _override
+
+
 def _make_client(rows, user_dict):
     """Return (TestClient, mock_cursor) for the given rows and user."""
     mock_cursor = MagicMock()
@@ -60,6 +77,8 @@ def _make_client(rows, user_dict):
     app = create_app()
     app.dependency_overrides[get_pool_dep] = lambda: mock_pool
     app.dependency_overrides[get_current_user] = lambda: user_dict
+    # Phase 16: audit router uses get_effective_user_with_dek — inject a test DEK
+    app.dependency_overrides[get_effective_user_with_dek] = _make_dek_override(user_dict)
 
     with patch("indexers.db.get_pool", return_value=mock_pool), \
          patch("indexers.db.close_pool"):

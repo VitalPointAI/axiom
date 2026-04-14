@@ -30,7 +30,7 @@ from fastapi.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
 
-from api.dependencies import get_effective_user, get_pool_dep
+from api.dependencies import get_effective_user_with_dek, get_pool_dep
 from api.rate_limit import limiter
 from api.schemas.wallets import JobSummary, SyncStatusResponse, WalletCreate, WalletResponse
 
@@ -194,7 +194,7 @@ def _derive_sync_status(jobs: list) -> str:
 async def create_wallet(
     request: Request,
     body: WalletCreate,
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Create a wallet for the authenticated user and queue the full pipeline.
@@ -281,7 +281,7 @@ async def create_wallet(
 
 @router.get("")
 async def list_wallets(
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Return all wallets for the authenticated user with derived sync_status."""
@@ -367,7 +367,7 @@ async def list_wallets(
 
 @router.get("/suggestions")
 async def get_wallet_suggestions(
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Return wallet discovery suggestions from WalletGraph.
@@ -402,7 +402,7 @@ async def get_wallet_suggestions(
 @router.get("/{wallet_id}/status", response_model=SyncStatusResponse)
 async def get_wallet_status(
     wallet_id: int,
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Return pipeline stage progress for a specific wallet."""
@@ -476,7 +476,7 @@ async def get_wallet_status(
 @router.delete("/{wallet_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_wallet(
     wallet_id: int,
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Delete a wallet. Only the owning user can delete their wallet."""
@@ -526,7 +526,7 @@ async def delete_wallet(
 async def resync_wallet(
     request: Request,
     wallet_id: int,
-    user: dict = Depends(get_effective_user),
+    user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),
 ):
     """Queue new pipeline jobs for an existing wallet (re-index + reclassify + recalc)."""

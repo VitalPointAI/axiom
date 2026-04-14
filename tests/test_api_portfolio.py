@@ -15,8 +15,24 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from api.dependencies import get_current_user, get_pool_dep
+from api.dependencies import get_current_user, get_effective_user_with_dek, get_pool_dep
 from api.main import create_app
+
+_TEST_DEK = b"\x00" * 32
+
+
+def _make_dek_override(user_dict):
+    """Return a dep override for get_effective_user_with_dek that injects a test DEK.
+
+    Must be async so ContextVar writes are visible to the async route handler.
+    """
+    from db.crypto import set_dek
+
+    async def _override():
+        set_dek(_TEST_DEK)
+        return user_dict
+
+    return _override
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +95,8 @@ def make_client(mock_pool, mock_user):
     app = create_app()
     app.dependency_overrides[get_pool_dep] = lambda: mock_pool
     app.dependency_overrides[get_current_user] = lambda: mock_user
+    # Phase 16: portfolio router uses get_effective_user_with_dek — inject a test DEK
+    app.dependency_overrides[get_effective_user_with_dek] = _make_dek_override(mock_user)
     with patch("indexers.db.get_pool", return_value=mock_pool), \
          patch("indexers.db.close_pool"):
         with TestClient(app, raise_server_exceptions=True) as client:
@@ -98,14 +116,14 @@ def auth_client(mock_pool, mock_user):
 
 def test_portfolio_summary(mock_pool, mock_conn, mock_cursor, mock_user):
     """GET /api/portfolio/summary returns holdings grouped by token with ACB data."""
-    # acb_snapshots rows: (token_symbol, quantity, acb_per_unit, total_cost_cad, chain)
+    # acb_snapshots rows: (token_symbol, quantity, acb_per_unit, total_cost_cad, block_timestamp)
     acb_rows = [
-        ("NEAR", "1000.00", "2.50", "2500.00", "NEAR"),
-        ("ETH", "0.5", "3000.00", "1500.00", "ethereum"),
+        ("NEAR", "1000.00", "2.50", "2500.00", "2024-01-01T00:00:00"),
+        ("ETH", "0.5", "3000.00", "1500.00", "2024-01-01T00:00:00"),
     ]
-    # staking_events rows: (validator_id, staked_amount, token_symbol)
+    # staking_events rows: (validator_id, amount, event_type, created_at)
     staking_rows = [
-        ("aurora.pool.near", "500.00", "NEAR"),
+        ("aurora.pool.near", "500.00", "deposit", "2024-01-01T00:00:00"),
     ]
     mock_cursor.fetchall.side_effect = [acb_rows, staking_rows]
 
@@ -132,10 +150,12 @@ def test_portfolio_summary(mock_pool, mock_conn, mock_cursor, mock_user):
 
 def test_portfolio_staking(mock_pool, mock_conn, mock_cursor, mock_user):
     """Portfolio includes staking positions from staking_events."""
-    acb_rows = [("NEAR", "1000.00", "2.50", "2500.00", "NEAR")]
+    # acb_snapshots rows: (token_symbol, quantity, acb_per_unit, total_cost_cad, block_timestamp)
+    acb_rows = [("NEAR", "1000.00", "2.50", "2500.00", "2024-01-01T00:00:00")]
+    # staking_events rows: (validator_id, amount, event_type, created_at)
     staking_rows = [
-        ("aurora.pool.near", "500.00", "NEAR"),
-        ("figment.pool.near", "200.00", "NEAR"),
+        ("aurora.pool.near", "500.00", "deposit", "2024-01-02T00:00:00"),
+        ("figment.pool.near", "200.00", "deposit", "2024-01-01T00:00:00"),
     ]
     mock_cursor.fetchall.side_effect = [acb_rows, staking_rows]
 
