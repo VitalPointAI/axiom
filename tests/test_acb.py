@@ -620,28 +620,29 @@ class TestACBGapDataEdgeCases:
 
         engine = ACBEngine(mock_pool, price_service)
 
-        with patch("engine.acb.GainsCalculator") as MockGains:
-            mock_gains_instance = MagicMock()
-            MockGains.return_value = mock_gains_instance
+        # Phase 16 routes snapshot persistence through insert_acb_snapshot_with_dedup.
+        # Patch it at the engine_acb module so we can assert the is_estimated
+        # flag reached the helper regardless of the underlying SQL shape (which
+        # includes encryption and HMAC surrogate columns).
+        with patch("engine.acb.GainsCalculator") as MockGains, \
+             patch("engine.acb.engine_acb.insert_acb_snapshot_with_dedup") as mock_persist:
+            MockGains.return_value = MagicMock()
+            mock_persist.return_value = 1  # snapshot id
             stats = engine.calculate_for_user(1)
 
         # Snapshot should be written
         assert stats["snapshots_written"] >= 1
 
-        # Verify is_estimated=True is passed to the snapshot SQL
-        # _persist_snapshot calls cur.execute with _SNAPSHOT_UPSERT_SQL (INSERT INTO acb_snapshots)
-        # is_estimated is param at index 14 (0-based) in the positional args tuple.
-        execute_calls = mock_cursor.execute.call_args_list
-        # Filter for the INSERT (not DELETE) — INSERT has 16 positional params
-        insert_calls = [
-            c for c in execute_calls
-            if len(c[0]) > 1 and isinstance(c[0][1], tuple) and len(c[0][1]) == 16
+        # Find the insert_acb_snapshot_with_dedup call for the disposal row and
+        # verify price_estimated=True was forwarded through _persist_snapshot.
+        assert mock_persist.called, "Expected insert_acb_snapshot_with_dedup to be called"
+        estimated_calls = [
+            call for call in mock_persist.call_args_list
+            if call.kwargs.get("price_estimated") is True
         ]
-        assert insert_calls, "Expected acb_snapshots INSERT call with 16 params"
-        snapshot_params = insert_calls[0][0][1]  # positional args tuple
-        # is_estimated is index 14 (0-based) in the INSERT params
-        assert snapshot_params[14] is True, (
-            f"is_estimated should be True for estimated price; got {snapshot_params[14]}"
+        assert estimated_calls, (
+            f"Expected at least one persist call with price_estimated=True; "
+            f"got kwargs={[c.kwargs for c in mock_persist.call_args_list]}"
         )
 
     def test_oversell_zero_holdings(self):
