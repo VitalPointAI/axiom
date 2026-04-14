@@ -17,6 +17,21 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+@pytest.fixture(autouse=True)
+def _acb_test_dek():
+    # Most tests in this file reach into ACBEngine / GainsCalculator paths
+    # that call write_audit and encrypt ORM columns. Both require a DEK in
+    # the request ContextVar. Apply to every test in this module; the
+    # conftest _zero_dek_between_tests fixture still cleans up after.
+    from db.crypto import set_dek, zero_dek
+
+    set_dek(b"\x00" * 32)
+    try:
+        yield
+    finally:
+        zero_dek()
+
+
 # ---------------------------------------------------------------------------
 # ACBPool — per-token pool state machine
 # ---------------------------------------------------------------------------
@@ -113,21 +128,6 @@ class TestACBEngine:
       - Writes CapitalGainsLedger rows for disposals
       - Writes IncomeLedger rows for staking/vesting income
     """
-
-    @pytest.fixture(autouse=True)
-    def _dek_context(self):
-        # ACBEngine.calculate_for_user calls write_audit and encrypts ORM
-        # columns, both of which require a DEK. The conftest _zero_dek_between_tests
-        # fixture only guarantees the DEK is zeroed AFTER each test, not that
-        # one is set beforehand. Provide a stub DEK for the duration of each
-        # ACBEngine test.
-        from db.crypto import set_dek, zero_dek
-
-        set_dek(b"\x00" * 32)
-        try:
-            yield
-        finally:
-            zero_dek()
 
     def _make_mock_row(self, **kwargs):
         """Helper: create a mock database row with all needed fields."""
