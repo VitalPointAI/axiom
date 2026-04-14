@@ -506,8 +506,10 @@ async def list_transactions(
             or s in (c.get("receiver") or "").lower()
         ]
 
-    # Sort by timestamp DESC
-    candidates.sort(key=lambda c: -(c.get("_sort_ts") or 0))
+    # Sort by timestamp DESC.  _sort_ts is an integer nanosecond epoch for on-chain rows
+    # and exchange rows (computed from tx_date).  Sort reversed so highest value is first.
+    # Use "" as a fallback for None so str/int comparisons don't raise TypeError.
+    candidates.sort(key=lambda c: c.get("_sort_ts") or 0, reverse=True)
 
     # Apply pagination AFTER in-memory filtering
     total = len(candidates)
