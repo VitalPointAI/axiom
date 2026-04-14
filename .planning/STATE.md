@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Executing Phase 16
-last_updated: "2026-04-13T20:24:49.069Z"
+last_updated: "2026-04-14T00:00:00.000Z"
 progress:
   total_phases: 14
   completed_phases: 13
   total_plans: 69
-  completed_plans: 67
-  percent: 97
+  completed_plans: 68
+  percent: 99
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Plan 16-03: Auth-service key custody ✅ DONE (2026-04-12)
 - Plan 16-04: Migration 022 schema + backup/rollback scripts + tests ✅ DONE (2026-04-13)
 - Plan 16-05: ORM wiring — 95 EncryptedBytes columns, dedup helpers, audit DEK preflight, 10 tests ✅ DONE (2026-04-13)
-- Plan 16-06: Pipeline gating + accountant rewrap (pending)
+- Plan 16-06: Pipeline gating + accountant rewrap (10 routers gated, D-25 accountant DEK path, 19 tests) ✅ DONE (2026-04-14)
 - Plan 16-07: Worker key + cutover (pending)
 
 **Phase 13: Reliable Indexing** COMPLETE ✅

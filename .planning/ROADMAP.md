@@ -463,7 +463,7 @@ Plans:
 - [x] 16-03-PLAN.md — auth-service key-custody, worker-key modules, session DEK IPC (Wave 2) [PQE-01, PQE-02, PQE-06] ✓ DONE
 - [x] 16-04-PLAN.md — Alembic migration 022 (clean-slate wipe per D-20) + backup/rollback scripts + runbook (Wave 3, autonomous:false) [PQE-03, PQE-04, PQE-07]
 - [x] 16-05-PLAN.md — ORM EncryptedBytes wiring + dedup HMAC helpers + audit log DEK gating (Wave 4) [PQE-03, PQE-04]
-- [ ] 16-06-PLAN.md — Pipeline gating + in-memory filters + accountant rewrap + migration 023 session_client_dek_cache (Wave 4) [PQE-03, PQE-05]
+- [x] 16-06-PLAN.md — Pipeline gating + in-memory filters + accountant rewrap + migration 023 session_client_dek_cache (Wave 4) [PQE-03, PQE-05]
 - [ ] 16-07-PLAN.md — Worker key UI + returning-user onboarding + worker process + production cutover checkpoint (Wave 5, autonomous:false) [PQE-05, PQE-06, PQE-07]
 
 ---
