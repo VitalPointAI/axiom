@@ -1,12 +1,13 @@
-"""Settings endpoints for Phase 16 user-controllable features.
+"""Settings endpoints for Phase 16 user-controllable features, plus /api/users/me.
 
 Endpoints:
+  GET    /api/users/me           — user info including mlkem_ek_provisioned flag (D-21)
   POST   /api/settings/worker-key — enable background processing (D-17)
   DELETE /api/settings/worker-key — revoke background processing (D-17)
   GET    /api/settings/worker-key — get background processing status (D-17, D-19)
 
-All endpoints gate on get_effective_user_with_dek to ensure the caller has an
-active session with a resolved DEK before they can modify worker-key state.
+All worker-key endpoints gate on get_effective_user_with_dek to ensure the caller
+has an active session with a resolved DEK before they can modify worker-key state.
 
 The worker-key enable/revoke endpoints forward to auth-service via HTTP because
 the sealing operation requires auth-service to call /internal/crypto/seal-worker-dek
@@ -20,12 +21,73 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 
-from api.dependencies import get_effective_user_with_dek, get_pool_dep
+from api.dependencies import get_effective_user, get_effective_user_with_dek, get_pool_dep
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+router = APIRouter(tags=["settings"])
 
 AUTH_SERVICE_URL = os.environ.get("AUTH_SERVICE_URL", "http://auth-service:3100")
 INTERNAL_SERVICE_TOKEN = os.environ.get("INTERNAL_SERVICE_TOKEN", "")
+
+
+# ---------------------------------------------------------------------------
+# GET /api/users/me — user info including Phase 16 key provisioning flag (D-21)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/users/me")
+async def get_users_me(
+    user: dict = Depends(get_effective_user),
+    pool=Depends(get_pool_dep),
+):
+    """Return information about the current user needed by the onboarding wizard.
+
+    Includes mlkem_ek_provisioned so the wizard can detect returning-from-pre-encryption
+    users who have ML-KEM keys provisioned but no wallets yet (D-21).
+
+    Response shape:
+        user_id: int
+        mlkem_ek_provisioned: bool — true if users.mlkem_ek IS NOT NULL
+        wallet_count: int — number of wallet rows in the wallets table for this user
+        onboarding_completed_at: string | null — ISO 8601 timestamp or null
+    """
+    user_id = user["user_id"]
+
+    def _fetch(conn):
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """SELECT
+                       CASE WHEN mlkem_ek IS NOT NULL THEN TRUE ELSE FALSE END AS mlkem_ek_provisioned,
+                       onboarding_completed_at
+                   FROM users WHERE id = %s""",
+                (user_id,),
+            )
+            user_row = cur.fetchone()
+            cur.execute(
+                "SELECT COUNT(*) FROM wallets WHERE user_id = %s",
+                (user_id,),
+            )
+            count_row = cur.fetchone()
+            return user_row, count_row
+        finally:
+            cur.close()
+
+    conn = pool.getconn()
+    try:
+        user_row, count_row = await run_in_threadpool(_fetch, conn)
+    finally:
+        pool.putconn(conn)
+
+    mlkem_provisioned = bool(user_row[0]) if user_row else False
+    onboarding_at = user_row[1] if user_row else None
+    wallet_count = int(count_row[0]) if count_row else 0
+
+    return {
+        "user_id": user_id,
+        "mlkem_ek_provisioned": mlkem_provisioned,
+        "wallet_count": wallet_count,
+        "onboarding_completed_at": onboarding_at.isoformat() if onboarding_at else None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -33,7 +95,7 @@ INTERNAL_SERVICE_TOKEN = os.environ.get("INTERNAL_SERVICE_TOKEN", "")
 # ---------------------------------------------------------------------------
 
 
-@router.post("/worker-key")
+@router.post("/api/settings/worker-key")
 async def enable_worker_key(
     request: Request,
     user: dict = Depends(get_effective_user_with_dek),
@@ -64,7 +126,7 @@ async def enable_worker_key(
 # ---------------------------------------------------------------------------
 
 
-@router.delete("/worker-key")
+@router.delete("/api/settings/worker-key")
 async def revoke_worker_key(
     request: Request,
     user: dict = Depends(get_effective_user_with_dek),
@@ -93,7 +155,7 @@ async def revoke_worker_key(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/worker-key")
+@router.get("/api/settings/worker-key")
 async def get_worker_key_status(
     user: dict = Depends(get_effective_user_with_dek),
     pool=Depends(get_pool_dep),

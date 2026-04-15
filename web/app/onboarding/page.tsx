@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { apiClient } from '@/lib/api';
 import { WelcomeStep } from './steps/welcome';
@@ -21,6 +21,14 @@ interface PreferencesResponse {
   dismissed_banners: Record<string, boolean>;
 }
 
+// Phase 16 D-21: /api/users/me returns mlkem_ek_provisioned so we can detect
+// returning-from-pre-encryption users who have keys but no wallets yet.
+interface UsersMeResponse {
+  mlkem_ek_provisioned: boolean;
+  wallet_count: number;
+  onboarding_completed_at: string | null;
+}
+
 const STEP_NAMES = [
   'Welcome',
   'Add Wallets',
@@ -31,11 +39,16 @@ const STEP_NAMES = [
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [step, setStep] = useState<number | null>(null); // null = loading
   const [isSkipping, setIsSkipping] = useState(false);
+
   useEffect(() => {
     const determineStep = async () => {
       try {
+        // If ?returning=1 is set, we came from /onboarding/returning — skip detection
+        const isReturning = searchParams.get('returning') === '1';
+
         const [walletsData, jobsData, prefsData] = await Promise.all([
           apiClient.get<WalletsResponse>('/api/wallets'),
           apiClient.get<ActiveJobsResponse>('/api/jobs/active'),
@@ -52,9 +65,26 @@ export default function OnboardingPage() {
           return;
         }
 
-        // No wallets — start at Step 1 (Welcome)
-        if (wallets.length === 0) {
+        // No wallets — check if this is a returning-from-pre-encryption user (D-21).
+        // Detection: mlkem_ek IS NOT NULL (keys provisioned) AND wallet_count == 0
+        // AND onboarding_completed_at IS NULL AND not already on the returning path.
+        if (wallets.length === 0 && !isReturning) {
+          try {
+            const me = await apiClient.get<UsersMeResponse>('/api/users/me');
+            if (me.mlkem_ek_provisioned && me.wallet_count === 0 && !me.onboarding_completed_at) {
+              router.replace('/onboarding/returning');
+              return;
+            }
+          } catch {
+            // If /api/users/me fails, fall through to normal onboarding
+          }
           setStep(1);
+          return;
+        }
+
+        // No wallets (returned from /onboarding/returning with ?returning=1) — go to wallet step
+        if (wallets.length === 0) {
+          setStep(2);
           return;
         }
 
