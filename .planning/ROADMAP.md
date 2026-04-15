@@ -455,7 +455,7 @@ Plans:
 **Goal:** Encrypt all user-sensitive data in the `transactions` table (and related per-user data) at rest using AES-256-GCM with ML-KEM-768 (Kyber) key wrapping, delivering on the "Post-Quantum Encrypted" promise on the features and privacy pages. Each user gets their own data encryption key (DEK), wrapped with the server's ML-KEM-768 key encapsulation. Lays the foundation for subsequent phases that move key custody to passkey-derived keys (Phase 17) and computation to the client (Phase 18).
 **Requirements**: PQE-01 through PQE-08 (to be derived during planning)
 **Depends on:** Phase 15
-**Plans:** 5/7 plans executed
+**Plans:** 7/7 plans executed (Task 4 of 16-07 paused at human-verify checkpoint — production cutover D-23)
 
 Plans:
 - [x] 16-01-PLAN.md — Python crypto primitives + Wave 0 test scaffolds (db/crypto.py, kyber-py==1.2.0) (Wave 1) [PQE-01, PQE-02, PQE-03, PQE-08]
@@ -464,7 +464,7 @@ Plans:
 - [x] 16-04-PLAN.md — Alembic migration 022 (clean-slate wipe per D-20) + backup/rollback scripts + runbook (Wave 3, autonomous:false) [PQE-03, PQE-04, PQE-07]
 - [x] 16-05-PLAN.md — ORM EncryptedBytes wiring + dedup HMAC helpers + audit log DEK gating (Wave 4) [PQE-03, PQE-04]
 - [x] 16-06-PLAN.md — Pipeline gating + in-memory filters + accountant rewrap + migration 023 session_client_dek_cache (Wave 4) [PQE-03, PQE-05]
-- [ ] 16-07-PLAN.md — Worker key UI + returning-user onboarding + worker process + production cutover checkpoint (Wave 5, autonomous:false) [PQE-05, PQE-06, PQE-07]
+- [x] 16-07-PLAN.md — Worker key UI + returning-user onboarding + worker process + nginx ACL + docker-compose env vars (Wave 5, 3/4 tasks) [PQE-05, PQE-06, PQE-07] — PAUSED at production cutover checkpoint (D-23)
 
 ---
 

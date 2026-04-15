@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Executing Phase 16
-last_updated: "2026-04-14T00:00:00.000Z"
+status: Paused at checkpoint — Phase 16 production cutover (D-23)
+last_updated: "2026-04-15T00:00:00.000Z"
 progress:
   total_phases: 14
   completed_phases: 13
@@ -31,7 +31,7 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - Plan 16-04: Migration 022 schema + backup/rollback scripts + tests ✅ DONE (2026-04-13)
 - Plan 16-05: ORM wiring — 95 EncryptedBytes columns, dedup helpers, audit DEK preflight, 10 tests ✅ DONE (2026-04-13)
 - Plan 16-06: Pipeline gating + accountant rewrap (10 routers gated, D-25 accountant DEK path, 19 tests) ✅ DONE (2026-04-14)
-- Plan 16-07: Worker key + cutover (pending)
+- Plan 16-07: Worker key + UI + E2E test + cutover ⏸ PAUSED at Task 4 (production cutover checkpoint D-23) — Tasks 1-3 DONE (2026-04-15)
 
 **Phase 13: Reliable Indexing** COMPLETE ✅
 
@@ -166,6 +166,15 @@ See: `.planning/PROJECT.md` (updated 2026-02-23)
 - `provisionUserKeys` in `syncUser()` wrapped in try/catch — auth succeeds even if FastAPI keygen fails (fail-soft)
 - Session DEK resolution fires asynchronously in response interceptor — does not delay auth HTTP response
 
+### Phase 16 Decisions (16-07)
+
+- **Worker key correction:** `seal_worker_dek` / `unseal_worker_dek` use AES-256-GCM with `WORKER_KEY_WRAP_KEY` (NOT ML-KEM) — worker process must unseal without any user session; ML-KEM approach in plan 16-03 was architecturally incorrect
+- **`createWorkerKey` takes `sessionId` not `sealingKey`** — auth-service reads `session_dek_cache` internally; cleaner IPC boundary, no sealing key crossing process boundary
+- **`deleteSessionClientDekCache` on logout** — T-16-37 closure; accountant viewing sessions invalidated immediately on logout
+- **`GET /api/users/me` added to settings router** — returns `mlkem_ek_provisioned` + `wallet_count` + `onboarding_completed_at` for returning-user detection (D-21); uses `get_effective_user` (no DEK required)
+- **nginx ACL embedded in `nginx/default.conf`** — in addition to `deploy/nginx/internal-crypto.conf` reference file; /internal/crypto/ restricted to 127.0.0.1 + Docker bridge nets
+- **docker-compose.prod.yml api+indexer** — all Phase 16 env vars added; waves 5-6 had left these in migrate service only
+
 ## Blockers
 
 None currently.
@@ -181,6 +190,8 @@ None currently.
 
 ## Recent Activity
 
+- 2026-04-15: **16-07 paused at checkpoint** - Tasks 1-3 complete (worker key API, settings UI, E2E test); paused at Task 4 (human-verify production cutover D-23). Worker key corrected to AES-256-GCM, T-16-37 closed, nginx ACL wired, docker-compose env vars complete.
+- 2026-04-14: **16-06 complete** - Gated all 10 per-user pipeline routers on get_effective_user_with_dek; accountant DEK viewing path via session_client_dek_cache (D-25); migration 023; 19 new tests.
 - 2026-03-16: **quick-1 complete** - Fixed username display showing numeric user ID; display_name fallback chain (codename > username > email > near_account_id > 'User') applied in auth-provider; dashboard header, page, and login-buttons all updated to use display_name.
 - 2026-03-16: **12-03 complete** - OnboardingBanner (dismissible, fail-open on API error) + InlineGuidance (5 diagnosis categories: missing_staking_rewards/unindexed_period/classification_error/duplicates/uncounted_fees with resync/resolve/navigate actions) components; banners integrated into Reports/Transactions/Wallets/Dashboard pages; InlineGuidance wired into transaction table for needs_review rows with expandable guidance panels.
 - 2026-03-16: **12-02 complete** - 5-step onboarding wizard at /onboarding/ (Welcome, Wallets with chain help, Import drag-drop, Processing with wallet discovery, Review with orientation links); smart resume via Promise.all; dashboard redirect guard (two-part: NULL completed_at + zero wallets); SyncStatus onComplete callback with prevDoneRef. Awaiting human-verify checkpoint.
