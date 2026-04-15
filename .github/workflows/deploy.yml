@@ -125,6 +125,7 @@ jobs:
           TX_DEDUP_KEY: ${{ secrets.TX_DEDUP_KEY }}
           ACB_DEDUP_KEY: ${{ secrets.ACB_DEDUP_KEY }}
           SESSION_DEK_WRAP_KEY: ${{ secrets.SESSION_DEK_WRAP_KEY }}
+          WORKER_KEY_WRAP_KEY: ${{ secrets.WORKER_KEY_WRAP_KEY }}
           INTERNAL_SERVICE_TOKEN: ${{ secrets.INTERNAL_SERVICE_TOKEN }}
           WEB_IMAGE: ${{ steps.webimg.outputs.tag }}
         run: |
@@ -160,6 +161,7 @@ jobs:
           TX_DEDUP_KEY=${TX_DEDUP_KEY}
           ACB_DEDUP_KEY=${ACB_DEDUP_KEY}
           SESSION_DEK_WRAP_KEY=${SESSION_DEK_WRAP_KEY}
+          WORKER_KEY_WRAP_KEY=${WORKER_KEY_WRAP_KEY}
           INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN}
           WEB_IMAGE=${WEB_IMAGE}"
           echo "$ENV_CONTENT" | ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
