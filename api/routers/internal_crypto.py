@@ -31,8 +31,12 @@ from api.schemas.internal_crypto import (
     KeygenResponse,
     RewrapDekRequest,
     RewrapDekResponse,
+    SealWorkerDekRequest,
+    SealWorkerDekResponse,
     UnwrapSessionDekRequest,
     UnwrapSessionDekResponse,
+    UnsealWorkerDekRequest,
+    UnsealWorkerDekResponse,
 )
 
 router = APIRouter(
@@ -182,6 +186,79 @@ async def unwrap_session_dek(
 # ---------------------------------------------------------------------------
 # POST /internal/crypto/rewrap-dek
 # ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/seal-worker-dek",
+    response_model=SealWorkerDekResponse,
+    dependencies=_AUTH_DEPS,
+)
+async def seal_worker_dek_ep(
+    req: SealWorkerDekRequest, request: Request
+) -> SealWorkerDekResponse:
+    """Seal a user's session DEK for the background worker process (D-17).
+
+    Called by auth-service when the user enables background processing.
+    Reads WORKER_KEY_WRAP_KEY from env; the plaintext DEK is zeroed before
+    the response is returned (T-16-11).
+
+    Workflow:
+        session_dek_cache.encrypted_dek
+            → unwrap with SESSION_DEK_WRAP_KEY
+            → re-seal with WORKER_KEY_WRAP_KEY
+            → users.worker_sealed_dek
+    """
+    _require_loopback(request)
+    worker_wrap_key_hex = os.environ.get("WORKER_KEY_WRAP_KEY")
+    if not worker_wrap_key_hex:
+        raise HTTPException(
+            status_code=503, detail="WORKER_KEY_WRAP_KEY not configured"
+        )
+    worker_wrap_key = bytes.fromhex(worker_wrap_key_hex)
+    session_wrapped = bytes.fromhex(req.session_dek_wrapped_hex)
+    dek = b""
+    try:
+        dek = _c.unwrap_session_dek(session_wrapped)
+        sealed = _c.seal_worker_dek(dek, worker_wrap_key)
+        return SealWorkerDekResponse(worker_sealed_dek_hex=sealed.hex())
+    finally:
+        _c._zero_bytes(worker_wrap_key)
+        if dek:
+            _c._zero_bytes(dek)
+
+
+@router.post(
+    "/unseal-worker-dek",
+    response_model=UnsealWorkerDekResponse,
+    dependencies=_AUTH_DEPS,
+)
+async def unseal_worker_dek_ep(
+    req: UnsealWorkerDekRequest, request: Request
+) -> UnsealWorkerDekResponse:
+    """Unseal a worker-sealed DEK and re-wrap it for session use (D-17).
+
+    Called by the worker process on each pipeline iteration.  The worker holds
+    WORKER_KEY_WRAP_KEY in process memory; this endpoint decrypts the blob and
+    re-wraps the plaintext DEK with SESSION_DEK_WRAP_KEY so the pipeline endpoint
+    can consume it through the standard session DEK path (T-16-11).
+    """
+    _require_loopback(request)
+    worker_wrap_key_hex = os.environ.get("WORKER_KEY_WRAP_KEY")
+    if not worker_wrap_key_hex:
+        raise HTTPException(
+            status_code=503, detail="WORKER_KEY_WRAP_KEY not configured"
+        )
+    worker_wrap_key = bytes.fromhex(worker_wrap_key_hex)
+    sealed = bytes.fromhex(req.worker_sealed_dek_hex)
+    dek = b""
+    try:
+        dek = _c.unseal_worker_dek(sealed, worker_wrap_key)
+        session_wrapped = _c.wrap_session_dek(dek)
+        return UnsealWorkerDekResponse(session_dek_wrapped_hex=session_wrapped.hex())
+    finally:
+        _c._zero_bytes(worker_wrap_key)
+        if dek:
+            _c._zero_bytes(dek)
 
 
 @router.post("/rewrap-dek", response_model=RewrapDekResponse, dependencies=_AUTH_DEPS)

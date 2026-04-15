@@ -17,7 +17,8 @@ import cookieParser from 'cookie-parser';
 import { createAnonAuth } from '@vitalpoint/near-phantom-auth/server';
 import { createMagicLinkRouter } from './magic-link.js';
 import { createAxiomUserBridge } from './user-bridge.js';
-import { resolveSessionDek, deleteSessionDekCache } from './key-custody.js';
+import { resolveSessionDek, deleteSessionDekCache, deleteSessionClientDekCache } from './key-custody.js';
+import { createWorkerKey, revokeWorkerKey } from './worker-key.js';
 
 const app = express();
 const PORT = parseInt(process.env.AUTH_PORT || '3100', 10);
@@ -129,7 +130,7 @@ app.use('/auth', (req, res, next) => {
         }
       }
 
-      // Phase 16 (D-26): on logout, delete the session DEK cache row
+      // Phase 16 (D-26): on logout, delete both session DEK cache tables (T-16-37)
       if (
         req.path === '/logout' &&
         data['success'] === true &&
@@ -139,8 +140,14 @@ app.use('/auth', (req, res, next) => {
         // Extract session ID from the session cookie (near-phantom-auth sets 'session')
         const sessionId = (req.cookies as Record<string, string>)['session'];
         if (sessionId) {
+          // Delete from session_dek_cache (prevents further pipeline requests)
           deleteSessionDekCache(sessionId).catch(err => {
             console.error('Failed to delete session DEK cache on logout:', err);
+          });
+          // T-16-37: also delete from session_client_dek_cache so accountant
+          // viewing sessions are invalidated immediately on logout (plan 16-06 handoff).
+          deleteSessionClientDekCache(sessionId).catch((err: Error) => {
+            console.error('Failed to delete session_client_dek_cache on logout:', err);
           });
         }
       }
@@ -173,6 +180,86 @@ const magicLinkRouter = createMagicLinkRouter({
   origin: ORIGIN,
 });
 app.use('/auth/magic-link', magicLinkRouter);
+
+// --- Worker key routes (D-17, plan 16-07) ---
+
+/**
+ * POST /auth/worker-key/enable
+ *
+ * Enable background processing for the authenticated user.
+ * Reads the session DEK from session_dek_cache, seals it with WORKER_KEY_WRAP_KEY
+ * via FastAPI's /internal/crypto/seal-worker-dek endpoint, and stores the result
+ * in users.worker_sealed_dek.
+ */
+app.post('/auth/worker-key/enable', async (req, res) => {
+  try {
+    const sessionCookieName = 'session'; // near-phantom-auth sets this
+    const sessionId = req.cookies[sessionCookieName] as string | undefined;
+    if (!sessionId) {
+      return res.status(401).json({ error: 'no session' });
+    }
+
+    // Look up the user_id from the sessions table
+    const pool = (await import('./key-custody.js')).default;
+    // Use the pg Pool directly — import the helper
+    const { getUserKeyBundle } = await import('./key-custody.js');
+    // We need to query sessions; use the same DATABASE_URL pool
+    const pg = await import('pg');
+    const sessionPool = new pg.default.Pool({ connectionString: process.env.DATABASE_URL! });
+    const { rows } = await sessionPool.query(
+      `SELECT user_id FROM session_dek_cache WHERE session_id = $1`,
+      [sessionId],
+    );
+    await sessionPool.end();
+
+    if (rows.length === 0) {
+      return res.status(401).json({ error: 'no session DEK — user not logged in with key' });
+    }
+    const userId = rows[0]['user_id'] as number;
+
+    // createWorkerKey reads session_dek_cache internally
+    await createWorkerKey(userId, sessionId);
+    return res.json({ enabled: true, status: 'active' });
+  } catch (err) {
+    console.error('[worker-key] enable failed:', err);
+    return res.status(500).json({ error: 'failed to enable worker key' });
+  }
+});
+
+/**
+ * DELETE /auth/worker-key
+ *
+ * Revoke background processing for the authenticated user.
+ * Clears users.worker_sealed_dek and writes an audit row.
+ */
+app.delete('/auth/worker-key', async (req, res) => {
+  try {
+    const sessionCookieName = 'session';
+    const sessionId = req.cookies[sessionCookieName] as string | undefined;
+    if (!sessionId) {
+      return res.status(401).json({ error: 'no session' });
+    }
+
+    const pg = await import('pg');
+    const sessionPool = new pg.default.Pool({ connectionString: process.env.DATABASE_URL! });
+    const { rows } = await sessionPool.query(
+      `SELECT user_id FROM session_dek_cache WHERE session_id = $1`,
+      [sessionId],
+    );
+    await sessionPool.end();
+
+    if (rows.length === 0) {
+      return res.status(401).json({ error: 'no session' });
+    }
+    const userId = rows[0]['user_id'] as number;
+
+    await revokeWorkerKey(userId);
+    return res.json({ enabled: false, status: 'revoked' });
+  } catch (err) {
+    console.error('[worker-key] revoke failed:', err);
+    return res.status(500).json({ error: 'failed to revoke worker key' });
+  }
+});
 
 // --- Health check ---
 app.get('/auth/health', (_req, res) => {

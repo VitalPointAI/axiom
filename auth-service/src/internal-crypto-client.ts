@@ -87,6 +87,14 @@ interface RewrapDekResponse {
   rewrapped_dek_hex: string;
 }
 
+interface SealWorkerDekResponse {
+  worker_sealed_dek_hex: string;
+}
+
+interface UnsealWorkerDekResponse {
+  session_dek_wrapped_hex: string;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -161,4 +169,41 @@ export async function internalRewrapDek(
     grantee_mlkem_ek_hex: granteeMlkemEk.toString('hex'),
   });
   return Buffer.from(resp.rewrapped_dek_hex, 'hex');
+}
+
+/**
+ * Call POST /internal/crypto/seal-worker-dek.
+ *
+ * Converts a session-wrapped DEK into a worker-sealed DEK using WORKER_KEY_WRAP_KEY
+ * (D-17, plan 16-07 architectural correction). The worker can unseal this DEK without
+ * any active user session.
+ *
+ * @param sessionDekWrapped  session_dek_cache.encrypted_dek blob (60 bytes)
+ * @returns                  Worker-sealed DEK — store in users.worker_sealed_dek
+ */
+export async function internalSealWorkerDek(
+  sessionDekWrapped: Buffer,
+): Promise<Buffer> {
+  const resp = await post<SealWorkerDekResponse>('/internal/crypto/seal-worker-dek', {
+    session_dek_wrapped_hex: sessionDekWrapped.toString('hex'),
+  });
+  return Buffer.from(resp.worker_sealed_dek_hex, 'hex');
+}
+
+/**
+ * Call POST /internal/crypto/unseal-worker-dek.
+ *
+ * Decrypts a worker-sealed DEK and re-wraps it with SESSION_DEK_WRAP_KEY so the
+ * pipeline endpoint can consume it via the standard session DEK path (D-17).
+ *
+ * @param workerSealedDek  users.worker_sealed_dek blob (60 bytes)
+ * @returns                Session-wrapped DEK for use in pipeline calls
+ */
+export async function internalUnsealWorkerDek(
+  workerSealedDek: Buffer,
+): Promise<Buffer> {
+  const resp = await post<UnsealWorkerDekResponse>('/internal/crypto/unseal-worker-dek', {
+    worker_sealed_dek_hex: workerSealedDek.toString('hex'),
+  });
+  return Buffer.from(resp.session_dek_wrapped_hex, 'hex');
 }

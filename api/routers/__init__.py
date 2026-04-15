@@ -27,3 +27,5 @@ from api.routers.admin import router as admin_router  # noqa: F401 — Plan 13-0
 from api.routers.streaming import router as streaming_router  # noqa: F401 — Plan 13-05
 from api.routers.staking import router as staking_router  # noqa: F401
 from api.routers.waitlist import router as waitlist_router  # noqa: F401 — Plan 14-02
+from api.routers.settings import router as settings_router  # noqa: F401 — Plan 16-07
+from api.routers.internal_pipeline import router as internal_pipeline_router  # noqa: F401 — Plan 16-07

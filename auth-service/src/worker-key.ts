@@ -3,26 +3,28 @@
  *
  * Opt-in background worker key operations (D-17, D-19).
  *
- * createWorkerKey: unwrap user's DEK → re-wrap with own ek → store as worker_sealed_dek
+ * Architecture correction (plan 16-07): worker_sealed_dek is now AES-256-GCM
+ * sealed with WORKER_KEY_WRAP_KEY (a server-held 32-byte env var), NOT with
+ * the user's ML-KEM public key. This allows the worker process to unseal the
+ * DEK without any active user session — which is the whole point of the opt-in
+ * mode.
+ *
+ * The privacy trade-off is explicit: users who enable background processing are
+ * trusting the server to hold a decryption key sealed with WORKER_KEY_WRAP_KEY.
+ * Users who keep the default (off) have no server-side decryption capability.
+ * See D-17, D-19, T-16-39.
+ *
+ * createWorkerKey: reads session_dek_cache → calls internalSealWorkerDek → store in users.worker_sealed_dek
  * revokeWorkerKey: clear worker_sealed_dek and worker_key_enabled = false
  *
- * Both operations write an audit_log row (T-16-19: repudiation mitigation).
- *
- * NOTE: worker_sealed_dek and worker_key_enabled columns do not exist until
- * migration 022 (plan 16-04). These operations will fail at the DB level until
- * then — that is expected and acceptable (fail-closed).
+ * Both operations write an audit_log row (T-16-41: repudiation mitigation).
  *
  * Design: _createWorkerKeyOps DI factory for unit-testable injection.
  * Production exports wrap the factory with real pool + client deps.
  */
 
 import pg from 'pg';
-import {
-  internalUnwrapSessionDek,
-  internalRewrapDek,
-  type KeygenResult,
-} from './internal-crypto-client.js';
-import { getUserKeyBundle } from './key-custody.js';
+import { internalSealWorkerDek } from './internal-crypto-client.js';
 
 const { Pool } = pg;
 
@@ -55,46 +57,37 @@ function getPool(): InstanceType<typeof Pool> {
  */
 export function _createWorkerKeyOps(
   pool: pg.Pool,
-  getBundleFn: (userId: number) => Promise<KeygenResult | null>,
-  unwrapFn: (
-    sealingKey: Buffer,
-    mlkemSealedDk: Buffer,
-    wrappedDek: Buffer,
-  ) => Promise<Buffer>,
-  rewrapFn: (
-    sessionDekWrapped: Buffer,
-    granteeMlkemEk: Buffer,
-  ) => Promise<Buffer>,
+  sealFn: (sessionDekWrapped: Buffer) => Promise<Buffer>,
 ) {
   return {
     /**
      * Create an opt-in background worker DEK for the user (D-17).
      *
      * Workflow:
-     *   1. Load the user's key bundle (mlkemSealedDk, wrappedDek, mlkemEk)
-     *   2. Call /internal/crypto/unwrap-session-dek to get a session-wrapped DEK
-     *   3. Call /internal/crypto/rewrap-dek with the user's OWN mlkemEk
-     *      → produces a worker-bound ML-KEM blob independent of any session
-     *   4. UPDATE users SET worker_sealed_dek = $1, worker_key_enabled = TRUE
-     *   5. INSERT audit_log row (T-16-19)
+     *   1. Read the session-wrapped DEK from session_dek_cache for this session
+     *   2. Call /internal/crypto/seal-worker-dek to convert to worker-sealed form
+     *   3. UPDATE users SET worker_sealed_dek = $1, worker_key_enabled = TRUE
+     *   4. INSERT audit_log row (T-16-41)
      *
-     * @param userId     Axiom users.id
-     * @param sealingKey 32-byte key from near-phantom-auth passkey material
+     * @param userId       Axiom users.id
+     * @param sessionId    The current session ID (used to look up session_dek_cache row)
      */
-    async createWorkerKey(userId: number, sealingKey: Buffer): Promise<void> {
-      const bundle = await getBundleFn(userId);
-      if (!bundle) {
-        throw new Error(`User ${userId} has no key bundle — cannot create worker key`);
+    async createWorkerKey(userId: number, sessionId: string): Promise<void> {
+      // Step 1: load session-wrapped DEK from session_dek_cache
+      const { rows } = await pool.query(
+        `SELECT encrypted_dek FROM session_dek_cache WHERE session_id = $1`,
+        [sessionId],
+      );
+      if (rows.length === 0 || !rows[0]['encrypted_dek']) {
+        throw new Error(`No session DEK found for session ${sessionId} — cannot create worker key`);
       }
+      const sessionDekWrapped = Buffer.from(rows[0]['encrypted_dek'] as Buffer);
 
-      // Step 1: unwrap DEK into session-wrapped form (safe over IPC)
-      const sessionWrapped = await unwrapFn(sealingKey, bundle.mlkemSealedDk, bundle.wrappedDek);
+      // Step 2: re-wrap with WORKER_KEY_WRAP_KEY (server-held; no ML-KEM)
+      const workerSealed = await sealFn(sessionDekWrapped);
 
-      // Step 2: re-wrap with the user's own mlkemEk → independent worker blob
-      const workerSealed = await rewrapFn(sessionWrapped, bundle.mlkemEk);
-
-      // Zero the intermediate session-wrapped form (T-16-16)
-      sessionWrapped.fill(0);
+      // Zero the intermediate form immediately after the IPC call
+      sessionDekWrapped.fill(0);
 
       try {
         // Step 3: persist worker blob
@@ -105,7 +98,7 @@ export function _createWorkerKeyOps(
           [workerSealed, userId],
         );
 
-        // Step 4: audit (T-16-19)
+        // Step 4: audit (T-16-41)
         await pool.query(
           `INSERT INTO audit_log
              (user_id, entity_type, entity_id, action, actor_type, created_at)
@@ -122,7 +115,7 @@ export function _createWorkerKeyOps(
      * Revoke the opt-in background worker key (D-17).
      *
      * Sets worker_sealed_dek = NULL and worker_key_enabled = FALSE.
-     * Writes an audit_log row (T-16-19).
+     * Writes an audit_log row (T-16-41).
      *
      * @param userId  Axiom users.id
      */
@@ -154,16 +147,20 @@ function getWorkerKeyOps() {
   if (!_workerKeyOps) {
     _workerKeyOps = _createWorkerKeyOps(
       getPool(),
-      getUserKeyBundle,
-      internalUnwrapSessionDek,
-      internalRewrapDek,
+      internalSealWorkerDek,
     );
   }
   return _workerKeyOps;
 }
 
-export async function createWorkerKey(userId: number, sealingKey: Buffer): Promise<void> {
-  return getWorkerKeyOps().createWorkerKey(userId, sealingKey);
+/**
+ * Create an opt-in background worker DEK.
+ *
+ * @param userId    Axiom users.id
+ * @param sessionId Current session ID (to look up session_dek_cache)
+ */
+export async function createWorkerKey(userId: number, sessionId: string): Promise<void> {
+  return getWorkerKeyOps().createWorkerKey(userId, sessionId);
 }
 
 export async function revokeWorkerKey(userId: number): Promise<void> {

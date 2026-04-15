@@ -288,7 +288,12 @@ def test_rewrap_dek_roundtrip():
 
 
 def test_worker_key_roundtrip():
-    """seal_worker_dek -> unseal_worker_dek -> original DEK."""
+    """seal_worker_dek -> unseal_worker_dek -> original DEK.
+
+    The worker key is now AES-256-GCM with WORKER_KEY_WRAP_KEY (plan 16-07
+    architectural correction).  It does NOT use ML-KEM — the worker must unseal
+    without any user session.
+    """
     from db.crypto import (
         provision_user_keys,
         unwrap_dek_for_session,
@@ -297,6 +302,8 @@ def test_worker_key_roundtrip():
     )
 
     sealing_key = os.urandom(32)
+    worker_wrap_key = os.urandom(32)
+
     user_keys = provision_user_keys(sealing_key)
     dek = unwrap_dek_for_session(
         user_keys["mlkem_sealed_dk"],
@@ -304,6 +311,29 @@ def test_worker_key_roundtrip():
         sealing_key,
     )
 
-    sealed = seal_worker_dek(dek, user_keys["mlkem_ek"])
-    recovered = unseal_worker_dek(sealed, user_keys["mlkem_sealed_dk"], sealing_key)
+    sealed = seal_worker_dek(dek, worker_wrap_key)
+    recovered = unseal_worker_dek(sealed, worker_wrap_key)
     assert recovered == dek, "Worker DEK round-trip must restore original DEK"
+
+
+def test_worker_key_wrong_key_raises():
+    """unseal_worker_dek with a different key raises InvalidTag."""
+    from db.crypto import seal_worker_dek, unseal_worker_dek
+
+    worker_wrap_key = os.urandom(32)
+    wrong_key = os.urandom(32)
+    dek = os.urandom(32)
+    sealed = seal_worker_dek(dek, worker_wrap_key)
+    with pytest.raises(Exception):  # InvalidTag or ValueError
+        unseal_worker_dek(sealed, wrong_key)
+
+
+def test_worker_key_bad_key_length():
+    """seal_worker_dek/unseal_worker_dek reject keys that are not 32 bytes."""
+    from db.crypto import seal_worker_dek, unseal_worker_dek
+
+    dek = os.urandom(32)
+    with pytest.raises(ValueError):
+        seal_worker_dek(dek, b"\x00" * 16)
+    with pytest.raises(ValueError):
+        unseal_worker_dek(b"\x00" * 60, b"\x00" * 16)

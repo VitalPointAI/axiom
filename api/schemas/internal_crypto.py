@@ -107,3 +107,66 @@ class RewrapDekResponse(BaseModel):
             "Stored in accountant_access.rewrapped_client_dek."
         ),
     )
+
+
+class SealWorkerDekRequest(BaseModel):
+    """POST /internal/crypto/seal-worker-dek — seal session DEK for background worker.
+
+    Called by auth-service when a user enables background processing (D-17).
+    auth-service reads the current session_dek_cache row and passes the
+    session-wrapped DEK here; this endpoint unwraps it, re-wraps it with
+    WORKER_KEY_WRAP_KEY, and returns the worker-sealed blob for storage in
+    users.worker_sealed_dek.
+    """
+
+    session_dek_wrapped_hex: str = Field(
+        ...,
+        description=(
+            "Current session_dek_cache.encrypted_dek value (hex). "
+            "nonce(12) + AES-GCM(SESSION_DEK_WRAP_KEY, dek=32) + tag(16) = 60 bytes = 120 hex chars."
+        ),
+    )
+
+
+class SealWorkerDekResponse(BaseModel):
+    """Response from /internal/crypto/seal-worker-dek."""
+
+    worker_sealed_dek_hex: str = Field(
+        ...,
+        description=(
+            "DEK wrapped with WORKER_KEY_WRAP_KEY — "
+            "nonce(12) + AES-GCM(WORKER_KEY_WRAP_KEY, dek=32) + tag(16) = 60 bytes = 120 hex chars. "
+            "Stored in users.worker_sealed_dek."
+        ),
+    )
+
+
+class UnsealWorkerDekRequest(BaseModel):
+    """POST /internal/crypto/unseal-worker-dek — unwrap worker-sealed DEK back to session form.
+
+    Called by the worker process on each pipeline iteration (D-17).
+    The worker holds WORKER_KEY_WRAP_KEY in process memory; this endpoint
+    decrypts the worker-sealed DEK and re-wraps it with SESSION_DEK_WRAP_KEY
+    so FastAPI's pipeline endpoint can consume it via the standard session DEK path.
+    """
+
+    worker_sealed_dek_hex: str = Field(
+        ...,
+        description=(
+            "users.worker_sealed_dek value (hex). "
+            "nonce(12) + AES-GCM(WORKER_KEY_WRAP_KEY, dek=32) + tag(16) = 60 bytes = 120 hex chars."
+        ),
+    )
+
+
+class UnsealWorkerDekResponse(BaseModel):
+    """Response from /internal/crypto/unseal-worker-dek."""
+
+    session_dek_wrapped_hex: str = Field(
+        ...,
+        description=(
+            "DEK re-wrapped with SESSION_DEK_WRAP_KEY — "
+            "nonce(12) + AES-GCM(SESSION_DEK_WRAP_KEY, dek=32) + tag(16) = 60 bytes = 120 hex chars. "
+            "The worker process passes this to FastAPI's pipeline endpoint via X-Session-Dek-Wrapped header."
+        ),
+    )

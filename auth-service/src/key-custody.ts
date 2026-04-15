@@ -202,5 +202,21 @@ export async function deleteSessionDekCache(sessionId: string): Promise<void> {
   return getCustody().deleteSessionDekCache(sessionId);
 }
 
+/**
+ * DELETE all session_client_dek_cache rows for a given session (T-16-37).
+ *
+ * Called on logout to ensure accountant viewing sessions are invalidated
+ * immediately. session_client_dek_cache has a composite PK of
+ * (session_id, client_user_id) so we delete WHERE session_id = $1 to wipe
+ * all client slots for the logging-out session.
+ */
+export async function deleteSessionClientDekCache(sessionId: string): Promise<void> {
+  const pool = getPool();
+  await pool.query(
+    `DELETE FROM session_client_dek_cache WHERE session_id = $1`,
+    [sessionId],
+  );
+}
+
 // Re-export rewrapDek for accountant access (D-25)
 export { internalRewrapDek };

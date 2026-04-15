@@ -318,36 +318,46 @@ def unwrap_rewrapped_dek(
 # ---------------------------------------------------------------------------
 
 
-def seal_worker_dek(dek: bytes, mlkem_ek: bytes) -> bytes:
-    """Seal a DEK for a background worker using a user's ML-KEM public key.
+def seal_worker_dek(dek: bytes, worker_wrap_key: bytes) -> bytes:
+    """Seal a DEK for the background worker process using a symmetric AES-256-GCM key.
+
+    The WORKER_KEY_WRAP_KEY is a 32-byte server env var held in the worker process
+    memory at startup (D-17).  This is intentionally NOT ML-KEM: the worker must
+    unseal the DEK without any user session (that is the whole point of the opt-in
+    mode).  The privacy trade-off is documented in the D-19 UI copy and T-16-39.
+
+    Args:
+        dek:             32-byte Data Encryption Key.
+        worker_wrap_key: 32-byte WORKER_KEY_WRAP_KEY server env var.
 
     Returns:
-        kem_ct (1088) || nonce (12) || AES-GCM(shared_secret, dek)  = 1148 bytes
-    """
-    shared_secret, kem_ct = ML_KEM_768.encaps(mlkem_ek)
-    payload = _aes_encrypt(shared_secret[:DEK_LEN], dek)
-    _zero_bytes(shared_secret)
-    return kem_ct + payload
-
-
-def unseal_worker_dek(
-    sealed: bytes,
-    mlkem_sealed_dk: bytes,
-    sealing_key: bytes,
-) -> bytes:
-    """Unseal a worker DEK using the user's ML-KEM decapsulation key.
+        nonce (12) || AES-256-GCM(worker_wrap_key, dek) — 60 bytes total.
 
     Raises:
-        cryptography.exceptions.InvalidTag: on any authentication failure.
+        ValueError: if worker_wrap_key is not 32 bytes.
     """
-    dk = _aes_decrypt(sealing_key, mlkem_sealed_dk)
-    kem_ct = sealed[:ML_KEM_768_CT_LEN]
-    aes_blob = sealed[ML_KEM_768_CT_LEN:]
-    shared_secret = ML_KEM_768.decaps(dk, kem_ct)
-    dek = _aes_decrypt(shared_secret[:DEK_LEN], aes_blob)
-    _zero_bytes(dk)
-    _zero_bytes(shared_secret)
-    return dek
+    if len(worker_wrap_key) != DEK_LEN:
+        raise ValueError(f"worker_wrap_key must be {DEK_LEN} bytes")
+    return _aes_encrypt(worker_wrap_key, dek)
+
+
+def unseal_worker_dek(sealed: bytes, worker_wrap_key: bytes) -> bytes:
+    """Unseal a worker-sealed DEK using the WORKER_KEY_WRAP_KEY.
+
+    Args:
+        sealed:          Output of seal_worker_dek: nonce (12) || AES-GCM ciphertext.
+        worker_wrap_key: 32-byte WORKER_KEY_WRAP_KEY server env var.
+
+    Returns:
+        DEK (32 bytes). Caller is responsible for zeroing after use.
+
+    Raises:
+        cryptography.exceptions.InvalidTag: on authentication failure.
+        ValueError: if worker_wrap_key is not 32 bytes.
+    """
+    if len(worker_wrap_key) != DEK_LEN:
+        raise ValueError(f"worker_wrap_key must be {DEK_LEN} bytes")
+    return _aes_decrypt(worker_wrap_key, sealed)
 
 
 # ---------------------------------------------------------------------------

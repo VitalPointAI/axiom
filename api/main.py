@@ -32,10 +32,12 @@ from api.routers import (
     assets_router,
     audit_router,
     exchanges_router,
+    internal_pipeline_router,
     jobs_router,
     portfolio_router,
     preferences_router,
     reports_router,
+    settings_router,
     staking_router,
     streaming_router,
     transactions_router,
@@ -118,6 +120,8 @@ def create_app() -> FastAPI:
     application.include_router(streaming_router, prefix="/api/stream")
     application.include_router(admin_router, prefix="/api/admin")
     application.include_router(_internal_crypto.router)
+    application.include_router(settings_router)
+    application.include_router(internal_pipeline_router)
 
     # ----------------------------------------------------------------
     # Health check — unauthenticated
