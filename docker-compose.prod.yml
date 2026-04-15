@@ -134,6 +134,16 @@ services:
       - SESSION_SECURE=${SESSION_SECURE:-true}
       - SECRET_KEY=${SECRET_KEY}
       - FASTNEAR_API_KEY=${FASTNEAR_API_KEY}
+      # Phase 16 encryption env vars (plan 16-07 — waves 5-6 left these for migrate only)
+      - EMAIL_HMAC_KEY=${EMAIL_HMAC_KEY}
+      - NEAR_ACCOUNT_HMAC_KEY=${NEAR_ACCOUNT_HMAC_KEY}
+      - TX_DEDUP_KEY=${TX_DEDUP_KEY}
+      - ACB_DEDUP_KEY=${ACB_DEDUP_KEY}
+      - SESSION_DEK_WRAP_KEY=${SESSION_DEK_WRAP_KEY}
+      - WORKER_KEY_WRAP_KEY=${WORKER_KEY_WRAP_KEY}
+      - INTERNAL_SERVICE_TOKEN=${INTERNAL_SERVICE_TOKEN}
+      - AXIOM_ENV=production
+      - AUTH_SERVICE_URL=http://127.0.0.1:3100
     depends_on:
       postgres:
         condition: service_healthy
@@ -177,6 +187,12 @@ services:
       - FASTNEAR_API_KEY=${FASTNEAR_API_KEY}
       - JOB_POLL_INTERVAL=${JOB_POLL_INTERVAL:-5}
       - SYNC_INTERVAL_MINUTES=${SYNC_INTERVAL_MINUTES:-15}
+      # Phase 16 encryption env vars — indexer writes encrypted per-user pipeline tables
+      - EMAIL_HMAC_KEY=${EMAIL_HMAC_KEY}
+      - NEAR_ACCOUNT_HMAC_KEY=${NEAR_ACCOUNT_HMAC_KEY}
+      - TX_DEDUP_KEY=${TX_DEDUP_KEY}
+      - ACB_DEDUP_KEY=${ACB_DEDUP_KEY}
+      - SESSION_DEK_WRAP_KEY=${SESSION_DEK_WRAP_KEY}
     depends_on:
       postgres:
         condition: service_healthy
